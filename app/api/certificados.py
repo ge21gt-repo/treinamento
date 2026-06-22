@@ -52,8 +52,9 @@ async def emitir_certificado(
     _: Usuario = Depends(get_current_user),
 ):
     cert = Certificado(**payload.model_dump())
-    cert.hash_validacao = hashlib.sha256(str(cert.id).encode()).hexdigest()
     db.add(cert)
+    await db.flush()
+    cert.hash_validacao = hashlib.sha256(str(cert.id).encode()).hexdigest()
     await db.commit()
     await db.refresh(cert)
     return cert

@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -206,7 +208,7 @@ async def registrar_resultado(
 
 @router.get("/resultados/{usuario_id}", response_model=list[ResultadoAvaliacaoRead])
 async def listar_resultados_usuario(
-    usuario_id: str,
+    usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
