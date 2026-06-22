@@ -28,7 +28,10 @@ class Usuario(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    perfis: Mapped[list["UsuarioPerfil"]] = relationship(back_populates="usuario", cascade="all, delete-orphan")
+    perfis: Mapped[list["UsuarioPerfil"]] = relationship(
+        back_populates="usuario", cascade="all, delete-orphan",
+        foreign_keys="[UsuarioPerfil.usuario_id]",
+    )
 
 
 class Perfil(Base):
