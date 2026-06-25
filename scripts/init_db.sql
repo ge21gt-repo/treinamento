@@ -7,11 +7,12 @@ CREATE EXTENSION IF NOT EXISTS "citext";
 
 -- Seed: perfis padrao
 INSERT INTO lms.perfis (nome, descricao) VALUES
-    ('administrador_geral', 'Acesso total ao sistema'),
+    ('administrador_geral', 'Gerencia a plataforma, autoriza instrutores, controla permissoes e acessos, acompanha indicadores gerais, realiza auditorias'),
     ('administrador', 'Gestao de cursos e usuarios'),
-    ('instrutor', 'Criacao de conteudo e avaliacoes'),
+    ('instrutor', 'Cria cursos, cria trilhas de aprendizagem, cria avaliacoes, gerencia conteudos, autoriza gestores'),
     ('auditor', 'Visualizacao de relatorios e dashboards'),
-    ('participante', 'Acesso as trilhas e cursos')
+    ('gestor', 'Autoriza funcionarios, acompanha treinamentos, visualiza dashboards, emite relatorios, monitora desempenho da equipe'),
+    ('participante', 'Participa de cursos e trilhas, realiza avaliacoes, acompanha seu progresso, emite certificados')
 ON CONFLICT (nome) DO NOTHING;
 
 -- Seed: niveis de gamificacao

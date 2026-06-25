@@ -1,0 +1,105 @@
+# Roadmap de Implementação - Plataforma de Capacitação Governamental
+
+Este documento contém todas as tarefas necessárias para transformar o LMS atual em uma plataforma de capacitação governamental com governança hierárquica, ordenadas da mais fácil para a mais complexa.
+
+## 🟢 FÁCEIS - Ajustes e Melhorias Imediatas
+
+- [x] 1. Ajustar seeds de perfis para incluir perfil 'gestor' e ajustar descrições existentes
+- [ ] 2. Criar schemas Pydantic para Gestor (GestorCreate, GestorRead, etc.)
+- [ ] 3. Adicionar endpoint para listar usuários por perfil (filtrar gestores, instrutores, etc.)
+- [ ] 4. Implementar endpoint de horas de capacitação por usuário (consolidar carga_horaria dos cursos concluídos)
+- [ ] 5. Criar view SQL ou query para métricas de horas por órgão/instituição
+- [ ] 6. Adicionar filtros por perfil no endpoint /dashboard/resumo
+- [ ] 7. Implementar endpoint de relatório simples por servidor (lista cursos, progresso, horas)
+- [ ] 8. Implementar endpoint de relatório por curso (inscritos, concluintes, média, horas totais)
+- [ ] 9. Adicionar exportação CSV nos endpoints de relatórios existentes
+
+## 🟡 MÉDIAS - Estrutura Organizacional
+
+- [ ] 10. Criar tabela de estrutura organizacional (estados, municipios, secretarias, unidades_administrativas)
+- [ ] 11. Criar migrations para tabelas organizacionais
+- [ ] 12. Adicionar campos em Usuario para vincular à estrutura organizacional (estado_id, municipio_id, secretaria_id, unidade_id)
+- [ ] 13. Criar schemas para estrutura organizacional (Estado, Municipio, Secretaria, Unidade)
+- [ ] 14. Implementar CRUD básico para estrutura organizacional (estados, municípios, secretarias, unidades)
+- [ ] 15. Atualizar endpoint de registro para incluir campos organizacionais
+- [ ] 16. Criar tabela de relacionamento gestor-funcionário (gestor_subordinado)
+- [ ] 17. Implementar endpoint para gestor listar seus subordinados
+
+## 🟠 MÉDIAS-ALTAS - Credenciamento e Aprovações
+
+- [ ] 18. Criar tabela de solicitações de credenciamento (solicitacoes_credenciamento)
+- [ ] 19. Criar schema para SolicitacaoCredenciamento (Create, Read, Update status)
+- [ ] 20. Modificar endpoint /auth/registro para não criar usuário ativo, mas criar solicitação pendente
+- [ ] 21. Implementar endpoint para listar solicitações pendentes (por gestor/admin)
+- [ ] 22. Implementar endpoint para aprovar/rejeitar solicitação de credenciamento
+- [ ] 23. Adicionar campos em Usuario para rastrear quem aprovou (aprovado_por, data_aprovacao)
+- [ ] 24. Implementar middleware/dependency para verificar se usuário está credenciado antes de permitir acesso
+- [ ] 25. Criar tabela de aprovacoes_hierarquicas para rastreabilidade completa
+- [ ] 26. Implementar lógica de autorização hierárquica (Admin aprova Instrutor, Instrutor aprova Gestor, Gestor aprova Funcionário)
+- [ ] 27. Modificar endpoint de inscrição em curso para exigir aprovação do gestor
+- [ ] 28. Criar tabela de solicitacoes_matricula (usuario, curso, gestor_responsavel, status)
+- [ ] 29. Implementar endpoint para funcionário solicitar matrícula em curso
+- [ ] 30. Implementar endpoint para gestor aprovar/rejeitar matrícula de subordinado
+
+## 🔴 ALTAS - Dashboards e Relatórios
+
+- [ ] 31. Criar dashboard específico para Gestor (subordinados, matrículas pendentes, progresso da equipe, horas da equipe)
+- [ ] 32. Criar dashboard específico para Instrutor (cursos, participantes, conclusões, desempenho)
+- [ ] 33. Criar dashboard específico para Administrador Geral (métricas globais, por órgão, por município)
+- [ ] 34. Implementar relatório consolidado por município (servidores, horas, conclusões)
+- [ ] 35. Implementar relatório consolidado por secretaria (servidores, horas, conclusões)
+- [ ] 36. Implementar relatório consolidado por trilha (participantes, conclusões, horas totais)
+- [ ] 37. Adicionar exportação PDF nos relatórios (implementar geração de PDF)
+- [ ] 38. Adicionar exportação XLSX nos relatórios (implementar geração de Excel)
+
+## 🔴 MUITO ALTAS - Integrações e Notificações
+
+- [ ] 39. Implementar sistema de notificações (tabela notificacoes, status lido/não lido)
+- [ ] 40. Criar endpoint para listar notificações do usuário
+- [ ] 41. Integrar notificações no fluxo de aprovação (notificar usuário quando aprovado/rejeitado)
+- [ ] 42. Integrar notificações no fluxo de matrícula (notificar gestor sobre solicitação, funcionário sobre decisão)
+- [ ] 43. Enriquecer log_auditoria com mais contexto (motivo, hierarquia, etc.)
+- [ ] 44. Criar tabela historico_status_usuario para rastrear mudanças de status
+- [ ] 45. Implementar endpoint para auditoria de aprovações (quem aprovou quem, quando, por qual motivo)
+
+## 🟣 MUITO COMPLEXAS - Integrações Externas
+
+- [ ] 46. Criar módulo de integrações externas (tabela integracoes, configuracoes)
+- [ ] 47. Criar tabela para provedores externos (nome, tipo, api_endpoint, autenticacao_config)
+- [ ] 48. Implementar endpoints CRUD para gerenciar provedores externos
+- [ ] 49. Criar tabela de treinamentos_externos (usuario, provedor_id, curso_externo_id, status, data_conclusao)
+- [ ] 50. Implementar cliente HTTP genérico para integrações (base httpx já existe)
+- [ ] 51. Implementar endpoint para redirecionar usuário para plataforma externa (gerar link/token)
+- [ ] 52. Implementar webhook endpoint para receber notificações da plataforma RV (conclusão, progresso)
+- [ ] 53. Implementar serviço de sincronização de dados externos (buscar cursos, progresso da plataforma RV)
+- [ ] 54. Criar jobs/tarefas agendadas para sincronização periódica com plataformas externas
+
+## 🟣 EXTREMAMENTE COMPLEXAS - Arquitetura Avançada
+
+- [ ] 55. Implementar sistema de permissões granular baseado em hierarquia (RBAC avançado)
+- [ ] 56. Criar middleware para verificar permissões baseadas em hierarquia organizacional
+- [ ] 57. Implementar cache de métricas para dashboards (Redis ou similar)
+- [ ] 58. Criar dashboard analítico avançado com gráficos e filtros complexos
+- [ ] 59. Implementar sistema de busca avançada (por órgão, cargo, período, etc.)
+- [ ] 60. Criar API de relatórios dinâmicos (usuário monta seu próprio relatório)
+
+---
+
+## Legenda de Status
+
+- [ ] **Pendente** - Tarefa ainda não iniciada
+- [x] **Concluída** - Tarefa finalizada e testada
+
+## Estatísticas
+
+- **Total de tarefas**: 60
+- **Concluídas**: 1
+- **Pendentes**: 59
+- **Progresso**: 1.7%
+
+## Notas
+
+- As tarefas estão ordenadas por complexidade crescente
+- Tarefas anteriores podem ser pré-requisitos para tarefas posteriores
+- Cada tarefa deve ser testada individualmente antes de prosseguir
+- Issues no GitHub podem ser criadas para cada tarefa ou grupo de tarefas
