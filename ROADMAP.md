@@ -5,7 +5,7 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 ## 🟢 FÁCEIS - Ajustes e Melhorias Imediatas
 
 - [x] 1. Ajustar seeds de perfis para incluir perfil 'gestor' e ajustar descrições existentes
-- [ ] 2. Criar schemas Pydantic para Gestor (GestorCreate, GestorRead, etc.)
+- [x] 2. Criar schemas Pydantic para Gestor (GestorCreate, GestorRead, etc.)
 - [ ] 3. Adicionar endpoint para listar usuários por perfil (filtrar gestores, instrutores, etc.)
 - [ ] 4. Implementar endpoint de horas de capacitação por usuário (consolidar carga_horaria dos cursos concluídos)
 - [ ] 5. Criar view SQL ou query para métricas de horas por órgão/instituição
@@ -93,9 +93,9 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 ## Estatísticas
 
 - **Total de tarefas**: 60
-- **Concluídas**: 1
-- **Pendentes**: 59
-- **Progresso**: 1.7%
+- **Concluídas**: 2
+- **Pendentes**: 58
+- **Progresso**: 3.3%
 
 ## Notas
 
