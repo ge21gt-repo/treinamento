@@ -6,7 +6,7 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 
 - [x] 1. Ajustar seeds de perfis para incluir perfil 'gestor' e ajustar descrições existentes
 - [x] 2. Criar schemas Pydantic para Gestor (GestorCreate, GestorRead, etc.)
-- [ ] 3. Adicionar endpoint para listar usuários por perfil (filtrar gestores, instrutores, etc.)
+- [x] 3. Adicionar endpoint para listar usuários por perfil (filtrar gestores, instrutores, etc.) ✅
 - [ ] 4. Implementar endpoint de horas de capacitação por usuário (consolidar carga_horaria dos cursos concluídos)
 - [ ] 5. Criar view SQL ou query para métricas de horas por órgão/instituição
 - [ ] 6. Adicionar filtros por perfil no endpoint /dashboard/resumo
@@ -24,22 +24,27 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 - [ ] 15. Atualizar endpoint de registro para incluir campos organizacionais
 - [ ] 16. Criar tabela de relacionamento gestor-funcionário (gestor_subordinado)
 - [ ] 17. Implementar endpoint para gestor listar seus subordinados
+- [x] 17.1. Criar endpoint para gestor criar conta de participante (subordinado) ✅
 
-## 🟠 MÉDIAS-ALTAS - Credenciamento e Aprovações
+## 🟠 MÉDIAS-ALTAS - Controle de Acesso e Credenciamento
 
-- [ ] 18. Criar tabela de solicitações de credenciamento (solicitacoes_credenciamento)
-- [ ] 19. Criar schema para SolicitacaoCredenciamento (Create, Read, Update status)
-- [ ] 20. Modificar endpoint /auth/registro para não criar usuário ativo, mas criar solicitação pendente
-- [ ] 21. Implementar endpoint para listar solicitações pendentes (por gestor/admin)
-- [ ] 22. Implementar endpoint para aprovar/rejeitar solicitação de credenciamento
-- [ ] 23. Adicionar campos em Usuario para rastrear quem aprovou (aprovado_por, data_aprovacao)
-- [ ] 24. Implementar middleware/dependency para verificar se usuário está credenciado antes de permitir acesso
-- [ ] 25. Criar tabela de aprovacoes_hierarquicas para rastreabilidade completa
-- [ ] 26. Implementar lógica de autorização hierárquica (Admin aprova Instrutor, Instrutor aprova Gestor, Gestor aprova Funcionário)
+- [x] 17.2. Implementar sistema de permissões granular baseado em hierarquia (RBAC) [movido de #55] ✅
+- [x] 17.3. Criar middleware para verificar permissões baseadas em hierarquia [movido de #56] ✅
+
+- [x] 18. Criar tabela de solicitações de credenciamento (solicitacoes_credenciamento) ✅ estrutura
+- [x] 19. Criar schema para SolicitacaoCredenciamento (Create, Read, Update status) ✅ estrutura
+- [x] 20. Modificar endpoint /auth/registro para não criar usuário ativo, mas criar solicitação pendente ✅
+- [x] 21. Implementar endpoint para listar solicitações pendentes (por gestor/admin) ✅
+- [x] 22. Implementar endpoint para aprovar/rejeitar solicitação de credenciamento ✅
+- [x] 23. Adicionar campos em Usuario para rastrear quem aprovou (aprovado_por, data_aprovacao) ✅ estrutura
+- [x] 24. Implementar middleware/dependency para verificar se usuário está credenciado antes de permitir acesso ✅
+- [x] 25. Criar tabela de aprovacoes_hierarquicas para rastreabilidade completa ✅ estrutura
+- [x] 26. Implementar lógica de autorização hierárquica (Admin aprova Instrutor, Instrutor aprova Gestor, Gestor aprova Funcionário) ✅
 - [ ] 27. Modificar endpoint de inscrição em curso para exigir aprovação do gestor
 - [ ] 28. Criar tabela de solicitacoes_matricula (usuario, curso, gestor_responsavel, status)
 - [ ] 29. Implementar endpoint para funcionário solicitar matrícula em curso
 - [ ] 30. Implementar endpoint para gestor aprovar/rejeitar matrícula de subordinado
+- [x] 30.1. Implementar modo sandbox para instrutor testar avaliações, comentários e interações sem efeito real ✅
 
 ## 🔴 ALTAS - Dashboards e Relatórios
 
@@ -76,12 +81,10 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 
 ## 🟣 EXTREMAMENTE COMPLEXAS - Arquitetura Avançada
 
-- [ ] 55. Implementar sistema de permissões granular baseado em hierarquia (RBAC avançado)
-- [ ] 56. Criar middleware para verificar permissões baseadas em hierarquia organizacional
-- [ ] 57. Implementar cache de métricas para dashboards (Redis ou similar)
-- [ ] 58. Criar dashboard analítico avançado com gráficos e filtros complexos
-- [ ] 59. Implementar sistema de busca avançada (por órgão, cargo, período, etc.)
-- [ ] 60. Criar API de relatórios dinâmicos (usuário monta seu próprio relatório)
+- [ ] 55. Implementar cache de métricas para dashboards (Redis ou similar)
+- [ ] 56. Criar dashboard analítico avançado com gráficos e filtros complexos
+- [ ] 57. Implementar sistema de busca avançada (por órgão, cargo, período, etc.)
+- [ ] 58. Criar API de relatórios dinâmicos (usuário monta seu próprio relatório)
 
 ---
 
@@ -92,10 +95,10 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 
 ## Estatísticas
 
-- **Total de tarefas**: 60
-- **Concluídas**: 2
-- **Pendentes**: 58
-- **Progresso**: 3.3%
+- **Total de tarefas**: 62
+- **Concluídas**: 15 (tasks 1-3, 17.1-17.3, 18-26, 30.1)
+- **Pendentes**: 47
+- **Progresso**: 24.2%
 
 ## Notas
 

@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
-from app.schemas.usuario import LoginRequest, Token, UsuarioCreate, UsuarioRead
+from app.schemas.usuario import LoginRequest, Token, UsuarioCreate, UsuarioRead, UsuarioRegistro
 from app.services.auth import create_access_token, hash_password, verify_password
+from app.services.credenciamento import criar_solicitacao_credenciamento
 
 router = APIRouter(prefix="/auth", tags=["Autenticacao"])
 
@@ -41,6 +42,31 @@ async def registrar(payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
     return user
 
 
+@router.post("/registro-com-perfil", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def registrar_com_perfil(payload: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
+    """Endpoint de registro com selecao de perfil - cria solicitacao pendente"""
+    # Validar perfil solicitado
+    perfis_validos = ["administrador_geral", "instrutor", "gestor", "participante"]
+    if payload.perfil_solicitado not in perfis_validos:
+        raise HTTPException(status_code=400, detail=f"Perfil invalido. Perfis validos: {', '.join(perfis_validos)}")
+
+    existing = await db.execute(select(Usuario).where(Usuario.email == payload.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email ja cadastrado")
+
+    # Criar solicitacao de credenciamento pendente (usando o serviço)
+    solicitacao = await criar_solicitacao_credenciamento(payload, db)
+
+    return {
+        "message": "Solicitacao de credenciamento criada com sucesso",
+        "solicitacao_id": solicitacao.id,
+        "usuario_id": str(solicitacao.usuario_id),
+        "perfil_solicitado": solicitacao.perfil_solicitado,
+        "status": solicitacao.status,
+        "instrucao": "Aguarde aprovacao do gestor/admin para acesso"
+    }
+
+
 @router.post("/login", response_model=Token)
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Usuario).where(Usuario.email == payload.email))
@@ -55,3 +81,9 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     token = create_access_token({"sub": str(user.id)})
     return Token(access_token=token)
+
+
+@router.post("/logout")
+async def logout():
+    """Endpoint de logout - cliente deve remover o token JWT"""
+    return {"message": "Logout realizado com sucesso"}

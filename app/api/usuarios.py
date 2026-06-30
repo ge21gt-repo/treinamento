@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
-from app.schemas.usuario import PerfilCreate, PerfilRead, UsuarioPerfilCreate, UsuarioRead, UsuarioUpdate
+from app.schemas.usuario import CriarSubordinadoRequest, PerfilCreate, PerfilRead, UsuarioPerfilCreate, UsuarioRead, UsuarioUpdate
+from app.services.auth import hash_password
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
@@ -21,10 +22,22 @@ async def me(current_user: Usuario = Depends(get_current_user)):
 async def listar_usuarios(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    perfil_nome: str | None = Query(None, description="Filtrar por nome do perfil"),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(select(Usuario).offset(skip).limit(limit))
+    query = select(Usuario)
+    
+    # Adicionar filtro por perfil se fornecido
+    if perfil_nome:
+        query = (
+            query.join(UsuarioPerfil)
+            .join(Perfil)
+            .where(Perfil.nome == perfil_nome)
+        )
+    
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
     return result.scalars().all()
 
 
@@ -111,3 +124,42 @@ async def atribuir_perfil(
     db.add(up)
     await db.commit()
     return {"detail": "Perfil atribuido com sucesso"}
+
+
+@router.post("/criar-subordinado", response_model=UsuarioRead, status_code=status.HTTP_201_CREATED)
+async def criar_subordinado(
+    payload: CriarSubordinadoRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Endpoint para gestor criar conta de participante (subordinado)"""
+    # Verificar se email já existe
+    existing = await db.execute(select(Usuario).where(Usuario.email == payload.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email ja cadastrado")
+
+    # Criar usuario subordinado
+    subordinado = Usuario(
+        nome_completo=payload.nome_completo,
+        email=payload.email,
+        cpf=payload.cpf,
+        senha_hash=hash_password(payload.senha),
+        orgao_instituicao=payload.orgao_instituicao,
+        cargo=payload.cargo,
+        telefone=payload.telefone,
+        ativo=True,
+        status_credenciamento="aprovado",  # Criado por gestor, já aprovado
+        criado_por=current_user.id,
+    )
+    db.add(subordinado)
+    await db.flush()
+
+    # Atribuir perfil participante
+    perfil_participante = await db.execute(select(Perfil).where(Perfil.nome == "participante"))
+    perfil = perfil_participante.scalar_one_or_none()
+    if perfil:
+        db.add(UsuarioPerfil(usuario_id=subordinado.id, perfil_id=perfil.id, atribuido_por=current_user.id))
+
+    await db.commit()
+    await db.refresh(subordinado)
+    return subordinado

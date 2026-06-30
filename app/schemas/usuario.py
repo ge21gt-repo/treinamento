@@ -18,6 +18,12 @@ class UsuarioCreate(UsuarioBase):
     senha: str
 
 
+class UsuarioRegistro(UsuarioBase):
+    """Schema especifico para registro de usuario com selecao de perfil"""
+    senha: str
+    perfil_solicitado: str  # administrador_geral, instrutor, gestor, participante
+
+
 class UsuarioUpdate(BaseModel):
     nome_completo: str | None = None
     email: EmailStr | None = None
@@ -93,3 +99,14 @@ class GestorRead(GestorBase, UsuarioRead):
 class GestorUpdate(GestorBase, UsuarioUpdate):
     """Schema para atualizacao de gestor - herda campos de usuario"""
     pass
+
+
+class CriarSubordinadoRequest(BaseModel):
+    """Schema para gestor criar subordinado (participante)"""
+    nome_completo: str
+    email: EmailStr
+    senha: str
+    cpf: str | None = None
+    orgao_instituicao: str | None = None
+    cargo: str | None = None
+    telefone: str | None = None

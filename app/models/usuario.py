@@ -25,12 +25,19 @@ class Usuario(Base):
     aceite_lgpd: Mapped[bool] = mapped_column(Boolean, default=False)
     data_aceite_lgpd: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ultimo_acesso: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status_credenciamento: Mapped[str] = mapped_column(String(20), default="pendente")
+    aprovado_por: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    data_aprovacao: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    criado_por: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     perfis: Mapped[list["UsuarioPerfil"]] = relationship(
         back_populates="usuario", cascade="all, delete-orphan",
         foreign_keys="[UsuarioPerfil.usuario_id]",
+    )
+    solicitacoes_credenciamento: Mapped[list["SolicitacaoCredenciamento"]] = relationship(
+        "SolicitacaoCredenciamento", back_populates="usuario", cascade="all, delete-orphan"
     )
 
 

@@ -4,10 +4,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import auth, avaliacoes, certificados, comunicacao, conteudos, cursos, dashboard, gamificacao, sessoes, trilhas, usuarios
+from app.api import auth, avaliacoes, certificados, comunicacao, conteudos, cursos, dashboard, gamificacao, sandbox, sessoes, trilhas, usuarios, credenciamento
 from app.config import settings
 from app.database import engine
 from app.models import Base
+from app.services.rbac import PERFIL_PERMISSOES
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
@@ -35,6 +36,15 @@ async def lifespan(application: FastAPI):
                 ('Mestre', 7000, 5)
             ON CONFLICT (nome) DO NOTHING
         """))
+        
+        # Seed permissions for each profile (RBAC)
+        for perfil_nome, permissoes in PERFIL_PERMISSOES.items():
+            permissoes_json = "{" + ", ".join(f'"{p}": true' for p in permissoes) + "}"
+            await conn.execute(text(f"""
+                UPDATE lms.perfis 
+                SET permissoes = '{permissoes_json}'::jsonb
+                WHERE nome = '{perfil_nome}'
+            """))
     yield
     await engine.dispose()
 
@@ -69,6 +79,8 @@ app.include_router(sessoes.router, prefix=PREFIX)
 app.include_router(comunicacao.router, prefix=PREFIX)
 app.include_router(certificados.router, prefix=PREFIX)
 app.include_router(dashboard.router, prefix=PREFIX)
+app.include_router(sandbox.router, prefix=PREFIX)
+app.include_router(credenciamento.router, prefix=PREFIX)
 
 
 @app.get("/health")
