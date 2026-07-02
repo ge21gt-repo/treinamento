@@ -25,6 +25,7 @@ class TrilhaAprendizagem(Base):
     atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     cursos: Mapped[list["Curso"]] = relationship(back_populates="trilha")
+    inscricoes: Mapped[list["InscricaoTrilha"]] = relationship(back_populates="trilha")
 
 
 class Curso(Base):
@@ -77,6 +78,7 @@ class Unidade(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     modulo: Mapped["Modulo"] = relationship(back_populates="unidades")
+    progresso: Mapped[list["ProgressoUnidade"]] = relationship(back_populates="unidade")
 
 
 class Inscricao(Base):
@@ -105,4 +107,20 @@ class ProgressoUnidade(Base):
     status: Mapped[str] = mapped_column(String(20), default="nao_iniciado")
     tempo_gasto: Mapped[int] = mapped_column(Integer, default=0)
     concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    unidade: Mapped["Unidade"] = relationship(back_populates="progresso")
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InscricaoTrilha(Base):
+    __tablename__ = "inscricoes_trilha"
+    __table_args__ = {"schema": "lms"}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
+    trilha_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.trilhas_aprendizagem.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="inscrito")
+    progresso_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"))
+    data_inscricao: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    data_conclusao: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    trilha: Mapped["TrilhaAprendizagem"] = relationship(back_populates="inscricoes")

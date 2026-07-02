@@ -163,3 +163,34 @@ class ProgressoUnidadeRead(ProgressoUnidadeBase):
     criado_em: datetime
 
     model_config = {"from_attributes": True}
+
+
+class InscricaoTrilhaCreate(BaseModel):
+    trilha_id: int
+
+
+class InscricaoTrilhaRead(BaseModel):
+    id: int
+    usuario_id: uuid.UUID
+    trilha_id: int
+    status: str
+    progresso_pct: Decimal
+    data_inscricao: datetime
+    data_conclusao: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class TrilhaProgressoRead(BaseModel):
+    trilha_id: int
+    titulo: str
+    nivel: str
+    carga_horaria_total: int | None = None
+    total_cursos: int
+    cursos_concluidos: int
+    progresso_pct: Decimal
+    status: str
+    data_inscricao: datetime | None = None
+    data_conclusao: datetime | None = None
+
+    model_config = {"from_attributes": True}

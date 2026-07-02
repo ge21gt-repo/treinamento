@@ -1,7 +1,7 @@
 from app.models.base import Base
 from app.models.usuario import Usuario, Perfil, UsuarioPerfil
 from app.models.credenciamento import SolicitacaoCredenciamento, AprovacaoHierarquica
-from app.models.curso import TrilhaAprendizagem, Curso, Modulo, Unidade, Inscricao, ProgressoUnidade
+from app.models.curso import TrilhaAprendizagem, Curso, Modulo, Unidade, Inscricao, ProgressoUnidade, InscricaoTrilha
 from app.models.conteudo import Conteudo, MaterialComplementar
 from app.models.avaliacao import Avaliacao, Questao, Alternativa, RespostaParticipante, ResultadoAvaliacao
 from app.models.gamificacao import Nivel, PontosXP, Badge, UsuarioBadge, Missao, UsuarioMissao, Streak
@@ -15,7 +15,7 @@ __all__ = [
     "Base",
     "Usuario", "Perfil", "UsuarioPerfil",
     "SolicitacaoCredenciamento", "AprovacaoHierarquica",
-    "TrilhaAprendizagem", "Curso", "Modulo", "Unidade", "Inscricao", "ProgressoUnidade",
+    "TrilhaAprendizagem", "Curso", "Modulo", "Unidade", "Inscricao", "ProgressoUnidade", "InscricaoTrilha",
     "Conteudo", "MaterialComplementar",
     "Avaliacao", "Questao", "Alternativa", "RespostaParticipante", "ResultadoAvaliacao",
     "Nivel", "PontosXP", "Badge", "UsuarioBadge", "Missao", "UsuarioMissao", "Streak",

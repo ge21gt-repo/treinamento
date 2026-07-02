@@ -11,6 +11,7 @@ from app.schemas.credenciamento import (
     AprovacaoSolicitacaoRequest, AprovacaoSolicitacaoResponse
 )
 from app.schemas.sandbox import SandboxIniciarRequest, SandboxSessaoRead, SandboxEncerrarResponse
+from app.schemas.curso import InscricaoTrilhaCreate, InscricaoTrilhaRead, TrilhaProgressoRead
 
 __all__ = [
     "UsuarioBase", "UsuarioCreate", "UsuarioUpdate", "UsuarioRead", "UsuarioRegistro",
@@ -22,4 +23,5 @@ __all__ = [
     "AprovacaoHierarquicaBase", "AprovacaoHierarquicaCreate", "AprovacaoHierarquicaRead",
     "AprovacaoSolicitacaoRequest", "AprovacaoSolicitacaoResponse",
     "SandboxIniciarRequest", "SandboxSessaoRead", "SandboxEncerrarResponse",
+    "InscricaoTrilhaCreate", "InscricaoTrilhaRead", "TrilhaProgressoRead",
 ]

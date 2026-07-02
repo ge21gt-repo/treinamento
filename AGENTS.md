@@ -72,11 +72,28 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 - **Instrutor** can sandbox via `POST /api/v1/sandbox/iniciar` — tracked by `SandboxSessao` model.
 - **Sandbox endpoints:** `iniciar`, `{id}/encerrar`, `ativo`, `sessoes` — all require `sandbox:testar` permission.
 
+### Cursos & Trilhas (Estrutura Existente)
+
+- **Hierarchy:** TrilhaAprendizagem → Curso → Modulo → Unidade
+- **Models:** All in `app/models/curso.py` (TrilhaAprendizagem, Curso, Modulo, Unidade, Inscricao, ProgressoUnidade)
+- **Schemas:** All in `app/schemas/curso.py` (Pydantic models for all entities)
+- **Endpoints:**
+  - Trilhas: `app/api/trilhas.py` (GET/POST/PATCH/DELETE /api/v1/trilhas)
+  - Cursos: `app/api/cursos.py` (complete CRUD for cursos, modulos, unidades, inscricoes, progresso)
+- **Progress tracking:**
+  - Course level: `Inscricao` table (status, progresso_pct, data_conclusao, nota_final)
+  - Unit level: `ProgressoUnidade` table (status, tempo_gasto, concluido_em)
+- **Missing:** Trail-level progress tracking (user → trail enrollment + aggregated progress)
+
 ## Project State
 
 - **Branch:** `devin`
 - **Roadmap:** 15/62 tasks done (24.2%). US-03 (RBAC) complete — tasks 3, 17.1-17.3, 30.1 done.
-- **Previous milestones:** Credenciamento flow (tasks 18-26), RBAC (tasks 17.2-17.3).
+- **Previous milestones:** Credenciamento flow (tasks 18-26), RBAC (tasks 17.2-17.3, 30.1).
+- **Current Sprint:** Sprint 2 - US-04 (Gestão de Trilhas de Aprendizagem) como primeira task
+- **Structure of Courses & Trails:** ALREADY IMPLEMENTED (TrilhaAprendizagem, Curso, Modulo, Unidade, Inscricao, ProgressoUnidade)
+- **Endpoints for Trails:** ALREADY IMPLEMENTED (GET/POST/PATCH/DELETE /api/v1/trilhas)
+- **Endpoints for Courses:** ALREADY IMPLEMENTED (complete CRUD for cursos, modulos, unidades, inscricoes, progresso)
 - **Only 1 Alembic migration** exists (`001_add_credenciamento_fields_to_usuario`). Adding new fields/models requires creating a new migration.
 - **`scripts/init_db.sql`** creates the `lms` schema, extensions (`pgcrypto`, `citext`), seeds profiles/niveis, and adds performance indexes — it is idempotent (uses `ON CONFLICT DO NOTHING`).
 
@@ -89,29 +106,69 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 
 ## Issues em Andamento
 
-### US-03: Gestão de Perfis e Controle de Acesso (RBAC) 🔲 ABERTA
+### Sprint 2 - US-04: Gestão de Trilhas de Aprendizagem
+**Status:** Task 1 da Sprint 2 - Planejamento inicial
+
+**Análise de estrutura existente:**
+- ✅ **Models implementados:** `TrilhaAprendizagem`, `Curso`, `Modulo`, `Unidade`, `Inscricao`, `ProgressoUnidade` (app/models/curso.py)
+- ✅ **Schemas implementados:** Todos os schemas Pydantic para trilhas e cursos (app/schemas/curso.py)
+- ✅ **Endpoints trilhas:** CRUD completo em app/api/trilhas.py (GET/POST/PATCH/DELETE /api/v1/trilhas)
+- ✅ **Endpoints cursos:** CRUD completo em app/api/cursos.py (cursos, modulos, unidades, inscricoes, progresso)
+- ✅ **Relacionamentos:** Trilha ↔ Curso ↔ Modulo ↔ Unidade (com cascade delete)
+- ✅ **Sistema de progresso:** Inscricao (curso level) + ProgressoUnidade (unidade level)
+
+**Escopo da US-04 (segundo descrição):**
+- Interface paginada vertical para trilhas
+- Sistema de progresso de trilha (agregado dos cursos)
+- Participante seguir percursos formativos estruturados
+
+**Gap identificado:**
+- ❌ **Progresso de trilha:** Não existe model/table para rastrear progresso do usuário em uma trilha (só existe progresso de curso)
+- ❌ **Endpoints de progresso de trilha:** Não existem endpoints para inscrever usuário em trilha ou listar progresso
+- ❌ **Lógica de progresso agregado:** Precisa calcular progresso de trilha com base nos cursos da trilha
+- ❌ **Interface paginada vertical:** Isso é frontend (não aplicável ao backend atual)
+
+**O que falta implementar para US-04 completa:**
+1. Model `InscricaoTrilha` ou `ProgressoTrilha` para rastrear matrícula/progresso em trilhas
+2. Endpoint para inscrever usuário em trilha
+3. Endpoint para listar trilhas do usuário com progresso
+4. Lógica de cálculo de progresso de trilha (média dos cursos da trilha)
+5. Permissões RBAC específicas para trilhas (trilha:criar, trilha:inscrever, etc.)
+
+### US-03: Gestão de Perfis e Controle de Acesso (RBAC) ✅ CONCLUÍDA
 **Issue GitHub:** #6
 
-**Escopo:**
-- Sistema de permissões granular (RBAC)
-- Middleware de verificação de permissões
-- Endpoint para listar usuários por perfil
-- Gestor criar conta de participante (subordinado)
-- Sandbox do instrutor para testar avaliações/comentários
+**Status:** Concluída em 01/07/2026 (implementado pelo opencode)
+
+**Escopo implementado:**
+- ✅ Sistema de permissões granular (RBAC)
+- ✅ Middleware de verificação de permissões
+- ✅ Endpoint para listar usuários por perfil
+- ✅ Gestor criar conta de participante (subordinado)
+- ✅ Sandbox do instrutor para testar avaliações/comentários
 
 **Regras de negócio (refinamento da reunião):**
-- Gestor não preenche/salva avaliações (apenas fiscaliza)
-- Gestor pode criar conta tipo aluno
-- Instrutor pode testar em sandbox
-- Hierarquia: ADM > Instrutor > Gestor > Aluno
+- ✅ Gestor não preenche/salva avaliações (apenas fiscaliza)
+- ✅ Gestor pode criar conta tipo aluno
+- ✅ Instrutor pode testar em sandbox
+- ✅ Hierarquia: ADM > Instrutor > Gestor > Aluno
 
 **Tasks do ROADMAP afetadas:**
-- Task 3: Listar usuários por perfil
-- Task 17.1: Gestor criar subordinado
-- Task 17.2: Sistema RBAC (movido de Extremamente Complexas)
-- Task 17.3: Middleware de permissões (movido de Extremamente Complexas)
-- Task 30.1: Sandbox instrutor
+- ✅ Task 3: Listar usuários por perfil
+- ✅ Task 17.1: Gestor criar subordinado
+- ✅ Task 17.2: Sistema RBAC (movido de Extremamente Complexas)
+- ✅ Task 17.3: Middleware de permissões (movido de Extremamente Complexas)
+- ✅ Task 30.1: Sandbox instrutor
 
-**Estimativa:** 6-8 horas
-
-**Pré-requisitos:** US-02 (fluxo de credenciamento) ✅
+**Arquivos criados/modificados (pelo opencode):**
+- app/services/rbac.py (sistema RBAC)
+- app/api/deps.py (require_permissao)
+- app/api/usuarios.py (filtro por perfil, criar subordinado)
+- app/api/sandbox.py (endpoints sandbox)
+- app/models/sandbox.py (model SandboxSessao)
+- app/schemas/sandbox.py (schemas sandbox)
+- app/main.py (seed de permissões)
+- app/api/__init__.py (imports sandbox)
+- app/models/__init__.py (imports SandboxSessao)
+- app/schemas/__init__.py (imports sandbox schemas)
+- ROADMAP.md (tarefas marcadas como concluídas)

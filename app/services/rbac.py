@@ -33,6 +33,12 @@ class Permissoes:
     
     SANDBOX_TESTAR = "sandbox:testar"
 
+    TRILHA_CRIAR = "trilha:criar"
+    TRILHA_EDITAR = "trilha:editar"
+    TRILHA_EXCLUIR = "trilha:excluir"
+    TRILHA_INSCREVER = "trilha:inscrever"
+    TRILHA_VER_PROGRESSO = "trilha:ver_progresso"
+
 
 # Mapeamento de perfil → permissões (baseado na lógica de produto)
 PERFIL_PERMISSOES = {
@@ -49,6 +55,8 @@ PERFIL_PERMISSOES = {
         Permissoes.RELATORIO_VISUALIZAR, Permissoes.DASHBOARD_VISUALIZAR,
         Permissoes.CREDENCIAMENTO_APROVAR, Permissoes.CREDENCIAMENTO_LISTAR,
         Permissoes.SANDBOX_TESTAR,
+        Permissoes.TRILHA_CRIAR, Permissoes.TRILHA_EDITAR, Permissoes.TRILHA_EXCLUIR,
+        Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
     ],
     "administrador": [
         # Todas exceto auditoria (mesmo de admin_geral por enquanto)
@@ -63,6 +71,8 @@ PERFIL_PERMISSOES = {
         Permissoes.RELATORIO_VISUALIZAR, Permissoes.DASHBOARD_VISUALIZAR,
         Permissoes.CREDENCIAMENTO_APROVAR, Permissoes.CREDENCIAMENTO_LISTAR,
         Permissoes.SANDBOX_TESTAR,
+        Permissoes.TRILHA_CRIAR, Permissoes.TRILHA_EDITAR, Permissoes.TRILHA_EXCLUIR,
+        Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
     ],
     "instrutor": [
         # Pode criar/editar avaliações e comentários, cursos, sandbox
@@ -73,6 +83,8 @@ PERFIL_PERMISSOES = {
         Permissoes.CURSO_CRIAR, Permissoes.CURSO_EDITAR, Permissoes.CURSO_EXCLUIR,
         Permissoes.CURSO_INSCREVER,
         Permissoes.SANDBOX_TESTAR,
+        Permissoes.TRILHA_CRIAR, Permissoes.TRILHA_EDITAR, Permissoes.TRILHA_EXCLUIR,
+        Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
     ],
     "auditor": [
         # Apenas visualização (relatórios, dashboards, avaliações, comentários)
@@ -85,12 +97,14 @@ PERFIL_PERMISSOES = {
         Permissoes.CURSO_INSCREVER_OUTROS,
         Permissoes.RELATORIO_VISUALIZAR, Permissoes.DASHBOARD_VISUALIZAR,
         Permissoes.COMENTARIO_VISUALIZAR, Permissoes.AVALIACAO_VISUALIZAR,
+        Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
     ],
     "participante": [
         # Apenas inscrever em cursos, responder avaliações, visualizar
         Permissoes.CURSO_INSCREVER,
         Permissoes.AVALIACAO_RESPONDER, Permissoes.AVALIACAO_VISUALIZAR,
         Permissoes.COMENTARIO_VISUALIZAR,
+        Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
     ],
 }
 
