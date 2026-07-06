@@ -21,3 +21,9 @@ jobs:
 
       - name: Check imports
         run: python -c "from app.main import app; print(f'{len(app.routes)} routes loaded')"
+
+      - name: Install test deps
+        run: pip install pytest pytest-asyncio
+
+      - name: Run non-DB tests
+        run: python -m pytest tests/test_health.py tests/test_imports.py -v
