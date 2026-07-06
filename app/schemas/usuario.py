@@ -40,6 +40,7 @@ class UsuarioRead(UsuarioBase):
     id: uuid.UUID
     ativo: bool
     aceite_lgpd: bool
+    data_aceite_lgpd: datetime | None = None
     criado_em: datetime
     atualizado_em: datetime
 

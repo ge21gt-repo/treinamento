@@ -1,20 +1,31 @@
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from passlib.hash import bcrypt
 
+from app.config import settings
 from app.database import get_db
+from app.models.token_reset import TokenResetSenha
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
-from app.schemas.usuario import LoginRequest, Token, UsuarioCreate, UsuarioRead, UsuarioRegistro
+from app.schemas.usuario import (
+    EsqueciSenhaRequest, LoginRequest, RedefinirSenhaRequest, Token,
+    UsuarioCreate, UsuarioRead, UsuarioRegistro,
+)
 from app.services.auth import create_access_token, hash_password, verify_password
 from app.services.credenciamento import criar_solicitacao_credenciamento
+from app.services.email import send_reset_email
 
 router = APIRouter(prefix="/auth", tags=["Autenticacao"])
 
 
 @router.post("/registro", response_model=UsuarioRead, status_code=status.HTTP_201_CREATED)
 async def registrar(payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
+    if not payload.aceite_lgpd:
+        raise HTTPException(status_code=422, detail="Aceite dos termos LGPD é obrigatorio")
+
     existing = await db.execute(select(Usuario).where(Usuario.email == payload.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email ja cadastrado")
@@ -28,6 +39,8 @@ async def registrar(payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
         cargo=payload.cargo,
         telefone=payload.telefone,
         avatar_url=payload.avatar_url,
+        aceite_lgpd=True,
+        data_aceite_lgpd=datetime.now(timezone.utc),
     )
     db.add(user)
     await db.flush()
@@ -44,8 +57,9 @@ async def registrar(payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/registro-com-perfil", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def registrar_com_perfil(payload: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
-    """Endpoint de registro com selecao de perfil - cria solicitacao pendente"""
-    # Validar perfil solicitado
+    if not payload.aceite_lgpd:
+        raise HTTPException(status_code=422, detail="Aceite dos termos LGPD é obrigatorio")
+
     perfis_validos = ["administrador_geral", "instrutor", "gestor", "participante"]
     if payload.perfil_solicitado not in perfis_validos:
         raise HTTPException(status_code=400, detail=f"Perfil invalido. Perfis validos: {', '.join(perfis_validos)}")
@@ -54,7 +68,6 @@ async def registrar_com_perfil(payload: UsuarioRegistro, db: AsyncSession = Depe
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email ja cadastrado")
 
-    # Criar solicitacao de credenciamento pendente (usando o serviço)
     solicitacao = await criar_solicitacao_credenciamento(payload, db)
 
     return {
@@ -63,7 +76,7 @@ async def registrar_com_perfil(payload: UsuarioRegistro, db: AsyncSession = Depe
         "usuario_id": str(solicitacao.usuario_id),
         "perfil_solicitado": solicitacao.perfil_solicitado,
         "status": solicitacao.status,
-        "instrucao": "Aguarde aprovacao do gestor/admin para acesso"
+        "instrucao": "Aguarde aprovacao do gestor/admin para acesso",
     }
 
 
@@ -85,5 +98,63 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/logout")
 async def logout():
-    """Endpoint de logout - cliente deve remover o token JWT"""
     return {"message": "Logout realizado com sucesso"}
+
+
+@router.post("/esqueci-senha")
+async def esqueci_senha(payload: EsqueciSenhaRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Usuario).where(Usuario.email == payload.email))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        return {"message": "Se o email estiver cadastrado, voce recebera um link de redefinicao"}
+
+    token_raw = secrets.token_urlsafe(32)
+    token_hash = bcrypt.hash(token_raw)
+
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.RESET_TOKEN_EXPIRE_MINUTES)
+
+    reset = TokenResetSenha(
+        usuario_id=user.id,
+        token=token_hash,
+        expira_em=expires_at,
+    )
+    db.add(reset)
+    await db.commit()
+
+    link_reset = f"{settings.BASE_URL}/auth/redefinir-senha?token={token_raw}"
+    send_reset_email(user.email, user.nome_completo, link_reset)
+
+    return {"message": "Se o email estiver cadastrado, voce recebera um link de redefinicao"}
+
+
+@router.post("/redefinir-senha")
+async def redefinir_senha(payload: RedefinirSenhaRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(TokenResetSenha).where(
+            TokenResetSenha.utilizado == False,
+            TokenResetSenha.expira_em > datetime.now(timezone.utc),
+        ).order_by(TokenResetSenha.criado_em.desc())
+    )
+    tokens = result.scalars().all()
+
+    reset = None
+    for t in tokens:
+        if bcrypt.verify(payload.token, t.token):
+            reset = t
+            break
+
+    if not reset:
+        raise HTTPException(status_code=400, detail="Token invalido ou expirado")
+
+    reset.utilizado = True
+
+    result = await db.execute(select(Usuario).where(Usuario.id == reset.usuario_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    user.senha_hash = hash_password(payload.nova_senha)
+    await db.commit()
+
+    return {"message": "Senha redefinida com sucesso"}

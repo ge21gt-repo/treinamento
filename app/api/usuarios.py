@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
-from app.schemas.usuario import CriarSubordinadoRequest, PerfilCreate, PerfilRead, UsuarioPerfilCreate, UsuarioRead, UsuarioUpdate
+from app.schemas.usuario import CriarSubordinadoRequest, PerfilCreate, PerfilRead, PerfilUpdate, UsuarioPerfilCreate, UsuarioRead, UsuarioUpdate
 from app.services.auth import hash_password
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
@@ -124,6 +124,44 @@ async def atribuir_perfil(
     db.add(up)
     await db.commit()
     return {"detail": "Perfil atribuido com sucesso"}
+
+
+@router.patch("/perfis/{perfil_id}", response_model=PerfilRead)
+async def atualizar_perfil(
+    perfil_id: int,
+    payload: PerfilUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_user),
+):
+    result = await db.execute(select(Perfil).where(Perfil.id == perfil_id))
+    perfil = result.scalar_one_or_none()
+    if not perfil:
+        raise HTTPException(status_code=404, detail="Perfil nao encontrado")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(perfil, field, value)
+    await db.commit()
+    await db.refresh(perfil)
+    return perfil
+
+
+@router.delete("/perfis/{perfil_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def excluir_perfil(
+    perfil_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_user),
+):
+    result = await db.execute(select(Perfil).where(Perfil.id == perfil_id))
+    perfil = result.scalar_one_or_none()
+    if not perfil:
+        raise HTTPException(status_code=404, detail="Perfil nao encontrado")
+    # Nao permitir excluir perfil com usuarios vinculados
+    count_result = await db.execute(
+        select(func.count()).select_from(UsuarioPerfil).where(UsuarioPerfil.perfil_id == perfil_id)
+    )
+    if count_result.scalar_one() > 0:
+        raise HTTPException(status_code=409, detail="Perfil possui usuarios vinculados. Remova os vinculos antes de excluir.")
+    await db.delete(perfil)
+    await db.commit()
 
 
 @router.post("/criar-subordinado", response_model=UsuarioRead, status_code=status.HTTP_201_CREATED)
