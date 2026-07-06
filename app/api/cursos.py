@@ -34,10 +34,14 @@ router = APIRouter(prefix="/cursos", tags=["Cursos"])
 async def listar_cursos(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    trilha_id: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(select(Curso).offset(skip).limit(limit))
+    stmt = select(Curso)
+    if trilha_id is not None:
+        stmt = stmt.where(Curso.trilha_id == trilha_id)
+    result = await db.execute(stmt.offset(skip).limit(limit))
     return result.scalars().all()
 
 
