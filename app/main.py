@@ -4,10 +4,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import auth, avaliacoes, certificados, comunicacao, conteudos, cursos, dashboard, gamificacao, sessoes, trilhas, usuarios
+from app.api import auth, avaliacoes, certificados, comunicacao, conteudos, cursos, dashboard, gamificacao, sandbox, sessoes, trilhas, usuarios, credenciamento
 from app.config import settings
 from app.database import engine
 from app.models import Base
+from app.services.rbac import PERFIL_PERMISSOES
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
@@ -17,11 +18,12 @@ async def lifespan(application: FastAPI):
         # Seed default profiles
         await conn.execute(text("""
             INSERT INTO lms.perfis (nome, descricao) VALUES
-                ('administrador_geral', 'Acesso total ao sistema'),
+                ('administrador_geral', 'Gerencia a plataforma, autoriza instrutores, controla permissoes e acessos, acompanha indicadores gerais, realiza auditorias'),
                 ('administrador', 'Gestao de cursos e usuarios'),
-                ('instrutor', 'Criacao de conteudo e avaliacoes'),
+                ('instrutor', 'Cria cursos, cria trilhas de aprendizagem, cria avaliacoes, gerencia conteudos, autoriza gestores'),
                 ('auditor', 'Visualizacao de relatorios e dashboards'),
-                ('participante', 'Acesso as trilhas e cursos')
+                ('gestor', 'Autoriza funcionarios, acompanha treinamentos, visualiza dashboards, emite relatorios, monitora desempenho da equipe'),
+                ('participante', 'Participa de cursos e trilhas, realiza avaliacoes, acompanha seu progresso, emite certificados')
             ON CONFLICT (nome) DO NOTHING
         """))
         # Seed gamification levels
@@ -34,6 +36,15 @@ async def lifespan(application: FastAPI):
                 ('Mestre', 7000, 5)
             ON CONFLICT (nome) DO NOTHING
         """))
+        
+        # Seed permissions for each profile (RBAC)
+        for perfil_nome, permissoes in PERFIL_PERMISSOES.items():
+            permissoes_json = "{" + ", ".join(f'"{p}": true' for p in permissoes) + "}"
+            await conn.execute(text(f"""
+                UPDATE lms.perfis 
+                SET permissoes = '{permissoes_json}'::jsonb
+                WHERE nome = '{perfil_nome}'
+            """))
     yield
     await engine.dispose()
 
@@ -68,6 +79,8 @@ app.include_router(sessoes.router, prefix=PREFIX)
 app.include_router(comunicacao.router, prefix=PREFIX)
 app.include_router(certificados.router, prefix=PREFIX)
 app.include_router(dashboard.router, prefix=PREFIX)
+app.include_router(sandbox.router, prefix=PREFIX)
+app.include_router(credenciamento.router, prefix=PREFIX)
 
 
 @app.get("/health")
