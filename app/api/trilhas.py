@@ -17,10 +17,14 @@ router = APIRouter(prefix="/trilhas", tags=["Trilhas de Aprendizagem"])
 async def listar_trilhas(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    nivel: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(select(TrilhaAprendizagem).offset(skip).limit(limit))
+    stmt = select(TrilhaAprendizagem)
+    if nivel:
+        stmt = stmt.where(TrilhaAprendizagem.nivel == nivel)
+    result = await db.execute(stmt.offset(skip).limit(limit))
     return result.scalars().all()
 
 

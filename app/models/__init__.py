@@ -10,6 +10,7 @@ from app.models.comunicacao import MensagemChat, ForumTopico, ForumResposta
 from app.models.certificado import ModeloCertificado, Certificado
 from app.models.log import LogAcesso, LogAuditoria, MetricaEngajamento
 from app.models.sandbox import SandboxSessao
+from app.models.token_reset import TokenResetSenha
 
 __all__ = [
     "Base",
@@ -24,4 +25,5 @@ __all__ = [
     "ModeloCertificado", "Certificado",
     "LogAcesso", "LogAuditoria", "MetricaEngajamento",
     "SandboxSessao",
+    "TokenResetSenha",
 ]
