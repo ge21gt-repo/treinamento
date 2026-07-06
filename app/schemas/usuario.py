@@ -16,12 +16,14 @@ class UsuarioBase(BaseModel):
 
 class UsuarioCreate(UsuarioBase):
     senha: str
+    aceite_lgpd: bool = False
 
 
 class UsuarioRegistro(UsuarioBase):
     """Schema especifico para registro de usuario com selecao de perfil"""
     senha: str
     perfil_solicitado: str  # administrador_geral, instrutor, gestor, participante
+    aceite_lgpd: bool = False
 
 
 class UsuarioUpdate(BaseModel):
@@ -99,6 +101,21 @@ class GestorRead(GestorBase, UsuarioRead):
 class GestorUpdate(GestorBase, UsuarioUpdate):
     """Schema para atualizacao de gestor - herda campos de usuario"""
     pass
+
+
+class PerfilUpdate(BaseModel):
+    nome: str | None = None
+    descricao: str | None = None
+    permissoes: dict | None = None
+
+
+class EsqueciSenhaRequest(BaseModel):
+    email: EmailStr
+
+
+class RedefinirSenhaRequest(BaseModel):
+    token: str
+    nova_senha: str
 
 
 class CriarSubordinadoRequest(BaseModel):

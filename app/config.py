@@ -9,6 +9,15 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "noreply@lms-idesp.com"
+    SMTP_TLS: bool = True
+
+    RESET_TOKEN_EXPIRE_MINUTES: int = 60
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")
