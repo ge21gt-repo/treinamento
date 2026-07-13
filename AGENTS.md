@@ -87,14 +87,14 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 
 ## Project State
 
-- **Branch:** `devin`
-- **Roadmap:** 15/62 tasks done (24.2%). US-03 (RBAC) complete — tasks 3, 17.1-17.3, 30.1 done.
-- **Previous milestones:** Credenciamento flow (tasks 18-26), RBAC (tasks 17.2-17.3, 30.1).
-- **Current Sprint:** Sprint 2 - US-04 (Gestão de Trilhas de Aprendizagem) como primeira task
+- **Branch:** `devin-issue13`
+- **Roadmap:** 23/72 tasks done (31.9%). US-04 ✅, US-05 ✅, Pendências Técnicas ✅.
+- **Previous milestones:** Credenciamento flow (tasks 18-26), RBAC (tasks 17.2-17.3, 30.1), US-04 (Trilhas), US-05 (Cursos avançado).
+- **Current Sprint:** Sprint 3 - Próximas US (Estrutura Organizacional / Dashboards)
 - **Structure of Courses & Trails:** ALREADY IMPLEMENTED (TrilhaAprendizagem, Curso, Modulo, Unidade, Inscricao, ProgressoUnidade)
 - **Endpoints for Trails:** ALREADY IMPLEMENTED (GET/POST/PATCH/DELETE /api/v1/trilhas)
 - **Endpoints for Courses:** ALREADY IMPLEMENTED (complete CRUD for cursos, modulos, unidades, inscricoes, progresso)
-- **Only 1 Alembic migration** exists (`001_add_credenciamento_fields_to_usuario`). Adding new fields/models requires creating a new migration.
+- **3 Alembic migrations** exist: `001_add_credenciamento_fields`, `002_add_tokens_reset_senha`, `003_add_aulas_chat_unidades`. Chain new ones with `down_revision` pointing to the latest migration.
 - **`scripts/init_db.sql`** creates the `lms` schema, extensions (`pgcrypto`, `citext`), seeds profiles/niveis, and adds performance indexes — it is idempotent (uses `ON CONFLICT DO NOTHING`).
 
 ## Convictions

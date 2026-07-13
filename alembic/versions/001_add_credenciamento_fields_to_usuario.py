@@ -20,9 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Adicionar campos de credenciamento na tabela usuarios
-    op.add_column('usuarios', sa.Column('status_credenciamento', sa.String(20), nullable=True, server_default='pendente', schema='lms'))
-    op.add_column('usuarios', sa.Column('aprovado_por', postgresql.UUID(as_uuid=True), nullable=True, schema='lms'))
-    op.add_column('usuarios', sa.Column('data_aprovacao', sa.DateTime(timezone=True), nullable=True, schema='lms'))
+    op.add_column('usuarios', sa.Column('status_credenciamento', sa.String(20), nullable=True, server_default='pendente'), schema='lms')
+    op.add_column('usuarios', sa.Column('aprovado_por', postgresql.UUID(as_uuid=True), nullable=True), schema='lms')
+    op.add_column('usuarios', sa.Column('data_aprovacao', sa.DateTime(timezone=True), nullable=True), schema='lms')
     
     # Criar tabela solicitacoes_credenciamento
     op.create_table(

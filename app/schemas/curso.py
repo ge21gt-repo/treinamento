@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from decimal import Decimal
+
 
 from pydantic import BaseModel
 
@@ -101,6 +101,8 @@ class UnidadeBase(BaseModel):
     tipo: str
     ordem: int = 0
     duracao_estimada: int | None = None
+    conteudo_url: str | None = None
+    url_externa: str | None = None
 
 
 class UnidadeCreate(UnidadeBase):
@@ -112,6 +114,8 @@ class UnidadeUpdate(BaseModel):
     tipo: str | None = None
     ordem: int | None = None
     duracao_estimada: int | None = None
+    conteudo_url: str | None = None
+    url_externa: str | None = None
 
 
 class UnidadeRead(UnidadeBase):
@@ -121,22 +125,20 @@ class UnidadeRead(UnidadeBase):
     model_config = {"from_attributes": True}
 
 
-class InscricaoBase(BaseModel):
-    usuario_id: uuid.UUID
+class InscricaoCreate(BaseModel):
+    usuario_id: uuid.UUID | None = None
     curso_id: int
 
 
-class InscricaoCreate(InscricaoBase):
-    pass
-
-
-class InscricaoRead(InscricaoBase):
+class InscricaoRead(BaseModel):
     id: int
+    usuario_id: uuid.UUID
+    curso_id: int
     status: str
-    progresso_pct: Decimal
+    progresso_pct: float
     data_inscricao: datetime
     data_conclusao: datetime | None = None
-    nota_final: Decimal | None = None
+    nota_final: float | None = None
 
     model_config = {"from_attributes": True}
 
@@ -165,6 +167,79 @@ class ProgressoUnidadeRead(ProgressoUnidadeBase):
     model_config = {"from_attributes": True}
 
 
+class AulaSincronaBase(BaseModel):
+    curso_id: int
+    titulo: str
+    descricao: str | None = None
+    data_hora: datetime
+    link_externo: str | None = None
+    duracao_minutos: int | None = None
+    status: str = "agendada"
+    teams_meeting_id: str | None = None
+
+
+class AulaSincronaCreate(AulaSincronaBase):
+    criar_reuniao_teams: bool = False
+
+
+class AulaSincronaUpdate(BaseModel):
+    titulo: str | None = None
+    descricao: str | None = None
+    data_hora: datetime | None = None
+    link_externo: str | None = None
+    duracao_minutos: int | None = None
+    status: str | None = None
+
+
+class AulaSincronaRead(AulaSincronaBase):
+    id: int
+    criado_por: uuid.UUID | None = None
+    criado_em: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MensagemCursoCreate(BaseModel):
+    texto: str
+
+
+class MensagemCursoRead(BaseModel):
+    id: int
+    curso_id: int
+    usuario_id: str
+    texto: str
+    criado_em: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CursoArvoreItem(BaseModel):
+    id: int
+    titulo: str
+    tipo: str
+    ordem: int
+    conteudo_url: str | None = None
+    url_externa: str | None = None
+
+
+class ModuloArvoreRead(BaseModel):
+    id: int
+    titulo: str
+    ordem: int
+    unidades: list[CursoArvoreItem]
+
+
+class CursoArvoreRead(BaseModel):
+    id: int
+    titulo: str
+    modulos: list[ModuloArvoreRead]
+
+
+class ReorderItem(BaseModel):
+    id: int
+    ordem: int
+
+
 class InscricaoTrilhaCreate(BaseModel):
     trilha_id: int
 
@@ -174,7 +249,7 @@ class InscricaoTrilhaRead(BaseModel):
     usuario_id: uuid.UUID
     trilha_id: int
     status: str
-    progresso_pct: Decimal
+    progresso_pct: float
     data_inscricao: datetime
     data_conclusao: datetime | None = None
 
@@ -188,7 +263,7 @@ class TrilhaProgressoRead(BaseModel):
     carga_horaria_total: int | None = None
     total_cursos: int
     cursos_concluidos: int
-    progresso_pct: Decimal
+    progresso_pct: float
     status: str
     data_inscricao: datetime | None = None
     data_conclusao: datetime | None = None

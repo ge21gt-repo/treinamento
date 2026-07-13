@@ -37,7 +37,8 @@ class Usuario(Base):
         foreign_keys="[UsuarioPerfil.usuario_id]",
     )
     solicitacoes_credenciamento: Mapped[list["SolicitacaoCredenciamento"]] = relationship(
-        "SolicitacaoCredenciamento", back_populates="usuario", cascade="all, delete-orphan"
+        "SolicitacaoCredenciamento", back_populates="usuario", cascade="all, delete-orphan",
+        foreign_keys="[SolicitacaoCredenciamento.usuario_id]",
     )
 
 

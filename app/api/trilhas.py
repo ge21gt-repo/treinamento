@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
-from app.models.curso import Inscricao, InscricaoTrilha, TrilhaAprendizagem
+from app.models.curso import Curso, Inscricao, InscricaoTrilha, TrilhaAprendizagem
 from app.models.usuario import Usuario
 from app.schemas.curso import InscricaoTrilhaRead, TrilhaCreate, TrilhaProgressoRead, TrilhaRead, TrilhaUpdate
 from app.services.rbac import Permissoes
@@ -220,6 +220,68 @@ async def atualizar_trilha(
     await db.commit()
     await db.refresh(trilha)
     return trilha
+
+
+@router.get("/{trilha_id}/progresso-detalhado")
+async def progresso_trilha_detalhado(
+    trilha_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.TRILHA_VER_PROGRESSO)),
+):
+    result = await db.execute(
+        select(InscricaoTrilha).where(
+            InscricaoTrilha.usuario_id == current_user.id,
+            InscricaoTrilha.trilha_id == trilha_id,
+        )
+    )
+    inscricao = result.scalar_one_or_none()
+    if not inscricao:
+        raise HTTPException(status_code=404, detail="Inscricao nao encontrada nesta trilha")
+
+    trilha_result = await db.execute(
+        select(TrilhaAprendizagem)
+        .where(TrilhaAprendizagem.id == trilha_id)
+        .options(selectinload(TrilhaAprendizagem.cursos))
+    )
+    trilha = trilha_result.scalar_one_or_none()
+    if not trilha:
+        raise HTTPException(status_code=404, detail="Trilha nao encontrada")
+
+    cursos_data = []
+    for c in trilha.cursos:
+        curso_insc = await db.execute(
+            select(Inscricao).where(
+                Inscricao.usuario_id == current_user.id,
+                Inscricao.curso_id == c.id,
+            )
+        )
+        ci = curso_insc.scalar_one_or_none()
+        cursos_data.append({
+            "curso_id": c.id,
+            "titulo": c.titulo,
+            "carga_horaria": c.carga_horaria,
+            "inscrito": ci is not None,
+            "status": ci.status if ci else "nao_inscrito",
+            "progresso_pct": float(ci.progresso_pct) if ci and ci.progresso_pct else 0.0,
+            "nota_final": float(ci.nota_final) if ci and ci.nota_final else None,
+            "data_conclusao": ci.data_conclusao.isoformat() if ci and ci.data_conclusao else None,
+        })
+
+    return {
+        "trilha_id": trilha.id,
+        "titulo": trilha.titulo,
+        "nivel": trilha.nivel,
+        "carga_horaria_total": trilha.carga_horaria_total,
+        "total_cursos": len(trilha.cursos),
+        "cursos_concluidos": sum(1 for c in cursos_data if c["status"] == "concluido"),
+        "cursos_inscritos": sum(1 for c in cursos_data if c["inscrito"]),
+        "progresso_pct": float(inscricao.progresso_pct) if inscricao.progresso_pct else 0.0,
+        "status": inscricao.status,
+        "data_inscricao": inscricao.data_inscricao.isoformat(),
+        "data_conclusao": inscricao.data_conclusao.isoformat() if inscricao.data_conclusao else None,
+        "cursos": cursos_data,
+    }
 
 
 @router.delete("/{trilha_id}", status_code=status.HTTP_204_NO_CONTENT)

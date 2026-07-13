@@ -4,16 +4,17 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.avaliacao import ResultadoAvaliacao
 from app.models.certificado import Certificado
-from app.models.curso import Curso, Inscricao, TrilhaAprendizagem
-from app.models.gamificacao import PontosXP
+from app.models.curso import Curso, Inscricao, Modulo, ProgressoUnidade, TrilhaAprendizagem, Unidade
+from app.models.gamificacao import PontosXP, Nivel
 from app.models.log import LogAcesso, MetricaEngajamento
 from app.models.sessao import SessaoAoVivo
 from app.models.usuario import Usuario
 from app.schemas.log import LogAcessoRead, MetricaEngajamentoRead
+from app.services.rbac import Permissoes
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard e Analytics"])
 
@@ -36,6 +37,67 @@ async def resumo_geral(
         "total_inscricoes": total_inscricoes,
         "total_certificados": total_certificados,
         "total_sessoes_ao_vivo": total_sessoes,
+    }
+
+
+@router.get("/meu-progresso")
+async def meu_progresso(
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    inscricoes = await db.execute(
+        select(Inscricao).where(Inscricao.usuario_id == current_user.id).order_by(Inscricao.data_inscricao.desc())
+    )
+    cursos_list = []
+    total_horas = 0
+    for i in inscricoes.scalars().all():
+        curso = await db.execute(select(Curso).where(Curso.id == i.curso_id))
+        c = curso.scalar_one_or_none()
+        if c:
+            cursos_list.append({
+                "curso_id": i.curso_id,
+                "titulo": c.titulo,
+                "status": i.status,
+                "progresso_pct": float(i.progresso_pct),
+                "data_inscricao": i.data_inscricao.isoformat(),
+                "data_conclusao": i.data_conclusao.isoformat() if i.data_conclusao else None,
+                "nota_final": float(i.nota_final) if i.nota_final else None,
+            })
+            if i.status == "concluido" and c.carga_horaria:
+                total_horas += c.carga_horaria
+
+    certificados = await db.execute(
+        select(func.count(Certificado.id)).where(Certificado.usuario_id == current_user.id)
+    )
+    total_certificados = certificados.scalar() or 0
+
+    xp = await db.execute(
+        select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == current_user.id)
+    )
+    total_xp = xp.scalar() or 0
+
+    niveis = await db.execute(select(Nivel).order_by(Nivel.xp_minimo.desc()))
+    nivel_atual = "Iniciante"
+    for n in niveis.scalars().all():
+        if total_xp >= n.xp_minimo:
+            nivel_atual = n.nome
+            break
+
+    ultimos_acessos = await db.execute(
+        select(LogAcesso).where(LogAcesso.usuario_id == current_user.id).order_by(LogAcesso.criado_em.desc()).limit(5)
+    )
+
+    return {
+        "usuario_id": str(current_user.id),
+        "nome": current_user.nome_completo,
+        "cursos": cursos_list,
+        "total_cursos_inscritos": len(cursos_list),
+        "total_cursos_concluidos": sum(1 for c in cursos_list if c["status"] == "concluido"),
+        "total_horas_cursadas": total_horas,
+        "total_certificados": total_certificados,
+        "xp_total": total_xp,
+        "nivel": nivel_atual,
+        "ultimos_acessos": [{"data": la.criado_em.isoformat(), "ip": la.ip} for la in ultimos_acessos.scalars().all()],
     }
 
 

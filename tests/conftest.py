@@ -16,9 +16,10 @@ os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "480")
 
 from app.api.deps import get_current_user, get_db
 from app.config import settings
-from app.database import async_session, engine
+from app.database import engine as app_engine
 from app.main import app
 from app.models import Base
+from app.models.curso import Curso, Modulo, TrilhaAprendizagem, Unidade
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.auth import create_access_token, hash_password
 from app.services.rbac import PERFIL_PERMISSOES
@@ -36,7 +37,9 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="session")
 async def db_setup():
-    async with engine.begin() as conn:
+    from sqlalchemy.ext.asyncio import create_async_engine
+    _engine = create_async_engine(settings.DATABASE_URL)
+    async with _engine.begin() as conn:
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS lms"))
         await conn.run_sync(Base.metadata.create_all)
 
@@ -50,43 +53,31 @@ async def db_setup():
         ]
         for nome, descricao in perfis_data:
             await conn.execute(
-                text("""
-                    INSERT INTO lms.perfis (nome, descricao)
-                    VALUES (:nome, :descricao)
-                    ON CONFLICT (nome) DO NOTHING
-                """),
+                text("INSERT INTO lms.perfis (nome, descricao) VALUES (:nome, :descricao) ON CONFLICT (nome) DO NOTHING"),
                 {"nome": nome, "descricao": descricao},
             )
 
         for perfil_nome, permissoes in PERFIL_PERMISSOES.items():
             permissoes_json = "{" + ", ".join(f'"{p}": true' for p in permissoes) + "}"
             await conn.execute(
-                text(f"""
-                    UPDATE lms.perfis
-                    SET permissoes = '{permissoes_json}'::jsonb
-                    WHERE nome = '{perfil_nome}'
-                """),
+                text(f"UPDATE lms.perfis SET permissoes = '{permissoes_json}'::jsonb WHERE nome = :nome"),
+                {"nome": perfil_nome},
             )
-
+    await _engine.dispose()
     yield
-
-    async with engine.begin() as conn:
-        await conn.execute(text("DROP SCHEMA IF EXISTS lms CASCADE"))
-    await engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def db_clean(db_setup):
-    async with engine.begin() as conn:
+    await app_engine.dispose()
+    async with app_engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(text(f"TRUNCATE TABLE lms.{table.name} CASCADE"))
+            if table.name != "perfis":
+                await conn.execute(text(f"TRUNCATE TABLE lms.{table.name} CASCADE"))
     yield
-    async with engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(text(f"TRUNCATE TABLE lms.{table.name} CASCADE"))
 
 
-def _create_user(session, id, email, nome, perfil_nome, status="aprovado"):
+async def _create_user(session, id, email, nome, perfil_nome, status="aprovado"):
     user = Usuario(
         id=id,
         nome_completo=nome,
@@ -97,44 +88,51 @@ def _create_user(session, id, email, nome, perfil_nome, status="aprovado"):
         aceite_lgpd=True,
     )
     session.add(user)
-    session.flush()
-
+    await session.flush()
     return user
 
 
-def _assign_perfil(session, usuario_id, perfil_nome):
-    result = session.execute(
+async def _assign_perfil(session, usuario_id, perfil_nome):
+    result = await session.execute(
         text("SELECT id FROM lms.perfis WHERE nome = :nome"),
         {"nome": perfil_nome},
     )
     perfil_id = result.scalar_one()
     up = UsuarioPerfil(usuario_id=usuario_id, perfil_id=perfil_id)
     session.add(up)
-    session.flush()
+    await session.flush()
 
 
 @pytest_asyncio.fixture
 async def admin_user(db_clean):
-    session = async_session()
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    _eng = create_async_engine(settings.DATABASE_URL)
+    _session_maker = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
+    session = _session_maker()
     try:
-        user = _create_user(session, TEST_ADMIN_ID, "admin@test.com", "Admin Geral", "administrador_geral")
-        _assign_perfil(session, user.id, "administrador_geral")
+        user = await _create_user(session, TEST_ADMIN_ID, "admin@test.com", "Admin Geral", "administrador_geral")
+        await _assign_perfil(session, user.id, "administrador_geral")
         await session.commit()
         yield user
     finally:
         await session.close()
+        await _eng.dispose()
 
 
 @pytest_asyncio.fixture
 async def participante_user(db_clean):
-    session = async_session()
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    _eng = create_async_engine(settings.DATABASE_URL)
+    _session_maker = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
+    session = _session_maker()
     try:
-        user = _create_user(session, TEST_PARTICIPANTE_ID, "participante@test.com", "Participante", "participante")
-        _assign_perfil(session, user.id, "participante")
+        user = await _create_user(session, TEST_PARTICIPANTE_ID, "participante@test.com", "Participante", "participante")
+        await _assign_perfil(session, user.id, "participante")
         await session.commit()
         yield user
     finally:
         await session.close()
+        await _eng.dispose()
 
 
 @pytest_asyncio.fixture
@@ -146,8 +144,12 @@ async def admin_token(admin_user):
 
 @pytest_asyncio.fixture
 async def client(admin_user, admin_token):
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    _client_eng = create_async_engine(settings.DATABASE_URL)
+
     async def override_get_db():
-        session = async_session()
+        _maker = async_sessionmaker(_client_eng, class_=AsyncSession, expire_on_commit=False)
+        session = _maker()
         try:
             yield session
         finally:
@@ -162,3 +164,4 @@ async def client(admin_user, admin_token):
         yield ac
 
     app.dependency_overrides.clear()
+    await _client_eng.dispose()

@@ -39,6 +39,20 @@ class Permissoes:
     TRILHA_INSCREVER = "trilha:inscrever"
     TRILHA_VER_PROGRESSO = "trilha:ver_progresso"
 
+    CONTEUDO_CRIAR = "conteudo:criar"
+    CONTEUDO_EDITAR = "conteudo:editar"
+    CONTEUDO_EXCLUIR = "conteudo:excluir"
+    CONTEUDO_VISUALIZAR = "conteudo:visualizar"
+
+    MATERIAL_GERENCIAR = "material:gerenciar"
+
+    ENTREGA_CRIAR = "entrega:criar"
+    ENTREGA_VISUALIZAR = "entrega:visualizar"
+    ENTREGA_CORRIGIR = "entrega:corrigir"
+
+    SCORM_GERENCIAR = "scorm:gerenciar"
+    SCORM_VISUALIZAR = "scorm:visualizar"
+
 
 # Mapeamento de perfil → permissões (baseado na lógica de produto)
 PERFIL_PERMISSOES = {
@@ -57,6 +71,10 @@ PERFIL_PERMISSOES = {
         Permissoes.SANDBOX_TESTAR,
         Permissoes.TRILHA_CRIAR, Permissoes.TRILHA_EDITAR, Permissoes.TRILHA_EXCLUIR,
         Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
+        Permissoes.CONTEUDO_CRIAR, Permissoes.CONTEUDO_EDITAR, Permissoes.CONTEUDO_EXCLUIR, Permissoes.CONTEUDO_VISUALIZAR,
+        Permissoes.MATERIAL_GERENCIAR,
+        Permissoes.ENTREGA_VISUALIZAR, Permissoes.ENTREGA_CORRIGIR,
+        Permissoes.SCORM_GERENCIAR, Permissoes.SCORM_VISUALIZAR,
     ],
     "administrador": [
         # Todas exceto auditoria (mesmo de admin_geral por enquanto)
@@ -73,6 +91,10 @@ PERFIL_PERMISSOES = {
         Permissoes.SANDBOX_TESTAR,
         Permissoes.TRILHA_CRIAR, Permissoes.TRILHA_EDITAR, Permissoes.TRILHA_EXCLUIR,
         Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
+        Permissoes.CONTEUDO_CRIAR, Permissoes.CONTEUDO_EDITAR, Permissoes.CONTEUDO_EXCLUIR, Permissoes.CONTEUDO_VISUALIZAR,
+        Permissoes.MATERIAL_GERENCIAR,
+        Permissoes.ENTREGA_VISUALIZAR, Permissoes.ENTREGA_CORRIGIR,
+        Permissoes.SCORM_GERENCIAR, Permissoes.SCORM_VISUALIZAR,
     ],
     "instrutor": [
         # Pode criar/editar avaliações e comentários, cursos, sandbox
@@ -85,11 +107,17 @@ PERFIL_PERMISSOES = {
         Permissoes.SANDBOX_TESTAR,
         Permissoes.TRILHA_CRIAR, Permissoes.TRILHA_EDITAR, Permissoes.TRILHA_EXCLUIR,
         Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
+        Permissoes.CONTEUDO_CRIAR, Permissoes.CONTEUDO_EDITAR, Permissoes.CONTEUDO_EXCLUIR, Permissoes.CONTEUDO_VISUALIZAR,
+        Permissoes.MATERIAL_GERENCIAR,
+        Permissoes.ENTREGA_VISUALIZAR, Permissoes.ENTREGA_CORRIGIR,
+        Permissoes.SCORM_GERENCIAR, Permissoes.SCORM_VISUALIZAR,
     ],
     "auditor": [
-        # Apenas visualização (relatórios, dashboards, avaliações, comentários)
+        # Apenas visualização (relatórios, dashboards, avaliações, comentários, conteúdos)
         Permissoes.RELATORIO_VISUALIZAR, Permissoes.DASHBOARD_VISUALIZAR,
         Permissoes.AVALIACAO_VISUALIZAR, Permissoes.COMENTARIO_VISUALIZAR,
+        Permissoes.CONTEUDO_VISUALIZAR,
+        Permissoes.SCORM_VISUALIZAR,
     ],
     "gestor": [
         # Criar usuários (subordinados), inscrever outros, visualizar (mas não criar avaliações/comentários)
@@ -98,6 +126,9 @@ PERFIL_PERMISSOES = {
         Permissoes.RELATORIO_VISUALIZAR, Permissoes.DASHBOARD_VISUALIZAR,
         Permissoes.COMENTARIO_VISUALIZAR, Permissoes.AVALIACAO_VISUALIZAR,
         Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
+        Permissoes.CONTEUDO_VISUALIZAR,
+        Permissoes.ENTREGA_VISUALIZAR,
+        Permissoes.SCORM_VISUALIZAR,
     ],
     "participante": [
         # Apenas inscrever em cursos, responder avaliações, visualizar
@@ -105,6 +136,9 @@ PERFIL_PERMISSOES = {
         Permissoes.AVALIACAO_RESPONDER, Permissoes.AVALIACAO_VISUALIZAR,
         Permissoes.COMENTARIO_VISUALIZAR,
         Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
+        Permissoes.CONTEUDO_VISUALIZAR,
+        Permissoes.ENTREGA_CRIAR, Permissoes.ENTREGA_VISUALIZAR,
+        Permissoes.SCORM_VISUALIZAR,
     ],
 }
 

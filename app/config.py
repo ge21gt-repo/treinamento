@@ -19,6 +19,21 @@ class Settings(BaseSettings):
     RESET_TOKEN_EXPIRE_MINUTES: int = 60
     BASE_URL: str = "http://localhost:8000/api/v1"
 
+    # Storage
+    STORAGE_BACKEND: str = "local"
+    S3_ENDPOINT: str = ""
+    S3_ACCESS_KEY: str = ""
+    S3_SECRET_KEY: str = ""
+    S3_BUCKET: str = "lms-conteudos"
+    S3_REGION: str = "us-east-1"
+    MAX_UPLOAD_SIZE: int = 500 * 1024 * 1024
+
+    # Teams / Microsoft Graph
+    TEAMS_TENANT_ID: str = ""
+    TEAMS_CLIENT_ID: str = ""
+    TEAMS_CLIENT_SECRET: str = ""
+    TEAMS_ORGANIZER_EMAIL: str = ""
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")

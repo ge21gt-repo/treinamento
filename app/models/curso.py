@@ -75,6 +75,8 @@ class Unidade(Base):
     tipo: Mapped[str] = mapped_column(String(30), nullable=False)
     ordem: Mapped[int] = mapped_column(Integer, default=0)
     duracao_estimada: Mapped[int | None] = mapped_column(Integer)
+    conteudo_url: Mapped[str | None] = mapped_column(Text)
+    url_externa: Mapped[str | None] = mapped_column(Text)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     modulo: Mapped["Modulo"] = relationship(back_populates="unidades")
@@ -108,6 +110,35 @@ class ProgressoUnidade(Base):
     tempo_gasto: Mapped[int] = mapped_column(Integer, default=0)
     concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     unidade: Mapped["Unidade"] = relationship(back_populates="progresso")
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MensagemCurso(Base):
+    __tablename__ = "mensagens_curso"
+    __table_args__ = {"schema": "lms"}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    curso_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.cursos.id", ondelete="CASCADE"), nullable=False)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
+    texto: Mapped[str] = mapped_column(String(2000), nullable=False)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AulaSincrona(Base):
+    __tablename__ = "aulas_sincronas"
+    __table_args__ = {"schema": "lms", "extend_existing": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    curso_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.cursos.id", ondelete="CASCADE"), nullable=False)
+    titulo: Mapped[str] = mapped_column(String(200), nullable=False)
+    descricao: Mapped[str | None] = mapped_column(Text)
+    data_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    link_externo: Mapped[str | None] = mapped_column(Text)
+    duracao_minutos: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="agendada")
+    teams_meeting_id: Mapped[str | None] = mapped_column(String(200))
+    gravacao_conteudo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("lms.conteudos.id"))
+    criado_por: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

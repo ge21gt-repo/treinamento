@@ -2,6 +2,30 @@
 
 Este documento contém todas as tarefas necessárias para transformar o LMS atual em uma plataforma de capacitação governamental com governança hierárquica, ordenadas da mais fácil para a mais complexa.
 
+## ✅ CONCLUÍDAS - US-04 (Gestão de Trilhas)
+- [x] US-04. Model InscricaoTrilha para rastrear matrícula/progresso em trilhas
+- [x] US-04. Endpoints para inscrever usuário em trilha e listar progresso
+- [x] US-04. Cálculo de progresso agregado da trilha (média dos cursos)
+- [x] US-04. Permissões RBAC específicas para trilhas (trilha:criar, etc.)
+- [x] US-04. Filtro por nível em GET /trilhas e filtro por trilha em GET /cursos
+
+## ✅ CONCLUÍDAS - Pendências Técnicas (US-02/US-03)
+- [x] T-02.5. Recuperação de senha (esqueci-senha + redefinir-senha + email service)
+- [x] T-02.6. LGPD (aceite_lgpd validation)
+- [x] T-02.7. Testes de autenticação (8 testes)
+- [x] T-03.1. CRUD perfis completo (PATCH/DELETE)
+- [x] T-03.7. Testes RBAC (10 testes)
+
+## ✅ CONCLUÍDAS - US-05 (Gestão de Cursos, Módulos e Unidades)
+- [x] US-05. Sub-módulos tipados (conteudo_url, url_externa na Unidade)
+- [x] US-05. Aulas síncronas (CRUD + GET /aulas/proximas)
+- [x] US-05. Chat contínuo por curso (POST/GET + SSE streaming)
+- [x] US-05. Reordenação módulos/unidades (PATCH reorder)
+- [x] US-05. Pré-requisitos (validação existência + ciclo + bloqueio inscrição)
+- [x] US-05. Árvore de conteúdo (GET /cursos/{id}/arvore)
+- [x] US-05. XR (url_externa)
+- [x] US-05. Testes US-05 (11 testes)
+
 ## 🟢 FÁCEIS - Ajustes e Melhorias Imediatas
 
 - [x] 1. Ajustar seeds de perfis para incluir perfil 'gestor' e ajustar descrições existentes
@@ -95,10 +119,10 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 
 ## Estatísticas
 
-- **Total de tarefas**: 62
-- **Concluídas**: 15 (tasks 1-3, 17.1-17.3, 18-26, 30.1)
-- **Pendentes**: 47
-- **Progresso**: 24.2%
+- **Total de tarefas**: 72
+- **Concluídas**: 23 (tasks 1-3, 17.1-17.3, 18-26, 30.1 + US-04 + T-02.5/2.6/2.7 + T-03.1/3.7 + US-05)
+- **Pendentes**: 49
+- **Progresso**: 31.9%
 
 ## Notas
 

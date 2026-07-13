@@ -26,4 +26,4 @@ jobs:
         run: pip install pytest pytest-asyncio
 
       - name: Run non-DB tests
-        run: python -m pytest tests/test_health.py tests/test_imports.py -v
+        run: python -m pytest tests/test_health.py tests/test_imports.py tests/test_auth.py tests/test_rbac.py tests/test_us05.py tests/test_us06.py -v

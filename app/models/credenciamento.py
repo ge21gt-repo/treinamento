@@ -31,7 +31,10 @@ class SolicitacaoCredenciamento(Base):
     motivo_rejeicao: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relacionamentos
-    usuario: Mapped["Usuario"] = relationship("Usuario", back_populates="solicitacoes_credenciamento")
+    usuario: Mapped["Usuario"] = relationship(
+        "Usuario", back_populates="solicitacoes_credenciamento",
+        foreign_keys=[usuario_id],
+    )
     aprovacoes: Mapped[list["AprovacaoHierarquica"]] = relationship(
         "AprovacaoHierarquica",
         back_populates="solicitacao",

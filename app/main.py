@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import auth, avaliacoes, certificados, comunicacao, conteudos, cursos, dashboard, gamificacao, sandbox, sessoes, trilhas, usuarios, credenciamento
+from app.api import auth, avaliacoes, certificados, comunicacao, conteudos, cursos, dashboard, entregas, gamificacao, sandbox, scorm, sessoes, trilhas, usuarios, credenciamento
 from app.config import settings
 from app.database import engine
 from app.models import Base
@@ -73,6 +73,8 @@ app.include_router(usuarios.router, prefix=PREFIX)
 app.include_router(trilhas.router, prefix=PREFIX)
 app.include_router(cursos.router, prefix=PREFIX)
 app.include_router(conteudos.router, prefix=PREFIX)
+app.include_router(entregas.router, prefix=PREFIX)
+app.include_router(scorm.router, prefix=PREFIX)
 app.include_router(avaliacoes.router, prefix=PREFIX)
 app.include_router(gamificacao.router, prefix=PREFIX)
 app.include_router(sessoes.router, prefix=PREFIX)
