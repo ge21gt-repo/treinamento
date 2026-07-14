@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from passlib.hash import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.rate_limit import limiter
 from app.config import settings
@@ -58,8 +59,11 @@ async def registrar(request: Request, payload: UsuarioCreate, db: AsyncSession =
         db.add(UsuarioPerfil(usuario_id=user.id, perfil_id=perfil.id))
 
     await db.commit()
-    await db.refresh(user)
-    return user
+    # Recarregar com perfis para o schema UsuarioRead
+    result = await db.execute(
+        select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == user.id)
+    )
+    return result.scalar_one()
 
 
 @router.post("/registro-com-perfil", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -91,7 +95,9 @@ async def registrar_com_perfil(request: Request, payload: UsuarioRegistro, db: A
 @router.post("/login", response_model=Token)
 @limiter.limit("5/minute")
 async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Usuario).where(Usuario.email == payload.email))
+    result = await db.execute(
+        select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.email == payload.email)
+    )
     user = result.scalar_one_or_none()
     if not user or not verify_password(payload.senha, user.senha_hash):
         raise HTTPException(status_code=401, detail="Credenciais invalidas")
@@ -101,7 +107,8 @@ async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depe
     user.ultimo_acesso = datetime.now(timezone.utc)
     await db.commit()
 
-    token = create_access_token({"sub": str(user.id)})
+    perfis = [up.perfil.nome for up in user.perfis] if user.perfis else []
+    token = create_access_token({"sub": str(user.id), "perfis": perfis})
     return Token(access_token=token)
 
 

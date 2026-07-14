@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.database import get_db
@@ -34,7 +35,7 @@ async def listar_usuarios(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    query = select(Usuario)
+    query = select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil))
 
     # Adicionar filtro por perfil se fornecido
     if perfil_nome:
@@ -51,7 +52,9 @@ async def obter_usuario(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(select(Usuario).where(Usuario.id == usuario_id))
+    result = await db.execute(
+        select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == usuario_id)
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
@@ -207,4 +210,8 @@ async def criar_subordinado(
 
     await db.commit()
     await db.refresh(subordinado)
-    return subordinado
+    # Carregar perfis para o schema UsuarioRead
+    result = await db.execute(
+        select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == subordinado.id)
+    )
+    return result.scalar_one()

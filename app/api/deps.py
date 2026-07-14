@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
@@ -28,7 +29,9 @@ async def get_current_user(
     user_id = payload.get("sub")
     if user_id is None:
         raise credentials_exception
-    result = await db.execute(select(Usuario).where(Usuario.id == uuid.UUID(user_id)))
+    result = await db.execute(
+        select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == uuid.UUID(user_id))
+    )
     user = result.scalar_one_or_none()
     if user is None or not user.ativo:
         raise credentials_exception

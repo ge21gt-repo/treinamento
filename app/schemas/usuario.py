@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 
 
 class UsuarioBase(BaseModel):
@@ -44,8 +44,16 @@ class UsuarioRead(UsuarioBase):
     data_aceite_lgpd: datetime | None = None
     criado_em: datetime
     atualizado_em: datetime
+    perfis: list[str] = []
 
     model_config = {"from_attributes": True}
+
+    @field_validator("perfis", mode="before")
+    @classmethod
+    def extract_perfis(cls, v):
+        if v and isinstance(v, list) and v and hasattr(v[0], "perfil"):
+            return [up.perfil.nome for up in v]
+        return v or []
 
 
 class PerfilBase(BaseModel):
