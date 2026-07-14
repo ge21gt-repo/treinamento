@@ -57,7 +57,6 @@ async def criar_solicitacao_credenciamento(
         usuario_id=usuario.id,
         perfil_solicitado=payload.perfil_solicitado,
         status="pendente",
-        motivo_solicitacao=None  # Pode ser adicionado depois
     )
     db.add(solicitacao)
     await db.commit()

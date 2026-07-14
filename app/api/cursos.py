@@ -160,6 +160,21 @@ async def criar_modulo(
     return modulo
 
 
+@router.patch("/modulos/reorder", status_code=status.HTTP_204_NO_CONTENT)
+async def reordenar_modulos(
+    payload: list[ReorderItem],
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_user),
+):
+    ids = [item.id for item in payload]
+    result = await db.execute(select(Modulo).where(Modulo.id.in_(ids)))
+    modulos = {m.id: m for m in result.scalars().all()}
+    for item in payload:
+        if item.id in modulos:
+            modulos[item.id].ordem = item.ordem
+    await db.commit()
+
+
 @router.patch("/modulos/{modulo_id}", response_model=ModuloRead)
 async def atualizar_modulo(
     modulo_id: int,
@@ -192,21 +207,6 @@ async def excluir_modulo(
     await db.commit()
 
 
-@router.patch("/modulos/reorder", status_code=status.HTTP_204_NO_CONTENT)
-async def reordenar_modulos(
-    payload: list[ReorderItem],
-    db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
-):
-    ids = [item.id for item in payload]
-    result = await db.execute(select(Modulo).where(Modulo.id.in_(ids)))
-    modulos = {m.id: m for m in result.scalars().all()}
-    for item in payload:
-        if item.id in modulos:
-            modulos[item.id].ordem = item.ordem
-    await db.commit()
-
-
 # --- Unidades ---
 
 @router.get("/modulos/{modulo_id}/unidades", response_model=list[UnidadeRead])
@@ -230,6 +230,21 @@ async def criar_unidade(
     await db.commit()
     await db.refresh(unidade)
     return unidade
+
+
+@router.patch("/unidades/reorder", status_code=status.HTTP_204_NO_CONTENT)
+async def reordenar_unidades(
+    payload: list[ReorderItem],
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(get_current_user),
+):
+    ids = [item.id for item in payload]
+    result = await db.execute(select(Unidade).where(Unidade.id.in_(ids)))
+    unidades = {u.id: u for u in result.scalars().all()}
+    for item in payload:
+        if item.id in unidades:
+            unidades[item.id].ordem = item.ordem
+    await db.commit()
 
 
 @router.patch("/unidades/{unidade_id}", response_model=UnidadeRead)
@@ -261,21 +276,6 @@ async def excluir_unidade(
     if not unidade:
         raise HTTPException(status_code=404, detail="Unidade nao encontrada")
     await db.delete(unidade)
-    await db.commit()
-
-
-@router.patch("/unidades/reorder", status_code=status.HTTP_204_NO_CONTENT)
-async def reordenar_unidades(
-    payload: list[ReorderItem],
-    db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
-):
-    ids = [item.id for item in payload]
-    result = await db.execute(select(Unidade).where(Unidade.id.in_(ids)))
-    unidades = {u.id: u for u in result.scalars().all()}
-    for item in payload:
-        if item.id in unidades:
-            unidades[item.id].ordem = item.ordem
     await db.commit()
 
 

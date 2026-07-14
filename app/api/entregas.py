@@ -24,7 +24,10 @@ async def criar_entrega(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.ENTREGA_CRIAR)),
 ):
-    url = await upload_file(arquivo, "exercicios")
+    try:
+        url = await upload_file(arquivo, "exercicios")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     entrega = EntregaAtividade(
         unidade_id=unidade_id,
         usuario_id=current_user.id,

@@ -83,7 +83,10 @@ async def upload_scorm(
     except Exception:
         pass
 
-    url = await upload_file(arquivo, "scorm")
+    try:
+        url = await upload_file(arquivo, "scorm")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     pacote = PacoteScorm(
         curso_id=curso_id,
         titulo=titulo,
@@ -117,7 +120,7 @@ async def launch_scorm(
     return ScormLaunchResponse(url=pacote.arquivo_url, token=token, sco_id=sco_id)
 
 
-@router.post("/{pacote_id}/tracking", response_model=TrackingScormRead)
+@router.post("/{pacote_id}/tracking", response_model=TrackingScormRead, status_code=status.HTTP_201_CREATED)
 async def tracking_scorm(
     pacote_id: int,
     payload: TrackingScormCreate,

@@ -73,7 +73,7 @@ PERFIL_PERMISSOES = {
         Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
         Permissoes.CONTEUDO_CRIAR, Permissoes.CONTEUDO_EDITAR, Permissoes.CONTEUDO_EXCLUIR, Permissoes.CONTEUDO_VISUALIZAR,
         Permissoes.MATERIAL_GERENCIAR,
-        Permissoes.ENTREGA_VISUALIZAR, Permissoes.ENTREGA_CORRIGIR,
+        Permissoes.ENTREGA_CRIAR, Permissoes.ENTREGA_VISUALIZAR, Permissoes.ENTREGA_CORRIGIR,
         Permissoes.SCORM_GERENCIAR, Permissoes.SCORM_VISUALIZAR,
     ],
     "administrador": [
@@ -93,7 +93,7 @@ PERFIL_PERMISSOES = {
         Permissoes.TRILHA_INSCREVER, Permissoes.TRILHA_VER_PROGRESSO,
         Permissoes.CONTEUDO_CRIAR, Permissoes.CONTEUDO_EDITAR, Permissoes.CONTEUDO_EXCLUIR, Permissoes.CONTEUDO_VISUALIZAR,
         Permissoes.MATERIAL_GERENCIAR,
-        Permissoes.ENTREGA_VISUALIZAR, Permissoes.ENTREGA_CORRIGIR,
+        Permissoes.ENTREGA_CRIAR, Permissoes.ENTREGA_VISUALIZAR, Permissoes.ENTREGA_CORRIGIR,
         Permissoes.SCORM_GERENCIAR, Permissoes.SCORM_VISUALIZAR,
     ],
     "instrutor": [

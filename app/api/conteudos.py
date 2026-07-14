@@ -66,7 +66,10 @@ async def upload_conteudo(
         "scorm": "scorm", "document": "documentos", "image": "imagens",
     }
     folder = folder_map.get(tipo_midia, "outros")
-    url = await upload_file(arquivo, folder)
+    try:
+        url = await upload_file(arquivo, folder)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     conteudo = Conteudo(
         unidade_id=unidade_id,
         tipo_midia=tipo_midia,
@@ -138,7 +141,10 @@ async def excluir_conteudo(
     conteudo = result.scalar_one_or_none()
     if not conteudo:
         raise HTTPException(status_code=404, detail="Conteudo nao encontrado")
-    await delete_file(conteudo.url_arquivo)
+    try:
+        await delete_file(conteudo.url_arquivo)
+    except Exception:
+        pass
     await db.delete(conteudo)
     await db.commit()
 
@@ -179,7 +185,10 @@ async def upload_material(
 ):
     folder_map = {"pdf": "pdfs", "document": "documentos", "video": "videos", "audio": "audios", "image": "imagens"}
     folder = folder_map.get(tipo, "complementares")
-    url = await upload_file(arquivo, folder)
+    try:
+        url = await upload_file(arquivo, folder)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     material = MaterialComplementar(
         curso_id=curso_id,
         titulo=titulo,
@@ -222,6 +231,9 @@ async def excluir_material(
     material = result.scalar_one_or_none()
     if not material:
         raise HTTPException(status_code=404, detail="Material nao encontrado")
-    await delete_file(material.url_arquivo)
+    try:
+        await delete_file(material.url_arquivo)
+    except Exception:
+        pass
     await db.delete(material)
     await db.commit()

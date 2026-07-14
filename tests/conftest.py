@@ -7,15 +7,15 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/lms_idesp_test",
-)
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-tests-only")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "480")
 
 from app.api.deps import get_current_user, get_db
 from app.config import settings
+
+# Garantir que DATABASE_URL venha do .env, nao do setdefault
+if "DATABASE_URL" not in os.environ:
+    os.environ["DATABASE_URL"] = settings.DATABASE_URL
 from app.database import engine as app_engine
 from app.main import app
 from app.models import Base

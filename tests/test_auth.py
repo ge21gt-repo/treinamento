@@ -1,65 +1,105 @@
-import uuid
+"""Testes reais de autenticação — usam PostgreSQL e HTTP"""
+import pytest
+from httpx import ASGITransport, AsyncClient
+from fastapi import status
 
-from app.schemas.usuario import EsqueciSenhaRequest, LoginRequest, RedefinirSenhaRequest, Token, UsuarioCreate, UsuarioRegistro
+from app.main import app
 from app.services.auth import create_access_token, decode_token
 
 
-def test_usuario_create_schema_aceite_lgpd():
-    payload = UsuarioCreate(
-        nome_completo="Teste",
-        email="teste@test.com",
-        senha="123456",
-        aceite_lgpd=True,
-    )
-    assert payload.aceite_lgpd is True
+class TestRegistro:
+    async def test_registro_cria_usuario_ativo(self, db_clean):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post("/api/v1/auth/registro", json={
+                "nome_completo": "Novo Usuario",
+                "email": "novo@test.com",
+                "senha": "123456",
+                "aceite_lgpd": True,
+            })
+        assert r.status_code == 201
+        assert r.json()["email"] == "novo@test.com"
+
+    async def test_registro_sem_aceite_lgpd_falha(self, db_clean):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post("/api/v1/auth/registro", json={
+                "nome_completo": "Sem LGPD",
+                "email": "semlgpd@test.com",
+                "senha": "123456",
+                "aceite_lgpd": False,
+            })
+        assert r.status_code == 422
+
+    async def test_registro_email_duplicado_rejeitado(self, db_clean):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            await ac.post("/api/v1/auth/registro", json={
+                "nome_completo": "Primeiro", "email": "dup@test.com",
+                "senha": "123456", "aceite_lgpd": True,
+            })
+            r = await ac.post("/api/v1/auth/registro", json={
+                "nome_completo": "Segundo", "email": "dup@test.com",
+                "senha": "123456", "aceite_lgpd": True,
+            })
+        assert r.status_code == 400
 
 
-def test_usuario_create_schema_sem_aceite_lgpd():
-    payload = UsuarioCreate(
-        nome_completo="Teste",
-        email="teste@test.com",
-        senha="123456",
-    )
-    assert payload.aceite_lgpd is False
+class TestLogin:
+    async def test_login_retorna_token(self, db_clean):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            await ac.post("/api/v1/auth/registro", json={
+                "nome_completo": "Login Test", "email": "login@test.com",
+                "senha": "123456", "aceite_lgpd": True,
+            })
+            r = await ac.post("/api/v1/auth/login", json={
+                "email": "login@test.com", "senha": "123456",
+            })
+        assert r.status_code == 200
+        assert "access_token" in r.json()
+
+    async def test_login_senha_invalida(self, db_clean):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            await ac.post("/api/v1/auth/registro", json={
+                "nome_completo": "Senha Test", "email": "senha@test.com",
+                "senha": "123456", "aceite_lgpd": True,
+            })
+            r = await ac.post("/api/v1/auth/login", json={
+                "email": "senha@test.com", "senha": "senha_errada",
+            })
+        assert r.status_code == 401
 
 
-def test_usuario_registro_schema_aceite_lgpd():
-    payload = UsuarioRegistro(
-        nome_completo="Teste",
-        email="teste@test.com",
-        senha="123456",
-        perfil_solicitado="participante",
-        aceite_lgpd=True,
-    )
-    assert payload.aceite_lgpd is True
+class TestRegistroComPerfil:
+    async def test_registro_com_perfil_cria_solicitacao_pendente(self, db_clean):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post("/api/v1/auth/registro-com-perfil", json={
+                "nome_completo": "Solicitante", "email": "sol@test.com",
+                "senha": "123456", "perfil_solicitado": "instrutor",
+                "aceite_lgpd": True,
+            })
+        assert r.status_code == 201
+        data = r.json()
+        assert data["status"] == "pendente"
+        assert data["perfil_solicitado"] == "instrutor"
+
+    async def test_registro_com_perfil_invalido_falha(self, db_clean):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post("/api/v1/auth/registro-com-perfil", json={
+                "nome_completo": "Invalido", "email": "inv@test.com",
+                "senha": "123456", "perfil_solicitado": "admin",
+                "aceite_lgpd": True,
+            })
+        assert r.status_code == 400
 
 
-def test_login_request_schema():
-    payload = LoginRequest(email="teste@test.com", senha="123456")
-    assert payload.email == "teste@test.com"
-    assert payload.senha == "123456"
-
-
-def test_esqueci_senha_schema():
-    payload = EsqueciSenhaRequest(email="teste@test.com")
-    assert payload.email == "teste@test.com"
-
-
-def test_redefinir_senha_schema():
-    payload = RedefinirSenhaRequest(token="abc123", nova_senha="nova456")
-    assert payload.token == "abc123"
-    assert payload.nova_senha == "nova456"
-
-
-def test_token_schema():
-    token = Token(access_token="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0")
-    assert token.access_token.startswith("eyJ")
-    assert token.token_type == "bearer"
-
-
-def test_jwt_token_create_and_decode():
-    user_id = str(uuid.uuid4())
-    token = create_access_token({"sub": user_id})
-    payload = decode_token(token)
-    assert payload is not None
-    assert payload["sub"] == user_id
+class TestTokenJWT:
+    def test_jwt_create_and_decode(self):
+        uid = "550e8400-e29b-41d4-a716-446655440000"
+        token = create_access_token({"sub": uid})
+        payload = decode_token(token)
+        assert payload["sub"] == uid

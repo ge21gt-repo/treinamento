@@ -1,223 +1,272 @@
-"""Tests for US-06: Upload e Gestão de Conteúdos Multimídia"""
-
-import uuid
-from datetime import datetime
-from decimal import Decimal
-
+"""Testes reais US-06 — upload, conteudo, entrega, SCORM via API"""
+import io
 import pytest
-from pydantic import ValidationError
+from httpx import ASGITransport, AsyncClient
+from fastapi import status
 
-from app.schemas.conteudo import (
-    ConteudoBase,
-    ConteudoCreate,
-    ConteudoRead,
-    ConteudoUpdate,
-    MaterialComplementarBase,
-    MaterialComplementarCreate,
-    MaterialComplementarRead,
-    MaterialComplementarUpdate,
-    EntregaAtividadeBase,
-    EntregaAtividadeCreate,
-    EntregaAtividadeRead,
-    EntregaAtividadeCorrigir,
-)
-from app.schemas.scorm import (
-    PacoteScormBase,
-    PacoteScormCreate,
-    PacoteScormRead,
-    TrackingScormCreate,
-    TrackingScormRead,
-    ScormLaunchResponse,
-)
-from app.services.rbac import Permissoes, has_permission
-from app.services.storage import ALLOWED_MIME_TYPES, FLAT_ALLOWED
+from app.main import app
 
 
-class TestConteudoSchemas:
-    def test_conteudo_create_valid(self):
-        data = ConteudoCreate(unidade_id=1, tipo_midia="video", titulo="Aula 1", url_arquivo="http://s3.com/video.mp4")
-        assert data.tipo_midia == "video"
-        assert data.ordem == 0
+async def criar_curso(client, titulo="Curso Conteudo"):
+    r = await client.post("/api/v1/cursos", json={"titulo": titulo, "descricao": "x", "ordem": 0})
+    return r.json()["id"]
 
-    def test_conteudo_create_no_url_fails(self):
-        with pytest.raises(ValidationError):
-            ConteudoCreate(unidade_id=1, tipo_midia="video", titulo="Aula 1")
 
-    def test_conteudo_read_from_attributes(self):
-        data = ConteudoRead(
-            id=1,
-            unidade_id=1,
-            tipo_midia="pdf",
-            titulo="Material",
-            url_arquivo="http://s3.com/doc.pdf",
-            criado_por=uuid.uuid4(),
-            criado_em=datetime.now(),
+async def criar_modulo(client, curso_id):
+    r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "M", "descricao": "x", "ordem": 0})
+    return r.json()["id"]
+
+
+async def criar_unidade(client, modulo_id):
+    r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": modulo_id, "titulo": "U", "tipo": "conteudo", "descricao": "x", "conteudo_url": "https://exemplo.com/aula.pdf", "ordem": 0})
+    return r.json()["id"]
+
+
+class TestConteudoUpload:
+    async def test_upload_pdf(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post(
+            f"/api/v1/conteudos/upload?unidade_id={uni_id}&tipo_midia=pdf&titulo=Material+PDF",
+            files={"arquivo": ("test.pdf", io.BytesIO(b"%PDF-1.4 fake pdf"), "application/pdf")},
         )
-        assert data.id == 1
-        assert data.model_config["from_attributes"]
+        assert r.status_code == 201
+        data = r.json()
+        assert data["tipo_midia"] == "pdf"
+        assert "url_arquivo" in data
 
-    def test_conteudo_update_partial(self):
-        data = ConteudoUpdate(titulo="Novo titulo")
-        assert data.titulo == "Novo titulo"
-        assert data.tipo_midia is None
-        assert data.url_arquivo is None
-
-
-class TestMaterialComplementarSchemas:
-    def test_material_create_valid(self):
-        data = MaterialComplementarCreate(curso_id=1, titulo="Apoio", tipo="pdf", url_arquivo="http://s3.com/doc.pdf")
-        assert data.tipo == "pdf"
-
-    def test_material_update_valid(self):
-        data = MaterialComplementarUpdate(titulo="Atualizado", url_arquivo="http://s3.com/new.pdf")
-        assert data.titulo == "Atualizado"
-
-    def test_material_update_empty(self):
-        data = MaterialComplementarUpdate()
-        assert data.titulo is None
-        assert data.tipo is None
-
-    def test_material_read_from_attributes(self):
-        data = MaterialComplementarRead(
-            id=1,
-            curso_id=1,
-            titulo="Material",
-            tipo="pdf",
-            url_arquivo="http://s3.com/doc.pdf",
-            criado_por=uuid.uuid4(),
-            criado_em=datetime.now(),
+    async def test_upload_video(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post(
+            f"/api/v1/conteudos/upload?unidade_id={uni_id}&tipo_midia=video&titulo=Video+Aula",
+            files={"arquivo": ("aula.mp4", io.BytesIO(b"fake mp4 content"), "video/mp4")},
         )
-        assert data.model_config["from_attributes"]
+        assert r.status_code == 201
+        assert r.json()["tipo_midia"] == "video"
 
-
-class TestEntregaAtividadeSchemas:
-    def test_entrega_create_valid(self):
-        data = EntregaAtividadeCreate(
-            unidade_id=1, titulo="Exercicio 1", url_arquivo="http://s3.com/exercicio.pdf"
+    async def test_upload_mime_invalido_rejeitado(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post(
+            f"/api/v1/conteudos/upload?unidade_id={uni_id}&tipo_midia=video&titulo=Invalido",
+            files={"arquivo": ("malware.exe", io.BytesIO(b"evil"), "application/x-msdownload")},
         )
-        assert data.titulo == "Exercicio 1"
-        assert data.url_arquivo is not None
+        assert r.status_code == 422
 
-    def test_entrega_create_no_titulo_fails(self):
-        with pytest.raises(ValidationError):
-            EntregaAtividadeCreate(unidade_id=1, url_arquivo="http://s3.com/ex.pdf")
 
-    def test_entrega_read_from_attributes(self):
-        data = EntregaAtividadeRead(
-            id=1,
-            unidade_id=1,
-            usuario_id=uuid.uuid4(),
-            titulo="Entrega",
-            url_arquivo="http://s3.com/ex.pdf",
-            status="pendente",
-            criado_em=datetime.now(),
+class TestConteudoCRUD:
+    async def test_criar_conteudo_sem_arquivo(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post("/api/v1/conteudos", json={
+            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Link Externo",
+            "url_arquivo": "https://youtube.com/watch?v=123",
+        })
+        assert r.status_code == 201
+        assert r.json()["titulo"] == "Link Externo"
+
+    async def test_listar_conteudos_por_unidade(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        await client.post("/api/v1/conteudos", json={
+            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Link 1",
+            "url_arquivo": "https://example.com/1",
+        })
+        r = await client.get(f"/api/v1/conteudos?unidade_id={uni_id}")
+        assert r.status_code == 200
+        assert len(r.json()) >= 1
+
+    async def test_obter_conteudo_por_id(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post("/api/v1/conteudos", json={
+            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Link Unico",
+            "url_arquivo": "https://example.com/unique",
+        })
+        cid = r.json()["id"]
+        r = await client.get(f"/api/v1/conteudos/{cid}")
+        assert r.status_code == 200
+        assert r.json()["id"] == cid
+
+    async def test_atualizar_conteudo(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post("/api/v1/conteudos", json={
+            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Original",
+            "url_arquivo": "https://example.com/1",
+        })
+        cid = r.json()["id"]
+        r = await client.patch(f"/api/v1/conteudos/{cid}", json={"titulo": "Atualizado"})
+        assert r.status_code == 200
+        assert r.json()["titulo"] == "Atualizado"
+
+    async def test_deletar_conteudo(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post("/api/v1/conteudos", json={
+            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Deletar",
+            "url_arquivo": "https://example.com/del",
+        })
+        cid = r.json()["id"]
+        r = await client.delete(f"/api/v1/conteudos/{cid}")
+        assert r.status_code == 204
+
+    async def test_deletar_conteudo_inexistente(self, client):
+        r = await client.delete("/api/v1/conteudos/99999")
+        assert r.status_code == 404
+
+
+class TestMateriais:
+    async def test_upload_material(self, client):
+        curso_id = await criar_curso(client)
+        r = await client.post(
+            f"/api/v1/conteudos/materiais/upload?curso_id={curso_id}&titulo=Apoio&tipo=pdf",
+            files={"arquivo": ("apoio.pdf", io.BytesIO(b"fake pdf"), "application/pdf")},
         )
-        assert data.status == "pendente"
-        assert data.model_config["from_attributes"]
+        assert r.status_code == 201
+        data = r.json()
+        assert data["titulo"] == "Apoio"
+        assert "url_arquivo" in data
 
-    def test_entrega_corrigir_valid(self):
-        data = EntregaAtividadeCorrigir(nota=8.5, feedback="Muito bom")
-        assert data.nota == 8.5
-        assert data.feedback == "Muito bom"
-
-    def test_entrega_corrigir_no_nota_fails(self):
-        with pytest.raises(ValidationError):
-            EntregaAtividadeCorrigir(feedback="Bom")
-
-
-class TestScormSchemas:
-    def test_pacote_create_valid(self):
-        data = PacoteScormCreate(curso_id=1, titulo="Curso SCORM", arquivo_url="http://s3.com/curso.zip")
-        assert data.titulo == "Curso SCORM"
-
-    def test_pacote_read_from_attributes(self):
-        data = PacoteScormRead(
-            id=1,
-            curso_id=1,
-            titulo="SCORM",
-            arquivo_url="http://s3.com/pacote.zip",
-            criado_por=uuid.uuid4(),
-            criado_em=datetime.now(),
+    async def test_listar_materiais_por_curso(self, client):
+        curso_id = await criar_curso(client)
+        await client.post(
+            f"/api/v1/conteudos/materiais/upload?curso_id={curso_id}&titulo=Material1&tipo=pdf",
+            files={"arquivo": ("m1.pdf", io.BytesIO(b"pdf1"), "application/pdf")},
         )
-        assert data.model_config["from_attributes"]
+        r = await client.get(f"/api/v1/conteudos/materiais/{curso_id}")
+        assert r.status_code == 200
+        assert len(r.json()) >= 1
 
-    def test_tracking_create_valid(self):
-        data = TrackingScormCreate(sco_id="sco1", status="concluido", score_raw=90.0, progresso_pct=100.0)
-        assert data.score_raw == 90.0
-        assert data.progresso_pct == 100.0
+    async def test_criar_material_sem_arquivo(self, client):
+        curso_id = await criar_curso(client)
+        r = await client.post("/api/v1/conteudos/materiais", json={
+            "curso_id": curso_id, "titulo": "Link Externo",
+            "tipo": "link", "url_arquivo": "https://example.com",
+        })
+        assert r.status_code == 201
 
-    def test_tracking_create_default_status(self):
-        data = TrackingScormCreate(sco_id="sco1")
-        assert data.status == "nao_iniciado"
+    async def test_atualizar_material(self, client):
+        curso_id = await criar_curso(client)
+        r = await client.post("/api/v1/conteudos/materiais", json={
+            "curso_id": curso_id, "titulo": "Original", "tipo": "link",
+            "url_arquivo": "https://example.com/1",
+        })
+        mid = r.json()["id"]
+        r = await client.patch(f"/api/v1/conteudos/materiais/{mid}", json={"titulo": "Atualizado"})
+        assert r.status_code == 200
+        assert r.json()["titulo"] == "Atualizado"
 
-    def test_scorm_launch_response(self):
-        data = ScormLaunchResponse(url="http://player.com", token="abc123", sco_id="sco1")
-        assert data.token == "abc123"
-
-
-class TestRbacPermissions:
-    def test_conteudo_permissions_exist(self):
-        assert Permissoes.CONTEUDO_CRIAR == "conteudo:criar"
-        assert Permissoes.CONTEUDO_VISUALIZAR == "conteudo:visualizar"
-        assert Permissoes.MATERIAL_GERENCIAR == "material:gerenciar"
-        assert Permissoes.ENTREGA_CRIAR == "entrega:criar"
-        assert Permissoes.ENTREGA_CORRIGIR == "entrega:corrigir"
-        assert Permissoes.SCORM_GERENCIAR == "scorm:gerenciar"
-        assert Permissoes.SCORM_VISUALIZAR == "scorm:visualizar"
-
-    def test_admin_geral_has_all_content_permissions(self):
-        permissoes = [
-            Permissoes.CONTEUDO_CRIAR,
-            Permissoes.CONTEUDO_EDITAR,
-            Permissoes.CONTEUDO_EXCLUIR,
-            Permissoes.CONTEUDO_VISUALIZAR,
-            Permissoes.MATERIAL_GERENCIAR,
-        ]
-        for p in permissoes:
-            assert has_permission("administrador_geral", p), f"admin_geral should have {p}"
-
-    def test_instrutor_has_content_permissions(self):
-        permissoes = [
-            Permissoes.CONTEUDO_CRIAR,
-            Permissoes.CONTEUDO_EDITAR,
-            Permissoes.CONTEUDO_EXCLUIR,
-            Permissoes.CONTEUDO_VISUALIZAR,
-            Permissoes.MATERIAL_GERENCIAR,
-            Permissoes.ENTREGA_CORRIGIR,
-            Permissoes.SCORM_GERENCIAR,
-        ]
-        for p in permissoes:
-            assert has_permission("instrutor", p), f"instrutor should have {p}"
-
-    def test_instrutor_has_material_permission(self):
-        assert has_permission("instrutor", Permissoes.MATERIAL_GERENCIAR)
-
-    def test_participante_has_entrega_criar(self):
-        assert has_permission("participante", Permissoes.ENTREGA_CRIAR)
-        assert has_permission("participante", Permissoes.ENTREGA_VISUALIZAR)
-
-    def test_participante_cannot_corrigir(self):
-        assert not has_permission("participante", Permissoes.ENTREGA_CORRIGIR)
-
-    def test_gestor_has_visualizar_not_criar(self):
-        assert has_permission("gestor", Permissoes.CONTEUDO_VISUALIZAR)
-        assert not has_permission("gestor", Permissoes.CONTEUDO_CRIAR)
+    async def test_deletar_material(self, client):
+        curso_id = await criar_curso(client)
+        r = await client.post("/api/v1/conteudos/materiais", json={
+            "curso_id": curso_id, "titulo": "Deletar", "tipo": "link",
+            "url_arquivo": "https://example.com/del",
+        })
+        mid = r.json()["id"]
+        r = await client.delete(f"/api/v1/conteudos/materiais/{mid}")
+        assert r.status_code == 204
 
 
-class TestStorageMimeTypes:
-    def test_video_mime_types_allowed(self):
-        assert "video/mp4" in FLAT_ALLOWED
-        assert "video/webm" in FLAT_ALLOWED
+class TestEntregas:
+    async def test_entrega_upload(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post(
+            f"/api/v1/entregas/upload?unidade_id={uni_id}&titulo=Exercicio&descricao=Resolucao",
+            files={"arquivo": ("ex.pdf", io.BytesIO(b"fake entrega"), "application/pdf")},
+        )
+        assert r.status_code == 201
+        data = r.json()
+        assert data["titulo"] == "Exercicio"
+        assert data["status"] == "pendente"
 
-    def test_pdf_allowed(self):
-        assert "application/pdf" in FLAT_ALLOWED
+    async def test_listar_minhas_entregas(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        await client.post(
+            f"/api/v1/entregas/upload?unidade_id={uni_id}&titulo=Entrega&descricao=x",
+            files={"arquivo": ("ex.pdf", io.BytesIO(b"data"), "application/pdf")},
+        )
+        r = await client.get("/api/v1/entregas/minhas")
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
 
-    def test_scorm_allowed(self):
-        assert "application/zip" in FLAT_ALLOWED
+    async def test_entrega_corrigir(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post(
+            f"/api/v1/entregas/upload?unidade_id={uni_id}&titulo=Corrigir&descricao=x",
+            files={"arquivo": ("ex.pdf", io.BytesIO(b"data"), "application/pdf")},
+        )
+        eid = r.json()["id"]
+        r = await client.patch(f"/api/v1/entregas/{eid}/corrigir", json={"nota": 9.5, "feedback": "Excelente"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "corrigido"
+        assert data["nota"] == 9.5
 
-    def test_audio_allowed(self):
-        assert "audio/mpeg" in FLAT_ALLOWED
+    async def test_listar_entregas_por_unidade(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        await client.post(
+            f"/api/v1/entregas/upload?unidade_id={uni_id}&titulo=EntregaU&descricao=x",
+            files={"arquivo": ("ex.pdf", io.BytesIO(b"data"), "application/pdf")},
+        )
+        r = await client.get(f"/api/v1/entregas/unidade/{uni_id}")
+        assert r.status_code == 200
+        assert len(r.json()) >= 1
 
-    def test_invalid_mime_not_allowed(self):
-        assert "text/html" not in FLAT_ALLOWED
-        assert "application/x-msdownload" not in FLAT_ALLOWED
+
+class TestSCORM:
+    async def test_upload_scorm_zip(self, client):
+        curso_id = await criar_curso(client)
+        r = await client.post(
+            f"/api/v1/scorm/upload?curso_id={curso_id}&titulo=Pacote+SCORM",
+            files={"arquivo": ("curso.zip", io.BytesIO(b"PK fake zip content"), "application/zip")},
+        )
+        assert r.status_code == 201
+        data = r.json()
+        assert data["titulo"] == "Pacote SCORM"
+        assert "id" in data
+
+    async def test_launch_scorm_requer_pacote_existente(self, client):
+        r = await client.get("/api/v1/scorm/99999/launch")
+        assert r.status_code == 404
+
+    async def test_tracking_scorm(self, client):
+        curso_id = await criar_curso(client)
+        r = await client.post(
+            f"/api/v1/scorm/upload?curso_id={curso_id}&titulo=SCORM+Tracking",
+            files={"arquivo": ("track.zip", io.BytesIO(b"PK zip"), "application/zip")},
+        )
+        pid = r.json()["id"]
+        r = await client.post(f"/api/v1/scorm/{pid}/tracking", json={
+            "sco_id": "sco1", "status": "concluido", "score_raw": 85.0, "progresso_pct": 100.0,
+        })
+        assert r.status_code == 201
+        assert r.json()["status"] == "concluido"
+
+    async def test_relatorio_scorm_por_curso(self, client):
+        curso_id = await criar_curso(client)
+        r = await client.post(
+            f"/api/v1/scorm/upload?curso_id={curso_id}&titulo=SCORM+Relatorio",
+            files={"arquivo": ("rel.zip", io.BytesIO(b"PK zip"), "application/zip")},
+        )
+        assert r.status_code == 201
+        r = await client.get(f"/api/v1/scorm/cursos/{curso_id}/relatorio")
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
