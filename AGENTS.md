@@ -108,10 +108,28 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 ## Convictions
 
 - Always add imports in `__init__.py` for new models/schemas.
-- Chain new migrations with `down_revision` pointing to `'003_add_aulas_chat_unidades'` (latest migration).
+- Chain new migrations with `down_revision` pointing to latest migration (currently `'005_add_telefone_unique_constraint'`).
 - Use Pydantic v2 style (no `orm_mode`, use `model_config`).
 - SQLAlchemy 2.0 style — use `select()`, `await db.execute()`, no `Query` API.
 - Run tests with `pytest` before major changes — 15 test files with 1,600+ lines of coverage.
+- **When modifying a model (adding field/constraint):**
+  - [ ] Verify schema Pydantic reflects the change
+  - [ ] Verify API response model includes the field
+  - [ ] Verify route creates/updates the field properly
+  - [ ] Verify JWT payload includes the field if needed by frontend
+- **When adding a DB constraint (unique, FK, not-null):**
+  - [ ] Add migration (alembic revision --autogenerate)
+  - [ ] Validate constraint in the API route BEFORE insert (catch IntegrityError)
+  - [ ] Return proper 4xx error (not 500) for constraint violations
+- **When implementing RBAC:**
+  - [ ] Verify the schema exposes `perfis`/roles in response
+  - [ ] Verify JWT token includes profile claim for frontend use
+  - [ ] Verify all profiles that should have the permission are mapped in `PERFIL_PERMISSOES`
+- **When implementing a registration/creation route:**
+  - [ ] Validate all unique fields (email, cpf, telefone) BEFORE insert
+  - [ ] Handle IntegrityError gracefully → return 409/400, never 500
+  - [ ] Every `unique=True` in model must have a corresponding check in the route
+
 
 ## Issues Concluídas
 
@@ -305,3 +323,36 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 - ✅ Integração Teams (opcional)
 - ✅ Recuperação de senha
 - ✅ Testes abrangentes (14 arquivos, 1.542 linhas)
+
+## T-06.10: Integração Teams + Artefato S3 (14/07/2026)
+
+**Status:** Funcionalidades implementadas, aguardando Application Access Policy do Teams.
+
+### O que foi implementado
+- `app/services/storage.py` — `upload_bytes()` para upload de bytes crus (download de gravação)
+- `app/services/teams.py` — `processar_gravacao()` (baixar Teams → S3 → criar Conteudo) e `sincronizar_presenca()` (lista de presença formatada)
+- `app/api/cursos.py` — `POST /cursos/aulas/{id}/processar-gravacao` e `GET /cursos/aulas/{id}/presenca`
+- `app/services/rbac.py` — Permissões `aula:processar_gravacao`, `aula:ver_presenca`
+- `app/schemas/curso.py` — `gravacao_conteudo_id` nos schemas, `PresencaRegistroRead`, `ProcessarGravacaoResponse`
+- `app/schemas/__init__.py` — (verificar se precisa atualizar)
+
+### Para testar
+1. Suporte executar PowerShell no Cloud Shell:
+   ```powershell
+   Connect-MicrosoftTeams
+   New-CsApplicationAccessPolicy -Identity "LMS-Meeting-Policy" -AppIds "d8db36c7-bdda-4713-9048-59835c25e9da" -Description "Permite LMS criar reunioes Teams"
+   Grant-CsApplicationAccessPolicy -PolicyName "LMS-Meeting-Policy" -Identity "gabriel.cicotoste@grupoge21.com"
+   ```
+2. Criar aula com `criar_reuniao_teams=true`
+3. Após a aula, chamar `POST /cursos/aulas/{id}/processar-gravacao`
+
+### Fluxo manual (sem policy)
+- Professor cria reunião manualmente no Teams
+- `POST /cursos/{id}/aulas` com `link_externo` = URL da reunião
+- Após a aula, professor baixa MP4 do Stream e faz upload via `POST /conteudos/upload`
+- Vincula com `PATCH /cursos/aulas/{id}` atualizando `gravacao_conteudo_id`
+
+### Próximos passos sugeridos
+- Upload direto de MP4 na tela da aula (frontend)
+- Cron/polling para buscar gravação automaticamente
+- Notificações para alunos sobre aulas agendadas

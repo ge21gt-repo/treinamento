@@ -21,7 +21,7 @@ class Usuario(Base):
     senha_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     orgao_instituicao: Mapped[str | None] = mapped_column(String(200))
     cargo: Mapped[str | None] = mapped_column(String(150))
-    telefone: Mapped[str | None] = mapped_column(String(20))
+    telefone: Mapped[str | None] = mapped_column(String(20), unique=True)
     avatar_url: Mapped[str | None] = mapped_column(Text)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     aceite_lgpd: Mapped[bool] = mapped_column(Boolean, default=False)
