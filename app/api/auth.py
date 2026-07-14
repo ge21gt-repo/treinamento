@@ -28,15 +28,30 @@ from app.services.email import send_reset_email
 router = APIRouter(prefix="/auth", tags=["Autenticacao"])
 
 
+async def check_unique_fields(db: AsyncSession, email: str, cpf: str | None, telefone: str | None):
+    """Valida unicidade de email, CPF e telefone antes do cadastro."""
+    existing = await db.execute(select(Usuario).where(Usuario.email == email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Email ja cadastrado")
+
+    if cpf:
+        existing = await db.execute(select(Usuario).where(Usuario.cpf == cpf))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="CPF ja cadastrado")
+
+    if telefone:
+        existing = await db.execute(select(Usuario).where(Usuario.telefone == telefone))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Telefone ja cadastrado")
+
+
 @router.post("/registro", response_model=UsuarioRead, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
 async def registrar(request: Request, payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
     if not payload.aceite_lgpd:
         raise HTTPException(status_code=422, detail="Aceite dos termos LGPD é obrigatorio")
 
-    existing = await db.execute(select(Usuario).where(Usuario.email == payload.email))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email ja cadastrado")
+    await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
 
     user = Usuario(
         nome_completo=payload.nome_completo,
@@ -76,9 +91,7 @@ async def registrar_com_perfil(request: Request, payload: UsuarioRegistro, db: A
     if payload.perfil_solicitado not in perfis_validos:
         raise HTTPException(status_code=400, detail=f"Perfil invalido. Perfis validos: {', '.join(perfis_validos)}")
 
-    existing = await db.execute(select(Usuario).where(Usuario.email == payload.email))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email ja cadastrado")
+    await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
 
     solicitacao = await criar_solicitacao_credenciamento(payload, db)
 

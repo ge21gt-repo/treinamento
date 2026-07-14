@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.auth import check_unique_fields
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
@@ -181,10 +182,8 @@ async def criar_subordinado(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Endpoint para gestor criar conta de participante (subordinado)"""
-    # Verificar se email já existe
-    existing = await db.execute(select(Usuario).where(Usuario.email == payload.email))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email ja cadastrado")
+    # Verificar unicidade de email, CPF e telefone
+    await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
 
     # Criar usuario subordinado
     subordinado = Usuario(
