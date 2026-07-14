@@ -25,6 +25,39 @@ uvicorn app.main:app --reload
 
 > O app também auto-cria tabelas e seeds (perfis, níveis, permissões RBAC) no startup via FastAPI lifespan. O passo `alembic upgrade head` + `init_db.sql` é opcional em dev, mas obrigatório em staging/prod.
 
+## Testes
+
+O projeto possui **49 testes de integração** que batem contra **PostgreSQL real** e **S3 real** (ou local storage). Nenhum mock — cada teste cria/consulta/limpa dados de verdade via API HTTP.
+
+### O que é testado
+
+| Arquivo | Testes | Cobertura |
+|---------|--------|-----------|
+| `tests/test_auth.py` | 8 | Registro, login, LGPD obrigatório, email duplicado, JWT, solicitação pendente |
+| `tests/test_rbac.py` | 9 | Autenticação (sem token, token inválido), permissões de curso/inscrição/conteúdo por perfil |
+| `tests/test_us05.py` | 10 | Aulas síncronas (CRUD + próximas), chat do curso (enviar + listar), reordenação de módulos e unidades, árvore aninhada |
+| `tests/test_us06.py` | 22 | Upload de arquivos (PDF, vídeo, MIME inválido), CRUD de conteúdo, materiais complementares, entregas de atividades (upload, listar, corrigir), SCORM (upload, launch, tracking, relatório) |
+| `tests/test_bug_fix_18.py` | — | Regressão do bug `AmbiguousForeignKeysError` no cadastro de usuário |
+
+### Como funciona
+
+- Cada suite cria seus próprios dados via **HTTP requests** (`httpx.AsyncClient`) contra a aplicação real
+- O banco é limpo entre fixtures (`TRUNCATE CASCADE`), mantendo perfis e permissões
+- Uploads vão para S3 ou disco local conforme `STORAGE_BACKEND` do `.env`
+- Dependências como `get_db` e `get_current_user` são sobrescritas via `app.dependency_overrides`
+
+### Executar
+
+```bash
+pytest                                   # todos os testes
+pytest tests/test_us06.py -v            # apenas uploads/SCORM
+pytest tests/test_auth.py -x            # para no primeiro erro
+```
+
+> Requer PostgreSQL rodando com as credenciais do `.env` (`DATABASE_URL`). O schema `lms` e as tabelas são criados automaticamente.
+
+---
+
 **Arquivo `.env`:**
 
 | Variável | Default | Descrição |
