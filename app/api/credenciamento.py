@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,8 +14,7 @@ router = APIRouter(prefix="/credenciamento", tags=["Credenciamento"])
 
 @router.get("/solicitacoes/pendentes", response_model=list[SolicitacaoCredenciamentoRead])
 async def listar_solicitacoes_pendentes(
-    current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
     """Listar todas as solicitacoes de credenciamento pendentes"""
     # TODO: No futuro, filtrar por hierarquia do usuario atual
@@ -34,15 +33,12 @@ async def aprovar_solicitacao_endpoint(
     solicitacao_id: int,
     payload: AprovacaoSolicitacaoRequest,
     current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Aprovar uma solicitacao de credenciamento"""
     try:
         resultado = await aprovar_solicitacao(
-            solicitacao_id=solicitacao_id,
-            aprovador_id=current_user.id,
-            observacao=payload.observacao,
-            db=db
+            solicitacao_id=solicitacao_id, aprovador_id=current_user.id, observacao=payload.observacao, db=db
         )
         return resultado
     except ValueError as e:
@@ -54,7 +50,7 @@ async def rejeitar_solicitacao_endpoint(
     solicitacao_id: int,
     payload: AprovacaoSolicitacaoRequest,
     current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Rejeitar uma solicitacao de credenciamento"""
     if not payload.observacao:
@@ -62,10 +58,7 @@ async def rejeitar_solicitacao_endpoint(
 
     try:
         resultado = await rejeitar_solicitacao(
-            solicitacao_id=solicitacao_id,
-            aprovador_id=current_user.id,
-            motivo=payload.observacao,
-            db=db
+            solicitacao_id=solicitacao_id, aprovador_id=current_user.id, motivo=payload.observacao, db=db
         )
         return resultado
     except ValueError as e:

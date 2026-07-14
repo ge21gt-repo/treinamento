@@ -1,8 +1,8 @@
 import uuid
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from fastapi import status
+from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
@@ -21,7 +21,9 @@ class TestGamificacaoAuth:
     async def test_create_xp_requires_auth(self):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            r = await ac.post("/api/v1/gamificacao/xp", json={"usuario_id": str(uuid.uuid4()), "quantidade": 100, "origem": "teste"})
+            r = await ac.post(
+                "/api/v1/gamificacao/xp", json={"usuario_id": str(uuid.uuid4()), "quantidade": 100, "origem": "teste"}
+            )
         assert r.status_code in AUTH_OK
 
     async def test_leaderboard_requires_auth(self):
@@ -46,7 +48,10 @@ class TestNiveis:
 class TestXP:
     async def test_add_and_get_xp(self, client, admin_user):
         uid = str(admin_user.id)
-        r = await client.post("/api/v1/gamificacao/xp", json={"usuario_id": uid, "quantidade": 200, "origem": "teste", "descricao": "XP de teste"})
+        r = await client.post(
+            "/api/v1/gamificacao/xp",
+            json={"usuario_id": uid, "quantidade": 200, "origem": "teste", "descricao": "XP de teste"},
+        )
         assert r.status_code == status.HTTP_201_CREATED
         assert r.json()["quantidade"] == 200
 
@@ -76,7 +81,15 @@ class TestXP:
 
 class TestBadges:
     async def test_create_assign_and_get_badges(self, client, admin_user):
-        r = await client.post("/api/v1/gamificacao/badges", json={"nome": "Primeiro Curso", "descricao": "Complete seu primeiro curso", "criterio_tipo": "cursos_concluidos", "criterio_valor": 1})
+        r = await client.post(
+            "/api/v1/gamificacao/badges",
+            json={
+                "nome": "Primeiro Curso",
+                "descricao": "Complete seu primeiro curso",
+                "criterio_tipo": "cursos_concluidos",
+                "criterio_valor": 1,
+            },
+        )
         assert r.status_code == status.HTTP_201_CREATED
         badge_id = r.json()["id"]
 
@@ -96,7 +109,10 @@ class TestBadges:
 
 class TestMissoes:
     async def test_create_missao(self, client):
-        r = await client.post("/api/v1/gamificacao/missoes", json={"titulo": "Missao Teste", "tipo": "cursos", "xp_recompensa": 500, "criterio": {"cursos": 3}})
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Missao Teste", "tipo": "cursos", "xp_recompensa": 500, "criterio": {"cursos": 3}},
+        )
         assert r.status_code == status.HTTP_201_CREATED
         missao_id = r.json()["id"]
 
@@ -105,7 +121,10 @@ class TestMissoes:
         assert any(m["id"] == missao_id for m in r.json())
 
     async def test_update_missao(self, client):
-        r = await client.post("/api/v1/gamificacao/missoes", json={"titulo": "Missao Original", "tipo": "xp", "xp_recompensa": 300, "criterio": {"xp": 1000}})
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Missao Original", "tipo": "xp", "xp_recompensa": 300, "criterio": {"xp": 1000}},
+        )
         missao_id = r.json()["id"]
 
         r = await client.patch(f"/api/v1/gamificacao/missoes/{missao_id}", json={"titulo": "Missao Atualizada"})
@@ -113,15 +132,22 @@ class TestMissoes:
         assert r.json()["titulo"] == "Missao Atualizada"
 
     async def test_participar_missao(self, client, admin_user):
-        r = await client.post("/api/v1/gamificacao/missoes", json={"titulo": "Missao Participar", "tipo": "xp", "xp_recompensa": 300, "criterio": {"xp": 1000}})
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Missao Participar", "tipo": "xp", "xp_recompensa": 300, "criterio": {"xp": 1000}},
+        )
         missao_id = r.json()["id"]
 
         uid = str(admin_user.id)
-        r = await client.post("/api/v1/gamificacao/missoes/participar", json={"usuario_id": uid, "missao_id": missao_id})
+        r = await client.post(
+            "/api/v1/gamificacao/missoes/participar", json={"usuario_id": uid, "missao_id": missao_id}
+        )
         assert r.status_code == status.HTTP_201_CREATED
         um_id = r.json()["id"]
 
-        r = await client.patch(f"/api/v1/gamificacao/missoes/usuario/{um_id}", json={"status": "concluido", "progresso_pct": 100.0})
+        r = await client.patch(
+            f"/api/v1/gamificacao/missoes/usuario/{um_id}", json={"status": "concluido", "progresso_pct": 100.0}
+        )
         assert r.status_code == status.HTTP_200_OK
         assert r.json()["status"] == "concluido"
 

@@ -41,14 +41,14 @@ async def require_credenciamento(
     """Dependency para verificar se usuario esta credenciado (aprovado)"""
     if current_user.status_credenciamento != "aprovado":
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Usuario não credenciado. Aguarde aprovacao do gestor/admin."
+            status_code=status.HTTP_403_FORBIDDEN, detail="Usuario não credenciado. Aguarde aprovacao do gestor/admin."
         )
     return current_user
 
 
 def require_permissao(permissao: str):
     """Factory que retorna uma dependency para verificar permissão específica"""
+
     async def _check_permissao(
         current_user: Usuario = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
@@ -56,24 +56,18 @@ def require_permissao(permissao: str):
         if current_user.status_credenciamento != "aprovado":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Usuario não credenciado. Aguarde aprovacao do gestor/admin."
+                detail="Usuario não credenciado. Aguarde aprovacao do gestor/admin.",
             )
 
-        result = await db.execute(
-            select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == current_user.id)
-        )
+        result = await db.execute(select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == current_user.id))
         perfil = result.scalar_one_or_none()
 
         if not perfil:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Usuario não tem perfil atribuído."
-            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario não tem perfil atribuído.")
 
         if not has_permission(perfil.nome, permissao):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Perfil '{perfil.nome}' não tem permissão '{permissao}'."
+                status_code=status.HTTP_403_FORBIDDEN, detail=f"Perfil '{perfil.nome}' não tem permissão '{permissao}'."
             )
 
         return current_user

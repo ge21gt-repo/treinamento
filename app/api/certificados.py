@@ -21,12 +21,13 @@ router = APIRouter(prefix="/certificados", tags=["Certificados"])
 
 # --- Modelos ---
 
+
 @router.get("/modelos", response_model=list[ModeloCertificadoRead])
 async def listar_modelos(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(select(ModeloCertificado).where(ModeloCertificado.ativo == True))
+    result = await db.execute(select(ModeloCertificado).where(ModeloCertificado.ativo))
     return result.scalars().all()
 
 
@@ -44,6 +45,7 @@ async def criar_modelo(
 
 
 # --- Certificados ---
+
 
 @router.post("", response_model=CertificadoRead, status_code=status.HTTP_201_CREATED)
 async def emitir_certificado(

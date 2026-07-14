@@ -57,13 +57,17 @@ class TestCursosCRUD:
 
 class TestFiltroTrilha:
     async def test_filtrar_cursos_por_trilha(self, client):
-        trilha_resp = await client.post("/api/v1/trilhas", json={
-            "titulo": "Trilha Cursos", "nivel": "iniciante",
-        })
+        trilha_resp = await client.post(
+            "/api/v1/trilhas",
+            json={
+                "titulo": "Trilha Cursos",
+                "nivel": "iniciante",
+            },
+        )
         trilha_id = trilha_resp.json()["id"]
 
-        curso1 = await criar_curso(client, "Curso Trilha 1", trilha_id=trilha_id)
-        curso2 = await criar_curso(client, "Curso Trilha 2", trilha_id=trilha_id)
+        await criar_curso(client, "Curso Trilha 1", trilha_id=trilha_id)
+        await criar_curso(client, "Curso Trilha 2", trilha_id=trilha_id)
         await criar_curso(client, "Curso Solto")
 
         response = await client.get(f"/api/v1/cursos?trilha_id={trilha_id}")

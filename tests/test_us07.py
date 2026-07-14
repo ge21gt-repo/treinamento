@@ -1,6 +1,6 @@
 import pytest
-from httpx import ASGITransport, AsyncClient
 from fastapi import status
+from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
@@ -173,8 +173,14 @@ class TestDashboardMeuProgresso:
         assert "usuario_id" in data
         assert "nome" in data
         assert "cursos" in data
-        for campo in ("total_cursos_inscritos", "total_cursos_concluidos",
-                      "total_horas_cursadas", "total_certificados", "xp_total", "nivel"):
+        for campo in (
+            "total_cursos_inscritos",
+            "total_cursos_concluidos",
+            "total_horas_cursadas",
+            "total_certificados",
+            "xp_total",
+            "nivel",
+        ):
             assert campo in data
 
 
@@ -218,8 +224,10 @@ class TestPermissionsRBAC:
     """Verificacao de permissoes RBAC para inscricao"""
 
     async def test_usuario_sem_permissao_nao_inscreve_outro(self, client, participante_user):
-        from app.services.auth import create_access_token
         from httpx import ASGITransport, AsyncClient
+
+        from app.services.auth import create_access_token
+
         create_resp = await criar_curso(client, "Curso RBAC Inscricao")
         curso_id = create_resp.json()["id"]
         saved_overrides = dict(app.dependency_overrides)

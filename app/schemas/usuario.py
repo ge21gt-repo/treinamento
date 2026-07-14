@@ -21,6 +21,7 @@ class UsuarioCreate(UsuarioBase):
 
 class UsuarioRegistro(UsuarioBase):
     """Schema especifico para registro de usuario com selecao de perfil"""
+
     senha: str
     perfil_solicitado: str  # administrador_geral, instrutor, gestor, participante
     aceite_lgpd: bool = False
@@ -86,21 +87,25 @@ class LoginRequest(BaseModel):
 # Schemas especificos para Gestor
 class GestorBase(BaseModel):
     """Campos base para gestor - extensivel para campos especificos no futuro"""
+
     pass
 
 
 class GestorCreate(GestorBase, UsuarioCreate):
     """Schema para criacao de gestor - herda campos de usuario"""
+
     pass
 
 
 class GestorRead(GestorBase, UsuarioRead):
     """Schema para leitura de gestor - herda campos de usuario"""
+
     pass
 
 
 class GestorUpdate(GestorBase, UsuarioUpdate):
     """Schema para atualizacao de gestor - herda campos de usuario"""
+
     pass
 
 
@@ -121,6 +126,7 @@ class RedefinirSenhaRequest(BaseModel):
 
 class CriarSubordinadoRequest(BaseModel):
     """Schema para gestor criar subordinado (participante)"""
+
     nome_completo: str
     email: EmailStr
     senha: str

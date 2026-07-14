@@ -41,7 +41,9 @@ class ForumResposta(Base):
     __table_args__ = {"schema": "lms"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    topico_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.forum_topicos.id", ondelete="CASCADE"), nullable=False)
+    topico_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lms.forum_topicos.id", ondelete="CASCADE"), nullable=False
+    )
     autor_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
     conteudo: Mapped[str] = mapped_column(Text, nullable=False)
     resposta_pai_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("lms.forum_respostas.id"))

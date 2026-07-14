@@ -6,9 +6,30 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/lms_idesp
+  STORAGE_BACKEND: local
+  SECRET_KEY: ci-secret-key-for-github-actions
+
 jobs:
   lint-and-check:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lms_idesp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -19,11 +40,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install ruff
+        run: pip install ruff
+
       - name: Check imports
         run: python -c "from app.main import app; print(f'{len(app.routes)} routes loaded')"
 
-      - name: Install test deps
-        run: pip install pytest pytest-asyncio
+      - name: Lint (ruff check)
+        run: ruff check --output-format=github
 
-      - name: Run non-DB tests
-        run: python -m pytest tests/test_health.py tests/test_imports.py tests/test_auth.py tests/test_rbac.py tests/test_us05.py tests/test_us06.py -v
+      - name: Format check (ruff format)
+        run: ruff format --check
+
+      - name: Create lms schema
+        run: psql "$DATABASE_URL" -c "CREATE SCHEMA IF NOT EXISTS lms"
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lms_idesp
+
+      - name: Run tests
+        run: python -m pytest -v --tb=short

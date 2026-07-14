@@ -21,6 +21,7 @@ router = APIRouter(prefix="/comunicacao", tags=["Comunicacao"])
 
 # --- Chat ---
 
+
 @router.post("/chat", response_model=MensagemChatRead, status_code=status.HTTP_201_CREATED)
 async def enviar_mensagem(
     payload: MensagemChatCreate,
@@ -53,6 +54,7 @@ async def listar_mensagens(
 
 
 # --- Forum ---
+
 
 @router.get("/forum/{curso_id}", response_model=list[ForumTopicoRead])
 async def listar_topicos(
@@ -132,6 +134,7 @@ async def excluir_topico(
 
 # --- Forum Respostas ---
 
+
 @router.get("/forum/topico/{topico_id}/respostas", response_model=list[ForumRespostaRead])
 async def listar_respostas(
     topico_id: int,
@@ -139,9 +142,7 @@ async def listar_respostas(
     _: Usuario = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(ForumResposta)
-        .where(ForumResposta.topico_id == topico_id)
-        .order_by(ForumResposta.criado_em)
+        select(ForumResposta).where(ForumResposta.topico_id == topico_id).order_by(ForumResposta.criado_em)
     )
     return result.scalars().all()
 

@@ -22,7 +22,9 @@ class TrilhaAprendizagem(Base):
     publicada: Mapped[bool] = mapped_column(Boolean, default=False)
     criado_por: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     cursos: Mapped[list["Curso"]] = relationship(back_populates="trilha")
     inscricoes: Mapped[list["InscricaoTrilha"]] = relationship(back_populates="trilha")
@@ -43,7 +45,9 @@ class Curso(Base):
     publicado: Mapped[bool] = mapped_column(Boolean, default=False)
     instrutor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     trilha: Mapped["TrilhaAprendizagem | None"] = relationship(back_populates="cursos")
     modulos: Mapped[list["Modulo"]] = relationship(back_populates="curso", cascade="all, delete-orphan")

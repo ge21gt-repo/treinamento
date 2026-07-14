@@ -93,11 +93,11 @@ async def validate_size(file: UploadFile) -> None:
     content = await file.read()
     await file.seek(0)
     if len(content) > settings.MAX_UPLOAD_SIZE:
-        raise ValueError(f"Arquivo excede o limite de {settings.MAX_UPLOAD_SIZE // (1024*1024)}MB")
+        raise ValueError(f"Arquivo excede o limite de {settings.MAX_UPLOAD_SIZE // (1024 * 1024)}MB")
 
 
 async def upload_file(file: UploadFile, folder: str) -> str:
-    mime = await validate_mime(file)
+    await validate_mime(file)
     await validate_size(file)
     if settings.STORAGE_BACKEND == "s3":
         return await _upload_s3(file, folder)

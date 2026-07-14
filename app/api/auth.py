@@ -2,17 +2,22 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from passlib.hash import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from passlib.hash import bcrypt
 
 from app.config import settings
 from app.database import get_db
 from app.models.token_reset import TokenResetSenha
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.schemas.usuario import (
-    EsqueciSenhaRequest, LoginRequest, RedefinirSenhaRequest, Token,
-    UsuarioCreate, UsuarioRead, UsuarioRegistro,
+    EsqueciSenhaRequest,
+    LoginRequest,
+    RedefinirSenhaRequest,
+    Token,
+    UsuarioCreate,
+    UsuarioRead,
+    UsuarioRegistro,
 )
 from app.services.auth import create_access_token, hash_password, verify_password
 from app.services.credenciamento import criar_solicitacao_credenciamento
@@ -131,10 +136,12 @@ async def esqueci_senha(payload: EsqueciSenhaRequest, db: AsyncSession = Depends
 @router.post("/redefinir-senha")
 async def redefinir_senha(payload: RedefinirSenhaRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(TokenResetSenha).where(
-            TokenResetSenha.utilizado == False,
+        select(TokenResetSenha)
+        .where(
+            not TokenResetSenha.utilizado,
             TokenResetSenha.expira_em > datetime.now(timezone.utc),
-        ).order_by(TokenResetSenha.criado_em.desc())
+        )
+        .order_by(TokenResetSenha.criado_em.desc())
     )
     tokens = result.scalars().all()
 

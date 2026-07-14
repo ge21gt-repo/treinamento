@@ -1,6 +1,6 @@
 import pytest
-from httpx import ASGITransport, AsyncClient
 from fastapi import status
+from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
@@ -37,7 +37,10 @@ class TestComunicacaoAuth:
 class TestForum:
     async def test_create_and_list_topicos(self, client):
         curso_id = await criar_curso(client, "Curso Forum")
-        r = await client.post("/api/v1/comunicacao/forum", json={"curso_id": curso_id, "titulo": "Duvida sobre Python", "conteudo": "Como funciona async/await?"})
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "Duvida sobre Python", "conteudo": "Como funciona async/await?"},
+        )
         assert r.status_code == status.HTTP_201_CREATED
         data = r.json()
         assert data["titulo"] == "Duvida sobre Python"
@@ -50,7 +53,10 @@ class TestForum:
 
     async def test_get_update_delete_topico(self, client):
         curso_id = await criar_curso(client, "Curso Forum Update")
-        r = await client.post("/api/v1/comunicacao/forum", json={"curso_id": curso_id, "titulo": "Topico", "conteudo": "Conteudo original"})
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "Topico", "conteudo": "Conteudo original"},
+        )
         topico_id = r.json()["id"]
 
         r = await client.get(f"/api/v1/comunicacao/forum/topico/{topico_id}")
@@ -66,10 +72,15 @@ class TestForum:
 
     async def test_forum_respostas(self, client):
         curso_id = await criar_curso(client, "Curso Forum Respostas")
-        r = await client.post("/api/v1/comunicacao/forum", json={"curso_id": curso_id, "titulo": "Pergunta", "conteudo": "Qual a resposta?"})
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "Pergunta", "conteudo": "Qual a resposta?"},
+        )
         topico_id = r.json()["id"]
 
-        r = await client.post("/api/v1/comunicacao/forum/respostas", json={"topico_id": topico_id, "conteudo": "Resposta 1"})
+        r = await client.post(
+            "/api/v1/comunicacao/forum/respostas", json={"topico_id": topico_id, "conteudo": "Resposta 1"}
+        )
         assert r.status_code == status.HTTP_201_CREATED
 
         r = await client.get(f"/api/v1/comunicacao/forum/topico/{topico_id}/respostas")
@@ -82,10 +93,14 @@ class TestForum:
 class TestChat:
     async def test_send_and_list_chat(self, client, admin_user):
         uid = str(admin_user.id)
-        r = await client.post("/api/v1/sessoes", json={
-            "titulo": "Sessao Chat", "instrutor_id": uid,
-            "data_hora_inicio": "2026-07-14T10:00:00Z",
-        })
+        r = await client.post(
+            "/api/v1/sessoes",
+            json={
+                "titulo": "Sessao Chat",
+                "instrutor_id": uid,
+                "data_hora_inicio": "2026-07-14T10:00:00Z",
+            },
+        )
         sessao_id = r.json()["id"]
 
         r = await client.post("/api/v1/comunicacao/chat", json={"sessao_id": sessao_id, "conteudo": "Ola pessoal!"})

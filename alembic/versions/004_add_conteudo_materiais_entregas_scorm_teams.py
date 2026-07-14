@@ -7,9 +7,10 @@ Create Date: 2026-07-09
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "004_add_conteudo_materiais_entregas_scorm_teams"
 down_revision: Union[str, None] = "003_add_aulas_chat_unidades"
@@ -111,9 +112,12 @@ def upgrade() -> None:
     op.add_column("aulas_sincronas", sa.Column("gravacao_conteudo_id", sa.Integer(), nullable=True), schema="lms")
     op.create_foreign_key(
         "fk_aulas_sincronas_gravacao_conteudo",
-        "aulas_sincronas", "conteudos",
-        ["gravacao_conteudo_id"], ["id"],
-        source_schema="lms", referent_schema="lms",
+        "aulas_sincronas",
+        "conteudos",
+        ["gravacao_conteudo_id"],
+        ["id"],
+        source_schema="lms",
+        referent_schema="lms",
     )
 
 

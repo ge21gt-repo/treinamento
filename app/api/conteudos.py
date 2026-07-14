@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_permissao
+from app.api.deps import require_permissao
 from app.database import get_db
 from app.models.conteudo import Conteudo, MaterialComplementar
 from app.models.usuario import Usuario
@@ -15,7 +15,7 @@ from app.schemas.conteudo import (
     MaterialComplementarUpdate,
 )
 from app.services.rbac import Permissoes
-from app.services.storage import upload_file, delete_file
+from app.services.storage import delete_file, upload_file
 
 router = APIRouter(prefix="/conteudos", tags=["Conteudos"])
 
@@ -62,8 +62,12 @@ async def upload_conteudo(
     current_user: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_CRIAR)),
 ):
     folder_map = {
-        "video": "videos", "pdf": "pdfs", "audio": "audios",
-        "scorm": "scorm", "document": "documentos", "image": "imagens",
+        "video": "videos",
+        "pdf": "pdfs",
+        "audio": "audios",
+        "scorm": "scorm",
+        "document": "documentos",
+        "image": "imagens",
     }
     folder = folder_map.get(tipo_midia, "outros")
     try:
@@ -150,6 +154,7 @@ async def excluir_conteudo(
 
 
 # --- Materiais Complementares ---
+
 
 @router.get("/materiais/{curso_id}", response_model=list[MaterialComplementarRead])
 async def listar_materiais(

@@ -1,6 +1,6 @@
 import pytest
-from httpx import ASGITransport, AsyncClient
 from fastapi import status
+from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
@@ -24,7 +24,10 @@ class TestCertificadosAuth:
     async def test_emitir_requires_auth(self):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            r = await ac.post("/api/v1/certificados", json={"usuario_id": "00000000-0000-0000-0000-000000000001", "curso_id": 1, "carga_horaria": 40})
+            r = await ac.post(
+                "/api/v1/certificados",
+                json={"usuario_id": "00000000-0000-0000-0000-000000000001", "curso_id": 1, "carga_horaria": 40},
+            )
         assert r.status_code in AUTH_OK
 
     async def test_validar_publico(self, client):
@@ -35,10 +38,13 @@ class TestCertificadosAuth:
 
 class TestModelos:
     async def test_create_and_list_modelos(self, client):
-        r = await client.post("/api/v1/certificados/modelos", json={
-            "nome": "Modelo Padrao",
-            "template_html": "<h1>Certificado</h1><p>{{nome}}</p>",
-        })
+        r = await client.post(
+            "/api/v1/certificados/modelos",
+            json={
+                "nome": "Modelo Padrao",
+                "template_html": "<h1>Certificado</h1><p>{{nome}}</p>",
+            },
+        )
         assert r.status_code == status.HTTP_201_CREATED
         data = r.json()
         assert data["nome"] == "Modelo Padrao"
@@ -54,19 +60,25 @@ class TestCertificados:
         curso_id = await criar_curso(client, "Curso Certificado")
         uid = str(admin_user.id)
 
-        r = await client.post("/api/v1/certificados/modelos", json={
-            "nome": "Modelo Curso",
-            "template_html": "<p>Certificado</p>",
-        })
+        r = await client.post(
+            "/api/v1/certificados/modelos",
+            json={
+                "nome": "Modelo Curso",
+                "template_html": "<p>Certificado</p>",
+            },
+        )
         modelo_id = r.json()["id"]
 
-        r = await client.post("/api/v1/certificados", json={
-            "usuario_id": uid,
-            "curso_id": curso_id,
-            "modelo_id": modelo_id,
-            "carga_horaria": 40,
-            "nota_final": 85.0,
-        })
+        r = await client.post(
+            "/api/v1/certificados",
+            json={
+                "usuario_id": uid,
+                "curso_id": curso_id,
+                "modelo_id": modelo_id,
+                "carga_horaria": 40,
+                "nota_final": 85.0,
+            },
+        )
         assert r.status_code == status.HTTP_201_CREATED
         data = r.json()
         assert "hash_validacao" in data
@@ -85,11 +97,14 @@ class TestCertificados:
     async def test_validar_por_hash(self, client, admin_user):
         curso_id = await criar_curso(client, "Curso Validacao")
         uid = str(admin_user.id)
-        r = await client.post("/api/v1/certificados", json={
-            "usuario_id": uid,
-            "curso_id": curso_id,
-            "carga_horaria": 20,
-        })
+        r = await client.post(
+            "/api/v1/certificados",
+            json={
+                "usuario_id": uid,
+                "curso_id": curso_id,
+                "carga_horaria": 20,
+            },
+        )
         hash_val = r.json()["hash_validacao"]
 
         r = await client.get(f"/api/v1/certificados/validar/{hash_val}")

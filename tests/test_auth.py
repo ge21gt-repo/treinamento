@@ -1,7 +1,6 @@
 """Testes reais de autenticação — usam PostgreSQL e HTTP"""
-import pytest
+
 from httpx import ASGITransport, AsyncClient
-from fastapi import status
 
 from app.main import app
 from app.services.auth import create_access_token, decode_token
@@ -11,37 +10,53 @@ class TestRegistro:
     async def test_registro_cria_usuario_ativo(self, db_clean):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            r = await ac.post("/api/v1/auth/registro", json={
-                "nome_completo": "Novo Usuario",
-                "email": "novo@test.com",
-                "senha": "123456",
-                "aceite_lgpd": True,
-            })
+            r = await ac.post(
+                "/api/v1/auth/registro",
+                json={
+                    "nome_completo": "Novo Usuario",
+                    "email": "novo@test.com",
+                    "senha": "123456",
+                    "aceite_lgpd": True,
+                },
+            )
         assert r.status_code == 201
         assert r.json()["email"] == "novo@test.com"
 
     async def test_registro_sem_aceite_lgpd_falha(self, db_clean):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            r = await ac.post("/api/v1/auth/registro", json={
-                "nome_completo": "Sem LGPD",
-                "email": "semlgpd@test.com",
-                "senha": "123456",
-                "aceite_lgpd": False,
-            })
+            r = await ac.post(
+                "/api/v1/auth/registro",
+                json={
+                    "nome_completo": "Sem LGPD",
+                    "email": "semlgpd@test.com",
+                    "senha": "123456",
+                    "aceite_lgpd": False,
+                },
+            )
         assert r.status_code == 422
 
     async def test_registro_email_duplicado_rejeitado(self, db_clean):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            await ac.post("/api/v1/auth/registro", json={
-                "nome_completo": "Primeiro", "email": "dup@test.com",
-                "senha": "123456", "aceite_lgpd": True,
-            })
-            r = await ac.post("/api/v1/auth/registro", json={
-                "nome_completo": "Segundo", "email": "dup@test.com",
-                "senha": "123456", "aceite_lgpd": True,
-            })
+            await ac.post(
+                "/api/v1/auth/registro",
+                json={
+                    "nome_completo": "Primeiro",
+                    "email": "dup@test.com",
+                    "senha": "123456",
+                    "aceite_lgpd": True,
+                },
+            )
+            r = await ac.post(
+                "/api/v1/auth/registro",
+                json={
+                    "nome_completo": "Segundo",
+                    "email": "dup@test.com",
+                    "senha": "123456",
+                    "aceite_lgpd": True,
+                },
+            )
         assert r.status_code == 400
 
 
@@ -49,26 +64,44 @@ class TestLogin:
     async def test_login_retorna_token(self, db_clean):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            await ac.post("/api/v1/auth/registro", json={
-                "nome_completo": "Login Test", "email": "login@test.com",
-                "senha": "123456", "aceite_lgpd": True,
-            })
-            r = await ac.post("/api/v1/auth/login", json={
-                "email": "login@test.com", "senha": "123456",
-            })
+            await ac.post(
+                "/api/v1/auth/registro",
+                json={
+                    "nome_completo": "Login Test",
+                    "email": "login@test.com",
+                    "senha": "123456",
+                    "aceite_lgpd": True,
+                },
+            )
+            r = await ac.post(
+                "/api/v1/auth/login",
+                json={
+                    "email": "login@test.com",
+                    "senha": "123456",
+                },
+            )
         assert r.status_code == 200
         assert "access_token" in r.json()
 
     async def test_login_senha_invalida(self, db_clean):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            await ac.post("/api/v1/auth/registro", json={
-                "nome_completo": "Senha Test", "email": "senha@test.com",
-                "senha": "123456", "aceite_lgpd": True,
-            })
-            r = await ac.post("/api/v1/auth/login", json={
-                "email": "senha@test.com", "senha": "senha_errada",
-            })
+            await ac.post(
+                "/api/v1/auth/registro",
+                json={
+                    "nome_completo": "Senha Test",
+                    "email": "senha@test.com",
+                    "senha": "123456",
+                    "aceite_lgpd": True,
+                },
+            )
+            r = await ac.post(
+                "/api/v1/auth/login",
+                json={
+                    "email": "senha@test.com",
+                    "senha": "senha_errada",
+                },
+            )
         assert r.status_code == 401
 
 
@@ -76,11 +109,16 @@ class TestRegistroComPerfil:
     async def test_registro_com_perfil_cria_solicitacao_pendente(self, db_clean):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            r = await ac.post("/api/v1/auth/registro-com-perfil", json={
-                "nome_completo": "Solicitante", "email": "sol@test.com",
-                "senha": "123456", "perfil_solicitado": "instrutor",
-                "aceite_lgpd": True,
-            })
+            r = await ac.post(
+                "/api/v1/auth/registro-com-perfil",
+                json={
+                    "nome_completo": "Solicitante",
+                    "email": "sol@test.com",
+                    "senha": "123456",
+                    "perfil_solicitado": "instrutor",
+                    "aceite_lgpd": True,
+                },
+            )
         assert r.status_code == 201
         data = r.json()
         assert data["status"] == "pendente"
@@ -89,11 +127,16 @@ class TestRegistroComPerfil:
     async def test_registro_com_perfil_invalido_falha(self, db_clean):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            r = await ac.post("/api/v1/auth/registro-com-perfil", json={
-                "nome_completo": "Invalido", "email": "inv@test.com",
-                "senha": "123456", "perfil_solicitado": "admin",
-                "aceite_lgpd": True,
-            })
+            r = await ac.post(
+                "/api/v1/auth/registro-com-perfil",
+                json={
+                    "nome_completo": "Invalido",
+                    "email": "inv@test.com",
+                    "senha": "123456",
+                    "perfil_solicitado": "admin",
+                    "aceite_lgpd": True,
+                },
+            )
         assert r.status_code == 400
 
 

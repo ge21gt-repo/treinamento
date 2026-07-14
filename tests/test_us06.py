@@ -1,10 +1,6 @@
 """Testes reais US-06 — upload, conteudo, entrega, SCORM via API"""
-import io
-import pytest
-from httpx import ASGITransport, AsyncClient
-from fastapi import status
 
-from app.main import app
+import io
 
 
 async def criar_curso(client, titulo="Curso Conteudo"):
@@ -13,12 +9,24 @@ async def criar_curso(client, titulo="Curso Conteudo"):
 
 
 async def criar_modulo(client, curso_id):
-    r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "M", "descricao": "x", "ordem": 0})
+    r = await client.post(
+        "/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "M", "descricao": "x", "ordem": 0}
+    )
     return r.json()["id"]
 
 
 async def criar_unidade(client, modulo_id):
-    r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": modulo_id, "titulo": "U", "tipo": "conteudo", "descricao": "x", "conteudo_url": "https://exemplo.com/aula.pdf", "ordem": 0})
+    r = await client.post(
+        "/api/v1/cursos/unidades",
+        json={
+            "modulo_id": modulo_id,
+            "titulo": "U",
+            "tipo": "conteudo",
+            "descricao": "x",
+            "conteudo_url": "https://exemplo.com/aula.pdf",
+            "ordem": 0,
+        },
+    )
     return r.json()["id"]
 
 
@@ -63,10 +71,15 @@ class TestConteudoCRUD:
         curso_id = await criar_curso(client)
         mod_id = await criar_modulo(client, curso_id)
         uni_id = await criar_unidade(client, mod_id)
-        r = await client.post("/api/v1/conteudos", json={
-            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Link Externo",
-            "url_arquivo": "https://youtube.com/watch?v=123",
-        })
+        r = await client.post(
+            "/api/v1/conteudos",
+            json={
+                "unidade_id": uni_id,
+                "tipo_midia": "link",
+                "titulo": "Link Externo",
+                "url_arquivo": "https://youtube.com/watch?v=123",
+            },
+        )
         assert r.status_code == 201
         assert r.json()["titulo"] == "Link Externo"
 
@@ -74,10 +87,15 @@ class TestConteudoCRUD:
         curso_id = await criar_curso(client)
         mod_id = await criar_modulo(client, curso_id)
         uni_id = await criar_unidade(client, mod_id)
-        await client.post("/api/v1/conteudos", json={
-            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Link 1",
-            "url_arquivo": "https://example.com/1",
-        })
+        await client.post(
+            "/api/v1/conteudos",
+            json={
+                "unidade_id": uni_id,
+                "tipo_midia": "link",
+                "titulo": "Link 1",
+                "url_arquivo": "https://example.com/1",
+            },
+        )
         r = await client.get(f"/api/v1/conteudos?unidade_id={uni_id}")
         assert r.status_code == 200
         assert len(r.json()) >= 1
@@ -86,10 +104,15 @@ class TestConteudoCRUD:
         curso_id = await criar_curso(client)
         mod_id = await criar_modulo(client, curso_id)
         uni_id = await criar_unidade(client, mod_id)
-        r = await client.post("/api/v1/conteudos", json={
-            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Link Unico",
-            "url_arquivo": "https://example.com/unique",
-        })
+        r = await client.post(
+            "/api/v1/conteudos",
+            json={
+                "unidade_id": uni_id,
+                "tipo_midia": "link",
+                "titulo": "Link Unico",
+                "url_arquivo": "https://example.com/unique",
+            },
+        )
         cid = r.json()["id"]
         r = await client.get(f"/api/v1/conteudos/{cid}")
         assert r.status_code == 200
@@ -99,10 +122,15 @@ class TestConteudoCRUD:
         curso_id = await criar_curso(client)
         mod_id = await criar_modulo(client, curso_id)
         uni_id = await criar_unidade(client, mod_id)
-        r = await client.post("/api/v1/conteudos", json={
-            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Original",
-            "url_arquivo": "https://example.com/1",
-        })
+        r = await client.post(
+            "/api/v1/conteudos",
+            json={
+                "unidade_id": uni_id,
+                "tipo_midia": "link",
+                "titulo": "Original",
+                "url_arquivo": "https://example.com/1",
+            },
+        )
         cid = r.json()["id"]
         r = await client.patch(f"/api/v1/conteudos/{cid}", json={"titulo": "Atualizado"})
         assert r.status_code == 200
@@ -112,10 +140,15 @@ class TestConteudoCRUD:
         curso_id = await criar_curso(client)
         mod_id = await criar_modulo(client, curso_id)
         uni_id = await criar_unidade(client, mod_id)
-        r = await client.post("/api/v1/conteudos", json={
-            "unidade_id": uni_id, "tipo_midia": "link", "titulo": "Deletar",
-            "url_arquivo": "https://example.com/del",
-        })
+        r = await client.post(
+            "/api/v1/conteudos",
+            json={
+                "unidade_id": uni_id,
+                "tipo_midia": "link",
+                "titulo": "Deletar",
+                "url_arquivo": "https://example.com/del",
+            },
+        )
         cid = r.json()["id"]
         r = await client.delete(f"/api/v1/conteudos/{cid}")
         assert r.status_code == 204
@@ -149,18 +182,28 @@ class TestMateriais:
 
     async def test_criar_material_sem_arquivo(self, client):
         curso_id = await criar_curso(client)
-        r = await client.post("/api/v1/conteudos/materiais", json={
-            "curso_id": curso_id, "titulo": "Link Externo",
-            "tipo": "link", "url_arquivo": "https://example.com",
-        })
+        r = await client.post(
+            "/api/v1/conteudos/materiais",
+            json={
+                "curso_id": curso_id,
+                "titulo": "Link Externo",
+                "tipo": "link",
+                "url_arquivo": "https://example.com",
+            },
+        )
         assert r.status_code == 201
 
     async def test_atualizar_material(self, client):
         curso_id = await criar_curso(client)
-        r = await client.post("/api/v1/conteudos/materiais", json={
-            "curso_id": curso_id, "titulo": "Original", "tipo": "link",
-            "url_arquivo": "https://example.com/1",
-        })
+        r = await client.post(
+            "/api/v1/conteudos/materiais",
+            json={
+                "curso_id": curso_id,
+                "titulo": "Original",
+                "tipo": "link",
+                "url_arquivo": "https://example.com/1",
+            },
+        )
         mid = r.json()["id"]
         r = await client.patch(f"/api/v1/conteudos/materiais/{mid}", json={"titulo": "Atualizado"})
         assert r.status_code == 200
@@ -168,10 +211,15 @@ class TestMateriais:
 
     async def test_deletar_material(self, client):
         curso_id = await criar_curso(client)
-        r = await client.post("/api/v1/conteudos/materiais", json={
-            "curso_id": curso_id, "titulo": "Deletar", "tipo": "link",
-            "url_arquivo": "https://example.com/del",
-        })
+        r = await client.post(
+            "/api/v1/conteudos/materiais",
+            json={
+                "curso_id": curso_id,
+                "titulo": "Deletar",
+                "tipo": "link",
+                "url_arquivo": "https://example.com/del",
+            },
+        )
         mid = r.json()["id"]
         r = await client.delete(f"/api/v1/conteudos/materiais/{mid}")
         assert r.status_code == 204
@@ -254,9 +302,15 @@ class TestSCORM:
             files={"arquivo": ("track.zip", io.BytesIO(b"PK zip"), "application/zip")},
         )
         pid = r.json()["id"]
-        r = await client.post(f"/api/v1/scorm/{pid}/tracking", json={
-            "sco_id": "sco1", "status": "concluido", "score_raw": 85.0, "progresso_pct": 100.0,
-        })
+        r = await client.post(
+            f"/api/v1/scorm/{pid}/tracking",
+            json={
+                "sco_id": "sco1",
+                "status": "concluido",
+                "score_raw": 85.0,
+                "progresso_pct": 100.0,
+            },
+        )
         assert r.status_code == 201
         assert r.json()["status"] == "concluido"
 

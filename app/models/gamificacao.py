@@ -51,7 +51,9 @@ class UsuarioBadge(Base):
     __tablename__ = "usuario_badge"
     __table_args__ = {"schema": "lms"}
 
-    usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id", ondelete="CASCADE"), primary_key=True)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("lms.usuarios.id", ondelete="CASCADE"), primary_key=True
+    )
     badge_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.badges.id", ondelete="CASCADE"), primary_key=True)
     conquistado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -90,7 +92,9 @@ class Streak(Base):
     __table_args__ = {"schema": "lms"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), unique=True, nullable=False)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), unique=True, nullable=False
+    )
     dias_consecutivos: Mapped[int] = mapped_column(Integer, default=0)
     maior_streak: Mapped[int] = mapped_column(Integer, default=0)
     ultimo_acesso_dia: Mapped[date | None] = mapped_column(Date)

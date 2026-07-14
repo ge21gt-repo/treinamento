@@ -28,7 +28,9 @@ class TrackingScorm(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
-    pacote_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.pacotes_scorm.id", ondelete="CASCADE"), nullable=False)
+    pacote_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lms.pacotes_scorm.id", ondelete="CASCADE"), nullable=False
+    )
     sco_id: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="nao_iniciado")
     score_raw: Mapped[float | None] = mapped_column(Float)
@@ -38,4 +40,6 @@ class TrackingScorm(Base):
     progresso_pct: Mapped[float | None] = mapped_column(Float)
     dados_cmi: Mapped[dict | None] = mapped_column(JSONB)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

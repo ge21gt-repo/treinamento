@@ -93,6 +93,7 @@ async def excluir_sessao(
 
 # --- Presenca ---
 
+
 @router.post("/presenca", response_model=PresencaRead, status_code=status.HTTP_201_CREATED)
 async def registrar_presenca(
     payload: PresencaCreate,

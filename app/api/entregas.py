@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_permissao
+from app.api.deps import require_permissao
 from app.database import get_db
 from app.models.conteudo import EntregaAtividade
 from app.models.usuario import Usuario

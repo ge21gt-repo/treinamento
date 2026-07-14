@@ -33,7 +33,9 @@ class Questao(Base):
     __table_args__ = {"schema": "lms"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    avaliacao_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.avaliacoes.id", ondelete="CASCADE"), nullable=False)
+    avaliacao_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lms.avaliacoes.id", ondelete="CASCADE"), nullable=False
+    )
     enunciado: Mapped[str] = mapped_column(Text, nullable=False)
     tipo: Mapped[str] = mapped_column(String(30), nullable=False)
     pontuacao: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("1.00"))

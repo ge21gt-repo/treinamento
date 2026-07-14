@@ -1,9 +1,4 @@
 import pytest
-from httpx import ASGITransport, AsyncClient
-
-from app.database import async_session
-from app.main import app
-from app.models.curso import TrilhaAprendizagem
 
 pytestmark = pytest.mark.db
 

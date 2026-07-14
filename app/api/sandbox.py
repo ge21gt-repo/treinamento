@@ -57,9 +57,7 @@ async def verificar_sandbox_ativo(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    sessoes = await sandbox_service.listar_sessoes(
-        db=db, usuario_id=current_user.id, apenas_ativas=True
-    )
+    sessoes = await sandbox_service.listar_sessoes(db=db, usuario_id=current_user.id, apenas_ativas=True)
     return sessoes[0] if sessoes else None
 
 

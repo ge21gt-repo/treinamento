@@ -9,13 +9,12 @@ from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.schemas.usuario import UsuarioRegistro
 from app.services.auth import hash_password
 
-
 # Regras de autorização hierárquica
 HIERARQUIA_APROVACAO = {
     "administrador_geral": ["instrutor", "gestor", "participante"],
     "instrutor": ["gestor", "participante"],
     "gestor": ["participante"],
-    "participante": []  # Não pode aprovar ninguém
+    "participante": [],  # Não pode aprovar ninguém
 }
 
 
@@ -28,10 +27,7 @@ def pode_aprovar(perfil_aprovador: str, perfil_solicitado: str) -> bool:
     return perfil_solicitado in perfis_permitidos
 
 
-async def criar_solicitacao_credenciamento(
-    payload: UsuarioRegistro,
-    db: AsyncSession
-) -> SolicitacaoCredenciamento:
+async def criar_solicitacao_credenciamento(payload: UsuarioRegistro, db: AsyncSession) -> SolicitacaoCredenciamento:
     """
     Cria uma solicitacao de credenciamento pendente
     Em vez de criar usuario ativo, cria solicitacao que precisa ser aprovada
@@ -66,19 +62,14 @@ async def criar_solicitacao_credenciamento(
 
 
 async def aprovar_solicitacao(
-    solicitacao_id: int,
-    aprovador_id: uuid.UUID,
-    observacao: str | None,
-    db: AsyncSession
+    solicitacao_id: int, aprovador_id: uuid.UUID, observacao: str | None, db: AsyncSession
 ) -> dict:
     """
     Aprova uma solicitacao de credenciamento
     Cria usuario ativo, atribui perfil, marca solicitacao como aprovada
     """
     # Buscar solicitacao
-    result = await db.execute(
-        select(SolicitacaoCredenciamento).where(SolicitacaoCredenciamento.id == solicitacao_id)
-    )
+    result = await db.execute(select(SolicitacaoCredenciamento).where(SolicitacaoCredenciamento.id == solicitacao_id))
     solicitacao = result.scalar_one_or_none()
     if not solicitacao:
         raise ValueError("Solicitacao não encontrada")
@@ -86,9 +77,7 @@ async def aprovar_solicitacao(
         raise ValueError("Solicitacao já foi processada")
 
     # Buscar perfil do aprovador
-    result_aprovador = await db.execute(
-        select(Usuario).where(Usuario.id == aprovador_id)
-    )
+    result_aprovador = await db.execute(select(Usuario).where(Usuario.id == aprovador_id))
     aprovador = result_aprovador.scalar_one_or_none()
     if not aprovador:
         raise ValueError("Aprovador não encontrado")
@@ -108,9 +97,7 @@ async def aprovar_solicitacao(
         )
 
     # Buscar usuario solicitante
-    result_usuario = await db.execute(
-        select(Usuario).where(Usuario.id == solicitacao.usuario_id)
-    )
+    result_usuario = await db.execute(select(Usuario).where(Usuario.id == solicitacao.usuario_id))
     usuario = result_usuario.scalar_one_or_none()
     if not usuario:
         raise ValueError("Usuario não encontrado")
@@ -122,9 +109,7 @@ async def aprovar_solicitacao(
     usuario.data_aprovacao = datetime.now(timezone.utc)
 
     # Buscar perfil solicitado
-    result_perfil = await db.execute(
-        select(Perfil).where(Perfil.nome == solicitacao.perfil_solicitado)
-    )
+    result_perfil = await db.execute(select(Perfil).where(Perfil.nome == solicitacao.perfil_solicitado))
     perfil = result_perfil.scalar_one_or_none()
     if perfil:
         # Atribuir perfil ao usuario
@@ -142,7 +127,7 @@ async def aprovar_solicitacao(
         aprovador_id=aprovador_id,
         nivel_hierarquico=perfil_aprovador_nome,
         acao="aprovar",
-        motivo=observacao
+        motivo=observacao,
     )
     db.add(aprovacao)
 
@@ -156,24 +141,17 @@ async def aprovar_solicitacao(
         "status": solicitacao.status,
         "perfil_atribuido": solicitacao.perfil_solicitado,
         "aprovado_por": aprovador_id,
-        "data_aprovacao": usuario.data_aprovacao
+        "data_aprovacao": usuario.data_aprovacao,
     }
 
 
-async def rejeitar_solicitacao(
-    solicitacao_id: int,
-    aprovador_id: uuid.UUID,
-    motivo: str,
-    db: AsyncSession
-) -> dict:
+async def rejeitar_solicitacao(solicitacao_id: int, aprovador_id: uuid.UUID, motivo: str, db: AsyncSession) -> dict:
     """
     Rejeita uma solicitacao de credenciamento
     Marca solicitacao como rejeitada, usuario permanece inativo
     """
     # Buscar solicitacao
-    result = await db.execute(
-        select(SolicitacaoCredenciamento).where(SolicitacaoCredenciamento.id == solicitacao_id)
-    )
+    result = await db.execute(select(SolicitacaoCredenciamento).where(SolicitacaoCredenciamento.id == solicitacao_id))
     solicitacao = result.scalar_one_or_none()
     if not solicitacao:
         raise ValueError("Solicitacao não encontrada")
@@ -181,9 +159,7 @@ async def rejeitar_solicitacao(
         raise ValueError("Solicitacao já foi processada")
 
     # Buscar perfil do aprovador
-    result_aprovador = await db.execute(
-        select(Usuario).where(Usuario.id == aprovador_id)
-    )
+    result_aprovador = await db.execute(select(Usuario).where(Usuario.id == aprovador_id))
     aprovador = result_aprovador.scalar_one_or_none()
     if not aprovador:
         raise ValueError("Aprovador não encontrado")
@@ -203,9 +179,7 @@ async def rejeitar_solicitacao(
         )
 
     # Buscar usuario solicitante
-    result_usuario = await db.execute(
-        select(Usuario).where(Usuario.id == solicitacao.usuario_id)
-    )
+    result_usuario = await db.execute(select(Usuario).where(Usuario.id == solicitacao.usuario_id))
     usuario = result_usuario.scalar_one_or_none()
     if not usuario:
         raise ValueError("Usuario não encontrado")
@@ -225,7 +199,7 @@ async def rejeitar_solicitacao(
         aprovador_id=aprovador_id,
         nivel_hierarquico=perfil_aprovador_nome,
         acao="rejeitar",
-        motivo=motivo
+        motivo=motivo,
     )
     db.add(aprovacao)
 
@@ -239,5 +213,5 @@ async def rejeitar_solicitacao(
         "status": solicitacao.status,
         "motivo": motivo,
         "rejeitado_por": aprovador_id,
-        "data_rejeicao": solicitacao.avaliado_em
+        "data_rejeicao": solicitacao.avaliado_em,
     }

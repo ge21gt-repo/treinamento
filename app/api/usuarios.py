@@ -7,7 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
-from app.schemas.usuario import CriarSubordinadoRequest, PerfilCreate, PerfilRead, PerfilUpdate, UsuarioPerfilCreate, UsuarioRead, UsuarioUpdate
+from app.schemas.usuario import (
+    CriarSubordinadoRequest,
+    PerfilCreate,
+    PerfilRead,
+    PerfilUpdate,
+    UsuarioPerfilCreate,
+    UsuarioRead,
+    UsuarioUpdate,
+)
 from app.services.auth import hash_password
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
@@ -27,15 +35,11 @@ async def listar_usuarios(
     _: Usuario = Depends(get_current_user),
 ):
     query = select(Usuario)
-    
+
     # Adicionar filtro por perfil se fornecido
     if perfil_nome:
-        query = (
-            query.join(UsuarioPerfil)
-            .join(Perfil)
-            .where(Perfil.nome == perfil_nome)
-        )
-    
+        query = query.join(UsuarioPerfil).join(Perfil).where(Perfil.nome == perfil_nome)
+
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     return result.scalars().all()
@@ -87,6 +91,7 @@ async def excluir_usuario(
 
 
 # --- Perfis ---
+
 
 @router.get("/perfis/todos", response_model=list[PerfilRead])
 async def listar_perfis(
@@ -159,7 +164,9 @@ async def excluir_perfil(
         select(func.count()).select_from(UsuarioPerfil).where(UsuarioPerfil.perfil_id == perfil_id)
     )
     if count_result.scalar_one() > 0:
-        raise HTTPException(status_code=409, detail="Perfil possui usuarios vinculados. Remova os vinculos antes de excluir.")
+        raise HTTPException(
+            status_code=409, detail="Perfil possui usuarios vinculados. Remova os vinculos antes de excluir."
+        )
     await db.delete(perfil)
     await db.commit()
 

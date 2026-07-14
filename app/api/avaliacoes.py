@@ -101,15 +101,14 @@ async def excluir_avaliacao(
 
 # --- Questoes ---
 
+
 @router.get("/{avaliacao_id}/questoes", response_model=list[QuestaoRead])
 async def listar_questoes(
     avaliacao_id: int,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Questao).where(Questao.avaliacao_id == avaliacao_id).order_by(Questao.ordem)
-    )
+    result = await db.execute(select(Questao).where(Questao.avaliacao_id == avaliacao_id).order_by(Questao.ordem))
     return result.scalars().all()
 
 
@@ -146,6 +145,7 @@ async def atualizar_questao(
 
 # --- Alternativas ---
 
+
 @router.get("/questoes/{questao_id}/alternativas", response_model=list[AlternativaRead])
 async def listar_alternativas(
     questao_id: int,
@@ -173,6 +173,7 @@ async def criar_alternativa(
 
 # --- Respostas ---
 
+
 @router.post("/respostas", response_model=RespostaParticipanteRead, status_code=status.HTTP_201_CREATED)
 async def registrar_resposta(
     payload: RespostaParticipanteCreate,
@@ -192,6 +193,7 @@ async def registrar_resposta(
 
 
 # --- Resultados ---
+
 
 @router.post("/resultados", response_model=ResultadoAvaliacaoRead, status_code=status.HTTP_201_CREATED)
 async def registrar_resultado(

@@ -7,29 +7,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_permissao
-from app.services.rbac import Permissoes
 from app.database import get_db
-from app.models.conteudo import Conteudo, EntregaAtividade, MaterialComplementar
+from app.models.conteudo import Conteudo, EntregaAtividade
 from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemCurso, Modulo, ProgressoUnidade, Unidade
-from app.schemas.curso import (
-    AulaSincronaCreate, AulaSincronaRead, AulaSincronaUpdate,
-    CursoCreate, CursoRead, CursoUpdate,
-    CursoArvoreRead, ModuloArvoreRead, CursoArvoreItem,
-    InscricaoCreate, InscricaoRead,
-    MensagemCursoCreate, MensagemCursoRead,
-    ModuloCreate, ModuloRead, ModuloUpdate,
-    ProgressoUnidadeCreate, ProgressoUnidadeRead, ProgressoUnidadeUpdate,
-    ReorderItem,
-    UnidadeCreate, UnidadeRead, UnidadeUpdate,
-)
 from app.models.usuario import Usuario
-from app.services import teams as teams_service
+from app.schemas.curso import (
+    AulaSincronaCreate,
+    AulaSincronaRead,
+    AulaSincronaUpdate,
+    CursoArvoreItem,
+    CursoArvoreRead,
+    CursoCreate,
+    CursoRead,
+    CursoUpdate,
+    InscricaoCreate,
+    InscricaoRead,
+    ModuloArvoreRead,
+    ModuloCreate,
+    ModuloRead,
+    ModuloUpdate,
+    ProgressoUnidadeCreate,
+    ProgressoUnidadeRead,
+    ProgressoUnidadeUpdate,
+    ReorderItem,
+    UnidadeCreate,
+    UnidadeRead,
+    UnidadeUpdate,
+)
 from app.services import progresso as progresso_service
+from app.services import teams as teams_service
+from app.services.rbac import Permissoes
 
 router = APIRouter(prefix="/cursos", tags=["Cursos"])
 
 
 # --- Cursos ---
+
 
 @router.get("", response_model=list[CursoRead])
 async def listar_cursos(
@@ -115,27 +128,35 @@ async def arvore_curso(
     _: Usuario = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(Curso).where(Curso.id == curso_id)
-        .options(selectinload(Curso.modulos).selectinload(Modulo.unidades))
+        select(Curso).where(Curso.id == curso_id).options(selectinload(Curso.modulos).selectinload(Modulo.unidades))
     )
     curso = result.scalar_one_or_none()
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
     modulos = [
         ModuloArvoreRead(
-            id=m.id, titulo=m.titulo, ordem=m.ordem,
+            id=m.id,
+            titulo=m.titulo,
+            ordem=m.ordem,
             unidades=[
                 CursoArvoreItem(
-                    id=u.id, titulo=u.titulo, tipo=u.tipo, ordem=u.ordem,
-                    conteudo_url=u.conteudo_url, url_externa=u.url_externa,
-                ) for u in m.unidades
+                    id=u.id,
+                    titulo=u.titulo,
+                    tipo=u.tipo,
+                    ordem=u.ordem,
+                    conteudo_url=u.conteudo_url,
+                    url_externa=u.url_externa,
+                )
+                for u in m.unidades
             ],
-        ) for m in sorted(curso.modulos, key=lambda x: x.ordem)
+        )
+        for m in sorted(curso.modulos, key=lambda x: x.ordem)
     ]
     return CursoArvoreRead(id=curso.id, titulo=curso.titulo, modulos=modulos)
 
 
 # --- Modulos ---
+
 
 @router.get("/{curso_id}/modulos", response_model=list[ModuloRead])
 async def listar_modulos(
@@ -209,6 +230,7 @@ async def excluir_modulo(
 
 # --- Unidades ---
 
+
 @router.get("/modulos/{modulo_id}/unidades", response_model=list[UnidadeRead])
 async def listar_unidades(
     modulo_id: int,
@@ -281,6 +303,7 @@ async def excluir_unidade(
 
 # --- Aulas Síncronas ---
 
+
 @router.get("/{curso_id}/aulas", response_model=list[AulaSincronaRead])
 async def listar_aulas(
     curso_id: int,
@@ -323,6 +346,7 @@ async def aulas_proximas(
     current_user: Usuario = Depends(get_current_user),
 ):
     from datetime import datetime, timezone
+
     result = await db.execute(
         select(AulaSincrona)
         .where(AulaSincrona.data_hora >= datetime.now(timezone.utc))
@@ -366,6 +390,7 @@ async def excluir_aula(
 
 # --- Chat SSE ---
 
+
 @router.get("/{curso_id}/chat/stream")
 async def stream_chat(
     curso_id: int,
@@ -374,6 +399,7 @@ async def stream_chat(
     _: Usuario = Depends(get_current_user),
 ):
     from fastapi.responses import StreamingResponse
+
     last_id = 0
 
     async def event_generator():
@@ -397,12 +423,14 @@ async def stream_chat(
                 }
                 yield f"data: {json.dumps(data)}\n\n"
             import asyncio
+
             await asyncio.sleep(1)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 # --- Chat ---
+
 
 @router.get("/{curso_id}/chat", response_model=list[dict])
 async def listar_chat(
@@ -413,6 +441,7 @@ async def listar_chat(
     _: Usuario = Depends(get_current_user),
 ):
     from app.models.curso import MensagemCurso
+
     result = await db.execute(
         select(MensagemCurso)
         .where(MensagemCurso.curso_id == curso_id)
@@ -422,7 +451,10 @@ async def listar_chat(
     )
     msgs = result.scalars().all()
     msgs.reverse()
-    return [{"id": m.id, "usuario_id": str(m.usuario_id), "texto": m.texto, "criado_em": m.criado_em.isoformat()} for m in msgs]
+    return [
+        {"id": m.id, "usuario_id": str(m.usuario_id), "texto": m.texto, "criado_em": m.criado_em.isoformat()}
+        for m in msgs
+    ]
 
 
 @router.post("/{curso_id}/chat", status_code=status.HTTP_201_CREATED)
@@ -433,6 +465,7 @@ async def enviar_mensagem(
     current_user: Usuario = Depends(get_current_user),
 ):
     from app.models.curso import MensagemCurso
+
     texto = payload.get("texto", "").strip()
     if not texto:
         raise HTTPException(status_code=422, detail="Texto nao pode ser vazio")
@@ -446,12 +479,12 @@ async def enviar_mensagem(
 
 
 async def _user_has_permission(db: AsyncSession, usuario_id: uuid.UUID, permissao: str) -> bool:
-    from app.models.usuario import Perfil, UsuarioPerfil
     from sqlalchemy.orm import selectinload
+
+    from app.models.usuario import UsuarioPerfil
+
     result = await db.execute(
-        select(UsuarioPerfil)
-        .where(UsuarioPerfil.usuario_id == usuario_id)
-        .options(selectinload(UsuarioPerfil.perfil))
+        select(UsuarioPerfil).where(UsuarioPerfil.usuario_id == usuario_id).options(selectinload(UsuarioPerfil.perfil))
     )
     ups = result.scalars().all()
     for up in ups:
@@ -461,6 +494,7 @@ async def _user_has_permission(db: AsyncSession, usuario_id: uuid.UUID, permissa
 
 
 # --- Inscricoes ---
+
 
 @router.post("/inscricoes", response_model=InscricaoRead, status_code=status.HTTP_201_CREATED)
 async def inscrever(
@@ -549,6 +583,7 @@ async def cancelar_inscricao(
 
 # --- Progresso ---
 
+
 @router.post("/unidades/{unidade_id}/concluir", response_model=ProgressoUnidadeRead)
 async def concluir_unidade(
     unidade_id: int,
@@ -557,7 +592,9 @@ async def concluir_unidade(
 ):
     try:
         progresso = await progresso_service.concluir_unidade(
-            db, usuario_id=current_user.id, unidade_id=unidade_id,
+            db,
+            usuario_id=current_user.id,
+            unidade_id=unidade_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -603,16 +640,12 @@ async def consumo_curso(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_INSCREVER)),
 ):
-    curso = await db.execute(
-        select(Curso).where(Curso.id == curso_id)
-    )
+    curso = await db.execute(select(Curso).where(Curso.id == curso_id))
     curso = curso.scalar_one_or_none()
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
 
-    modulos = await db.execute(
-        select(Modulo).where(Modulo.curso_id == curso_id).order_by(Modulo.ordem)
-    )
+    modulos = await db.execute(select(Modulo).where(Modulo.curso_id == curso_id).order_by(Modulo.ordem))
     modulos = modulos.scalars().all()
 
     unidades = await db.execute(
@@ -622,9 +655,7 @@ async def consumo_curso(
 
     unidade_ids = [u.id for u in unidades_list]
 
-    conteudos = await db.execute(
-        select(Conteudo).where(Conteudo.unidade_id.in_(unidade_ids)).order_by(Conteudo.ordem)
-    )
+    conteudos = await db.execute(select(Conteudo).where(Conteudo.unidade_id.in_(unidade_ids)).order_by(Conteudo.ordem))
     conteudos_list = conteudos.scalars().all()
 
     progressos = await db.execute(
@@ -654,35 +685,46 @@ async def consumo_curso(
             if progresso and progresso.status == "concluido":
                 concluidas_no_modulo += 1
             entrega = [e for e in entregas_list if e.unidade_id == u.id]
-            unidades_data.append({
-                "id": u.id,
-                "titulo": u.titulo,
-                "tipo": u.tipo,
-                "ordem": u.ordem,
-                "conteudo_url": u.conteudo_url,
-                "url_externa": u.url_externa,
-                "conteudos": [{"id": c.id, "tipo_midia": c.tipo_midia, "titulo": c.titulo, "url_arquivo": c.url_arquivo} for c in cts],
-                "progresso": {
-                    "status": progresso.status if progresso else "nao_iniciado",
-                    "concluido_em": progresso.concluido_em.isoformat() if progresso and progresso.concluido_em else None,
-                },
-                "entrega": {
-                    "id": e[0].id,
-                    "status": e[0].status,
-                    "nota": float(e[0].nota) if e and e[0].nota else None,
-                    "feedback": e[0].feedback if e else None,
-                } if entrega else None,
-            })
+            unidades_data.append(
+                {
+                    "id": u.id,
+                    "titulo": u.titulo,
+                    "tipo": u.tipo,
+                    "ordem": u.ordem,
+                    "conteudo_url": u.conteudo_url,
+                    "url_externa": u.url_externa,
+                    "conteudos": [
+                        {"id": c.id, "tipo_midia": c.tipo_midia, "titulo": c.titulo, "url_arquivo": c.url_arquivo}
+                        for c in cts
+                    ],
+                    "progresso": {
+                        "status": progresso.status if progresso else "nao_iniciado",
+                        "concluido_em": progresso.concluido_em.isoformat()
+                        if progresso and progresso.concluido_em
+                        else None,
+                    },
+                    "entrega": {
+                        "id": entrega[0].id,
+                        "status": entrega[0].status,
+                        "nota": float(entrega[0].nota) if entrega and entrega[0].nota else None,
+                        "feedback": entrega[0].feedback if entrega else None,
+                    }
+                    if entrega
+                    else None,
+                }
+            )
         total_no_modulo = len(unids)
-        modulos_data.append({
-            "id": m.id,
-            "titulo": m.titulo,
-            "ordem": m.ordem,
-            "total_unidades": total_no_modulo,
-            "unidades_concluidas": concluidas_no_modulo,
-            "progresso_pct": round((concluidas_no_modulo / total_no_modulo * 100), 2) if total_no_modulo else 0,
-            "unidades": unidades_data,
-        })
+        modulos_data.append(
+            {
+                "id": m.id,
+                "titulo": m.titulo,
+                "ordem": m.ordem,
+                "total_unidades": total_no_modulo,
+                "unidades_concluidas": concluidas_no_modulo,
+                "progresso_pct": round((concluidas_no_modulo / total_no_modulo * 100), 2) if total_no_modulo else 0,
+                "unidades": unidades_data,
+            }
+        )
 
     return {
         "id": curso.id,

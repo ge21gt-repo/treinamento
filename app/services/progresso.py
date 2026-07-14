@@ -1,8 +1,8 @@
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-import uuid
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -11,10 +11,7 @@ from app.models.curso import Curso, Inscricao, InscricaoTrilha, Modulo, Progress
 
 async def _get_unidade_curso(db: AsyncSession, unidade_id: int) -> tuple[int, int | None]:
     """Retorna (curso_id, trilha_id) para uma unidade."""
-    result = await db.execute(
-        select(Modulo).where(Modulo.id == Unidade.modulo_id)
-        .options(selectinload(Modulo.curso))
-    )
+    result = await db.execute(select(Modulo).where(Modulo.id == Unidade.modulo_id).options(selectinload(Modulo.curso)))
     # mais simples: busca via join direto
     result = await db.execute(
         select(Curso.id, Curso.trilha_id)
@@ -95,8 +92,7 @@ async def atualizar_progresso_curso(
     total_unidades = total.scalar() or 0
 
     concluidas = await db.execute(
-        select(func.count(ProgressoUnidade.id))
-        .where(
+        select(func.count(ProgressoUnidade.id)).where(
             ProgressoUnidade.usuario_id == usuario_id,
             ProgressoUnidade.unidade_id.in_(
                 select(Unidade.id)
@@ -139,9 +135,7 @@ async def atualizar_progresso_trilha(
     usuario_id: uuid.UUID,
     trilha_id: int,
 ) -> InscricaoTrilha:
-    cursos = await db.execute(
-        select(Curso.id).where(Curso.trilha_id == trilha_id)
-    )
+    cursos = await db.execute(select(Curso.id).where(Curso.trilha_id == trilha_id))
     curso_ids = [row[0] for row in cursos.all()]
     if not curso_ids:
         return None
@@ -181,14 +175,10 @@ async def progresso_curso_detalhado(
     usuario_id: uuid.UUID,
     curso_id: int,
 ) -> dict:
-    modulos = await db.execute(
-        select(Modulo).where(Modulo.curso_id == curso_id).order_by(Modulo.ordem)
-    )
+    modulos = await db.execute(select(Modulo).where(Modulo.curso_id == curso_id).order_by(Modulo.ordem))
     modulos_data = []
     for mod in modulos.scalars().all():
-        unidades = await db.execute(
-            select(Unidade).where(Unidade.modulo_id == mod.id).order_by(Unidade.ordem)
-        )
+        unidades = await db.execute(select(Unidade).where(Unidade.modulo_id == mod.id).order_by(Unidade.ordem))
         unids = unidades.scalars().all()
         total_u = len(unids)
         concluidas_u = 0
@@ -205,13 +195,15 @@ async def progresso_curso_detalhado(
                 concluidas_u += 1
 
         mod_pct = round((concluidas_u / total_u * 100), 2) if total_u else 0
-        modulos_data.append({
-            "id": mod.id,
-            "titulo": mod.titulo,
-            "total_unidades": total_u,
-            "unidades_concluidas": concluidas_u,
-            "progresso_pct": mod_pct,
-        })
+        modulos_data.append(
+            {
+                "id": mod.id,
+                "titulo": mod.titulo,
+                "total_unidades": total_u,
+                "unidades_concluidas": concluidas_u,
+                "progresso_pct": mod_pct,
+            }
+        )
 
     return {
         "curso_id": curso_id,

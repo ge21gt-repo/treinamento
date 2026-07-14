@@ -32,6 +32,7 @@ router = APIRouter(prefix="/gamificacao", tags=["Gamificacao"])
 
 # --- Niveis ---
 
+
 @router.get("/niveis", response_model=list[NivelRead])
 async def listar_niveis(
     db: AsyncSession = Depends(get_db),
@@ -55,6 +56,7 @@ async def criar_nivel(
 
 
 # --- XP ---
+
 
 @router.post("/xp", response_model=PontosXPRead, status_code=status.HTTP_201_CREATED)
 async def adicionar_xp(
@@ -91,14 +93,13 @@ async def xp_total_usuario(
         select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == usuario_id)
     )
     total = result.scalar()
-    nivel_result = await db.execute(
-        select(Nivel).where(Nivel.xp_minimo <= total).order_by(Nivel.ordem.desc()).limit(1)
-    )
+    nivel_result = await db.execute(select(Nivel).where(Nivel.xp_minimo <= total).order_by(Nivel.ordem.desc()).limit(1))
     nivel = nivel_result.scalar_one_or_none()
     return {"usuario_id": str(usuario_id), "xp_total": total, "nivel": nivel.nome if nivel else "Iniciante"}
 
 
 # --- Leaderboard ---
+
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])
 async def leaderboard(
@@ -143,12 +144,13 @@ async def leaderboard(
 
 # --- Badges ---
 
+
 @router.get("/badges", response_model=list[BadgeRead])
 async def listar_badges(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(select(Badge).where(Badge.ativo == True))
+    result = await db.execute(select(Badge).where(Badge.ativo))
     return result.scalars().all()
 
 
@@ -190,12 +192,13 @@ async def badges_usuario(
 
 # --- Missoes ---
 
+
 @router.get("/missoes", response_model=list[MissaoRead])
 async def listar_missoes(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(select(Missao).where(Missao.ativa == True))
+    result = await db.execute(select(Missao).where(Missao.ativa))
     return result.scalars().all()
 
 
@@ -262,6 +265,7 @@ async def atualizar_progresso_missao(
 
 
 # --- Streaks ---
+
 
 @router.get("/streaks/{usuario_id}", response_model=StreakRead)
 async def obter_streak(

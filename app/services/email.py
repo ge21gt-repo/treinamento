@@ -1,7 +1,7 @@
 """Servico de envio de e-mails (SMTP ou fallback para console)."""
 
-import smtplib
 import logging
+import smtplib
 from email.mime.text import MIMEText
 
 from app.config import settings

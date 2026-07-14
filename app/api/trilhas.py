@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
-from app.models.curso import Curso, Inscricao, InscricaoTrilha, TrilhaAprendizagem
+from app.models.curso import Inscricao, InscricaoTrilha, TrilhaAprendizagem
 from app.models.usuario import Usuario
 from app.schemas.curso import InscricaoTrilhaRead, TrilhaCreate, TrilhaProgressoRead, TrilhaRead, TrilhaUpdate
 from app.services.rbac import Permissoes
@@ -60,18 +60,20 @@ async def listar_minhas_trilhas(
         total_cursos = len(cursos_ids)
 
         if total_cursos == 0:
-            resultado.append(TrilhaProgressoRead(
-                trilha_id=trilha.id,
-                titulo=trilha.titulo,
-                nivel=trilha.nivel,
-                carga_horaria_total=trilha.carga_horaria_total,
-                total_cursos=0,
-                cursos_concluidos=0,
-                progresso_pct=inscricao.progresso_pct,
-                status=inscricao.status,
-                data_inscricao=inscricao.data_inscricao,
-                data_conclusao=inscricao.data_conclusao,
-            ))
+            resultado.append(
+                TrilhaProgressoRead(
+                    trilha_id=trilha.id,
+                    titulo=trilha.titulo,
+                    nivel=trilha.nivel,
+                    carga_horaria_total=trilha.carga_horaria_total,
+                    total_cursos=0,
+                    cursos_concluidos=0,
+                    progresso_pct=inscricao.progresso_pct,
+                    status=inscricao.status,
+                    data_inscricao=inscricao.data_inscricao,
+                    data_conclusao=inscricao.data_conclusao,
+                )
+            )
             continue
 
         result_insc = await db.execute(
@@ -85,18 +87,20 @@ async def listar_minhas_trilhas(
         )
         row = result_insc.one()
 
-        resultado.append(TrilhaProgressoRead(
-            trilha_id=trilha.id,
-            titulo=trilha.titulo,
-            nivel=trilha.nivel,
-            carga_horaria_total=trilha.carga_horaria_total,
-            total_cursos=total_cursos,
-            cursos_concluidos=row.concluidos,
-            progresso_pct=round(row.media, 2),
-            status=inscricao.status,
-            data_inscricao=inscricao.data_inscricao,
-            data_conclusao=inscricao.data_conclusao,
-        ))
+        resultado.append(
+            TrilhaProgressoRead(
+                trilha_id=trilha.id,
+                titulo=trilha.titulo,
+                nivel=trilha.nivel,
+                carga_horaria_total=trilha.carga_horaria_total,
+                total_cursos=total_cursos,
+                cursos_concluidos=row.concluidos,
+                progresso_pct=round(row.media, 2),
+                status=inscricao.status,
+                data_inscricao=inscricao.data_inscricao,
+                data_conclusao=inscricao.data_conclusao,
+            )
+        )
 
     return resultado
 
@@ -257,16 +261,18 @@ async def progresso_trilha_detalhado(
             )
         )
         ci = curso_insc.scalar_one_or_none()
-        cursos_data.append({
-            "curso_id": c.id,
-            "titulo": c.titulo,
-            "carga_horaria": c.carga_horaria,
-            "inscrito": ci is not None,
-            "status": ci.status if ci else "nao_inscrito",
-            "progresso_pct": float(ci.progresso_pct) if ci and ci.progresso_pct else 0.0,
-            "nota_final": float(ci.nota_final) if ci and ci.nota_final else None,
-            "data_conclusao": ci.data_conclusao.isoformat() if ci and ci.data_conclusao else None,
-        })
+        cursos_data.append(
+            {
+                "curso_id": c.id,
+                "titulo": c.titulo,
+                "carga_horaria": c.carga_horaria,
+                "inscrito": ci is not None,
+                "status": ci.status if ci else "nao_inscrito",
+                "progresso_pct": float(ci.progresso_pct) if ci and ci.progresso_pct else 0.0,
+                "nota_final": float(ci.nota_final) if ci and ci.nota_final else None,
+                "data_conclusao": ci.data_conclusao.isoformat() if ci and ci.data_conclusao else None,
+            }
+        )
 
     return {
         "trilha_id": trilha.id,

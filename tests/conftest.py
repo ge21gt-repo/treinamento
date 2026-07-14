@@ -19,8 +19,7 @@ if "DATABASE_URL" not in os.environ:
 from app.database import engine as app_engine
 from app.main import app
 from app.models import Base
-from app.models.curso import Curso, Modulo, TrilhaAprendizagem, Unidade
-from app.models.usuario import Perfil, Usuario, UsuarioPerfil
+from app.models.usuario import Usuario, UsuarioPerfil
 from app.services.auth import create_access_token, hash_password
 from app.services.rbac import PERFIL_PERMISSOES
 
@@ -38,6 +37,7 @@ def event_loop():
 @pytest_asyncio.fixture(scope="session")
 async def db_setup():
     from sqlalchemy.ext.asyncio import create_async_engine
+
     _engine = create_async_engine(settings.DATABASE_URL)
     async with _engine.begin() as conn:
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS lms"))
@@ -53,7 +53,9 @@ async def db_setup():
         ]
         for nome, descricao in perfis_data:
             await conn.execute(
-                text("INSERT INTO lms.perfis (nome, descricao) VALUES (:nome, :descricao) ON CONFLICT (nome) DO NOTHING"),
+                text(
+                    "INSERT INTO lms.perfis (nome, descricao) VALUES (:nome, :descricao) ON CONFLICT (nome) DO NOTHING"
+                ),
                 {"nome": nome, "descricao": descricao},
             )
 
@@ -105,7 +107,8 @@ async def _assign_perfil(session, usuario_id, perfil_nome):
 
 @pytest_asyncio.fixture
 async def admin_user(db_clean):
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     _eng = create_async_engine(settings.DATABASE_URL)
     _session_maker = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
     session = _session_maker()
@@ -121,12 +124,15 @@ async def admin_user(db_clean):
 
 @pytest_asyncio.fixture
 async def participante_user(db_clean):
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     _eng = create_async_engine(settings.DATABASE_URL)
     _session_maker = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
     session = _session_maker()
     try:
-        user = await _create_user(session, TEST_PARTICIPANTE_ID, "participante@test.com", "Participante", "participante")
+        user = await _create_user(
+            session, TEST_PARTICIPANTE_ID, "participante@test.com", "Participante", "participante"
+        )
         await _assign_perfil(session, user.id, "participante")
         await session.commit()
         yield user
@@ -144,7 +150,8 @@ async def admin_token(admin_user):
 
 @pytest_asyncio.fixture
 async def client(admin_user, admin_token):
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     _client_eng = create_async_engine(settings.DATABASE_URL)
 
     async def override_get_db():

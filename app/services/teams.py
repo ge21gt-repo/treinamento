@@ -5,13 +5,19 @@ If not configured, all methods fall back gracefully (return None/empty).
 """
 
 from datetime import datetime, timedelta
+
 import httpx
 
 from app.config import settings
 
 
 def _is_configured() -> bool:
-    return bool(settings.TEAMS_TENANT_ID and settings.TEAMS_CLIENT_ID and settings.TEAMS_CLIENT_SECRET and settings.TEAMS_ORGANIZER_EMAIL)
+    return bool(
+        settings.TEAMS_TENANT_ID
+        and settings.TEAMS_CLIENT_ID
+        and settings.TEAMS_CLIENT_SECRET
+        and settings.TEAMS_ORGANIZER_EMAIL
+    )
 
 
 async def _get_access_token() -> str | None:

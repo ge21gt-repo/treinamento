@@ -1,13 +1,12 @@
-import zipfile
 import io
 import xml.etree.ElementTree as ET
+import zipfile
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_permissao
-from app.config import settings
+from app.api.deps import require_permissao
 from app.database import get_db
 from app.models.scorm import PacoteScorm, TrackingScorm
 from app.models.usuario import Usuario
@@ -38,21 +37,25 @@ def parse_imsmanifest(xml_content: bytes) -> dict:
         for org in orgs.findall("imscp:organization", ns):
             org_data = {"title": org.get("title", ""), "items": []}
             for item in org.findall(".//imscp:item", ns):
-                org_data["items"].append({
-                    "identifier": item.get("identifier"),
-                    "identifierref": item.get("identifierref"),
-                    "title": item.find("imscp:title", ns).text if item.find("imscp:title", ns) is not None else "",
-                })
+                org_data["items"].append(
+                    {
+                        "identifier": item.get("identifier"),
+                        "identifierref": item.get("identifierref"),
+                        "title": item.find("imscp:title", ns).text if item.find("imscp:title", ns) is not None else "",
+                    }
+                )
             manifest["organizations"].append(org_data)
     res = root.find(".//imscp:resources", ns)
     if res is not None:
         for r in res.findall("imscp:resource", ns):
-            manifest["resources"].append({
-                "identifier": r.get("identifier"),
-                "type": r.get("type"),
-                "href": r.get("href"),
-                "scorm_type": r.get("adlcp:scormType", ns),
-            })
+            manifest["resources"].append(
+                {
+                    "identifier": r.get("identifier"),
+                    "type": r.get("type"),
+                    "href": r.get("href"),
+                    "scorm_type": r.get("adlcp:scormType", ns),
+                }
+            )
     version_el = root.find(".//imscp:schema", ns)
     manifest["scorm_version"] = version_el.text if version_el is not None else "1.2"
     return manifest

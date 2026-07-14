@@ -4,17 +4,15 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_permissao
+from app.api.deps import get_current_user
 from app.database import get_db
-from app.models.avaliacao import ResultadoAvaliacao
 from app.models.certificado import Certificado
-from app.models.curso import Curso, Inscricao, Modulo, ProgressoUnidade, TrilhaAprendizagem, Unidade
-from app.models.gamificacao import PontosXP, Nivel
+from app.models.curso import Curso, Inscricao, TrilhaAprendizagem
+from app.models.gamificacao import Nivel, PontosXP
 from app.models.log import LogAcesso, MetricaEngajamento
 from app.models.sessao import SessaoAoVivo
 from app.models.usuario import Usuario
 from app.schemas.log import LogAcessoRead, MetricaEngajamentoRead
-from app.services.rbac import Permissoes
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard e Analytics"])
 
@@ -54,21 +52,21 @@ async def meu_progresso(
         curso = await db.execute(select(Curso).where(Curso.id == i.curso_id))
         c = curso.scalar_one_or_none()
         if c:
-            cursos_list.append({
-                "curso_id": i.curso_id,
-                "titulo": c.titulo,
-                "status": i.status,
-                "progresso_pct": float(i.progresso_pct),
-                "data_inscricao": i.data_inscricao.isoformat(),
-                "data_conclusao": i.data_conclusao.isoformat() if i.data_conclusao else None,
-                "nota_final": float(i.nota_final) if i.nota_final else None,
-            })
+            cursos_list.append(
+                {
+                    "curso_id": i.curso_id,
+                    "titulo": c.titulo,
+                    "status": i.status,
+                    "progresso_pct": float(i.progresso_pct),
+                    "data_inscricao": i.data_inscricao.isoformat(),
+                    "data_conclusao": i.data_conclusao.isoformat() if i.data_conclusao else None,
+                    "nota_final": float(i.nota_final) if i.nota_final else None,
+                }
+            )
             if i.status == "concluido" and c.carga_horaria:
                 total_horas += c.carga_horaria
 
-    certificados = await db.execute(
-        select(func.count(Certificado.id)).where(Certificado.usuario_id == current_user.id)
-    )
+    certificados = await db.execute(select(func.count(Certificado.id)).where(Certificado.usuario_id == current_user.id))
     total_certificados = certificados.scalar() or 0
 
     xp = await db.execute(
@@ -143,9 +141,7 @@ async def stats_curso(
     ).scalar()
     concluidos = (
         await db.execute(
-            select(func.count(Inscricao.id)).where(
-                Inscricao.curso_id == curso_id, Inscricao.status == "concluido"
-            )
+            select(func.count(Inscricao.id)).where(Inscricao.curso_id == curso_id, Inscricao.status == "concluido")
         )
     ).scalar()
     nota_media = (

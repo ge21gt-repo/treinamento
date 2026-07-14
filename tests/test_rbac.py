@@ -1,25 +1,30 @@
 """Testes reais de autenticação/autorização — usam PostgreSQL e HTTP"""
+
 import uuid
-import pytest
+
 from httpx import ASGITransport, AsyncClient
-from fastapi import status
 from sqlalchemy import text
 
-from app.main import app
 from app.config import settings
-from app.services.auth import create_access_token, hash_password
+from app.main import app
 from app.models.usuario import Usuario, UsuarioPerfil
+from app.services.auth import create_access_token, hash_password
 
 
 async def _criar_usuario(perfil_nome, email, nome="User"):
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     eng = create_async_engine(settings.DATABASE_URL)
     maker = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
     async with maker() as session:
         user = Usuario(
-            id=uuid.uuid4(), nome_completo=nome, email=email,
-            senha_hash=hash_password("test123"), ativo=True,
-            status_credenciamento="aprovado", aceite_lgpd=True,
+            id=uuid.uuid4(),
+            nome_completo=nome,
+            email=email,
+            senha_hash=hash_password("test123"),
+            ativo=True,
+            status_credenciamento="aprovado",
+            aceite_lgpd=True,
         )
         session.add(user)
         await session.flush()
@@ -93,19 +98,29 @@ class TestPermissoesConteudo:
     async def test_participante_nao_pode_criar_conteudo(self, db_clean):
         uid = await _criar_usuario("participante", "p5@test.com")
         async with await _client_para(uid) as ac:
-            r = await ac.post("/api/v1/conteudos", json={
-                "unidade_id": 1, "tipo_midia": "link", "titulo": "X",
-                "url_arquivo": "https://exemplo.com",
-            })
+            r = await ac.post(
+                "/api/v1/conteudos",
+                json={
+                    "unidade_id": 1,
+                    "tipo_midia": "link",
+                    "titulo": "X",
+                    "url_arquivo": "https://exemplo.com",
+                },
+            )
         assert r.status_code == 403
 
     async def test_participante_nao_pode_gerenciar_materiais(self, db_clean):
         uid = await _criar_usuario("participante", "p6@test.com")
         async with await _client_para(uid) as ac:
-            r = await ac.post("/api/v1/conteudos/materiais", json={
-                "curso_id": 1, "titulo": "X", "tipo": "pdf",
-                "url_arquivo": "https://exemplo.com/doc.pdf",
-            })
+            r = await ac.post(
+                "/api/v1/conteudos/materiais",
+                json={
+                    "curso_id": 1,
+                    "titulo": "X",
+                    "tipo": "pdf",
+                    "url_arquivo": "https://exemplo.com/doc.pdf",
+                },
+            )
         assert r.status_code == 403
 
 
@@ -113,10 +128,15 @@ class TestPermissoesAdmin:
     async def test_admin_pode_inscrever_outro_em_curso(self, client):
         r = await client.post("/api/v1/cursos", json={"titulo": "C", "descricao": "x", "ordem": 0})
         cid = r.json()["id"]
-        r = await client.post("/api/v1/auth/registro", json={
-            "nome_completo": "Outro User", "email": "outro@test.com",
-            "senha": "123456", "aceite_lgpd": True,
-        })
+        r = await client.post(
+            "/api/v1/auth/registro",
+            json={
+                "nome_completo": "Outro User",
+                "email": "outro@test.com",
+                "senha": "123456",
+                "aceite_lgpd": True,
+            },
+        )
         outro_id = r.json()["id"]
         r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": cid, "usuario_id": outro_id})
         assert r.status_code == 201
