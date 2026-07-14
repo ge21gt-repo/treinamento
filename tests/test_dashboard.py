@@ -1,6 +1,6 @@
 import pytest
-from httpx import ASGITransport, AsyncClient
 from fastapi import status
+from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
@@ -46,8 +46,14 @@ class TestDashboardResumo:
         r = await client.get("/api/v1/dashboard/resumo")
         assert r.status_code == status.HTTP_200_OK
         data = r.json()
-        chaves = {"total_usuarios", "total_cursos", "total_trilhas",
-                  "total_inscricoes", "total_certificados", "total_sessoes_ao_vivo"}
+        chaves = {
+            "total_usuarios",
+            "total_cursos",
+            "total_trilhas",
+            "total_inscricoes",
+            "total_certificados",
+            "total_sessoes_ao_vivo",
+        }
         assert chaves.issubset(data.keys())
         assert isinstance(data["total_usuarios"], int)
 

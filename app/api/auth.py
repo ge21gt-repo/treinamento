@@ -1,11 +1,12 @@
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from passlib.hash import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.rate_limit import limiter
 from app.config import settings
 from app.database import get_db
 from app.models.token_reset import TokenResetSenha
@@ -27,7 +28,8 @@ router = APIRouter(prefix="/auth", tags=["Autenticacao"])
 
 
 @router.post("/registro", response_model=UsuarioRead, status_code=status.HTTP_201_CREATED)
-async def registrar(payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def registrar(request: Request, payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
     if not payload.aceite_lgpd:
         raise HTTPException(status_code=422, detail="Aceite dos termos LGPD é obrigatorio")
 
@@ -61,7 +63,8 @@ async def registrar(payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/registro-com-perfil", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def registrar_com_perfil(payload: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def registrar_com_perfil(request: Request, payload: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
     if not payload.aceite_lgpd:
         raise HTTPException(status_code=422, detail="Aceite dos termos LGPD é obrigatorio")
 
@@ -86,7 +89,8 @@ async def registrar_com_perfil(payload: UsuarioRegistro, db: AsyncSession = Depe
 
 
 @router.post("/login", response_model=Token)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Usuario).where(Usuario.email == payload.email))
     user = result.scalar_one_or_none()
     if not user or not verify_password(payload.senha, user.senha_hash):
@@ -107,7 +111,8 @@ async def logout():
 
 
 @router.post("/esqueci-senha")
-async def esqueci_senha(payload: EsqueciSenhaRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("3/minute")
+async def esqueci_senha(request: Request, payload: EsqueciSenhaRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Usuario).where(Usuario.email == payload.email))
     user = result.scalar_one_or_none()
 

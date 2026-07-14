@@ -6,7 +6,7 @@ from app.services.rbac import Permissoes
 
 
 def test_app_routes_loaded():
-    assert len(app.routes) >= 18
+    assert len(app.routes) == 20  # 16 routers + 4 direct (docs, openapi)
 
 
 def test_schemas_have_from_attributes():
