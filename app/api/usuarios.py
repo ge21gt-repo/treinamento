@@ -76,8 +76,10 @@ async def atualizar_usuario(
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(user, field, value)
     await db.commit()
-    await db.refresh(user)
-    return user
+    result = await db.execute(
+        select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == usuario_id)
+    )
+    return result.scalar_one()
 
 
 @router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)

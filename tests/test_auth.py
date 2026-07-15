@@ -57,7 +57,7 @@ class TestRegistro:
                     "aceite_lgpd": True,
                 },
             )
-        assert r.status_code == 400
+        assert r.status_code == 409
 
 
 class TestLogin:

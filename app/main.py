@@ -3,7 +3,7 @@ import logging.config
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -151,21 +151,36 @@ app.add_middleware(
 )
 
 
-# Request logging middleware
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start = datetime.now(timezone.utc)
-    response = await call_next(request)
-    duration = (datetime.now(timezone.utc) - start).total_seconds()
-    logger.info(
-        "%s %s -> %s (%.3fs)",
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration,
-    )
-    return response
+# Request logging middleware (raw ASGI, no BaseHTTPMiddleware)
+class LogRequestsMiddleware:
+    def __init__(self, app):
+        self.app = app
 
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        start = datetime.now(timezone.utc)
+        status_code = [0]
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                status_code[0] = message["status"]
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+        duration = (datetime.now(timezone.utc) - start).total_seconds()
+        logger.info(
+            "%s %s -> %s (%.3fs)",
+            scope["method"],
+            scope["path"],
+            status_code[0],
+            duration,
+        )
+
+app.add_middleware(LogRequestsMiddleware)
 
 PREFIX = "/api/v1"
 

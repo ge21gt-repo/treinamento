@@ -102,7 +102,7 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 - **Storage:** S3 (aioboto3) or local disk for uploads (videos, PDFs, SCORM, materials, deliveries)
 - **Teams Integration:** Microsoft Graph API for synchronous classes (optional, fallback to manual links)
 - **SCORM Support:** Complete implementation (PacoteScorm, TrackingScorm, launch, tracking, reports)
-- **3 Alembic migrations** exist: `001_add_credenciamento_fields`, `002_add_tokens_reset_senha`, `003_add_aulas_chat_unidades`. Chain new ones with `down_revision` pointing to `'003_add_aulas_chat_unidades'`.
+- **5 Alembic migrations** exist: from `001_add_credenciamento_fields` to `005_add_telefone_unique_constraint`. Chain new ones with `down_revision` pointing to `'005_add_telefone_unique_constraint'`.
 - **`scripts/init_db.sql`** creates the `lms` schema, extensions (`pgcrypto`, `citext`), seeds profiles/niveis, and adds performance indexes — it is idempotent (uses `ON CONFLICT DO NOTHING`).
 
 ## Convictions

@@ -71,11 +71,14 @@ async def db_setup():
 
 @pytest_asyncio.fixture
 async def db_clean(db_setup):
-    await app_engine.dispose()
-    async with app_engine.begin() as conn:
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    _clean_engine = create_async_engine(settings.DATABASE_URL)
+    async with _clean_engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             if table.name != "perfis":
                 await conn.execute(text(f"TRUNCATE TABLE lms.{table.name} CASCADE"))
+    await _clean_engine.dispose()
     yield
 
 
