@@ -36,6 +36,7 @@ The app **also auto-creates tables, seeds profiles and niveis** on startup via F
 
 - **Tests:** 15 test files with 1,600+ lines covering auth, RBAC, US-04/05/06/07, bug fixes, and other modules. Run with `pytest`.
 - **Test Database:** Tests use PostgreSQL real configured in `.env` (DATABASE_URL=lms_idesp), not test database.
+- **Test infrastructure:** `pytest.ini` uses `asyncio_default_test_loop_scope = session`. Raw ASGI middleware (no BaseHTTPMiddleware). `db_clean` fixture uses separate engine to avoid pool corruption. `event_loop` fixture is session-scoped.
 - **No linter/formatter/typechecker config** — no ruff, flake8, mypy, black, isort. CI only checks that `from app.main import app` works.
 - **CI** (`.github/workflows/ci.yml`): runs on push/PR to `main`, installs deps, runs `python -c "from app.main import app; print(len(app.routes))"`.
 - **Deploy** (`fly.io`): `fly deploy` via GitHub Actions or manually. Dockerfile serves on port 8080.
@@ -94,7 +95,9 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 
 - **Branch:** `devin/1782154515-backend-lms` (development branch)
 - **Production Branch:** `main` (PR → deploy)
-- **Roadmap:** 31/72 tasks done (43%). US-04 ✅, US-05 ✅, US-06 ✅, US-07 ✅, Pendências Técnicas ✅.
+- **Roadmap:** 31/72 tasks done (43%). US-04 ✅, US-05 ✅, US-06 ✅, US-07 ✅, Pendências Técnicas ✅, Issues #21/#22/#23 ✅.
+- **Next up:** US-08 (Sistema de Avaliações — issue #25)
+- **Known issues:** SMTP não configurado (#24) — `esqueci-senha` não envia emails
 - **Previous milestones:** Credenciamento flow (tasks 18-26), RBAC (tasks 17.2-17.3, 30.1), US-04 (Trilhas), US-05 (Cursos avançado), US-06 (Upload S3/Conteúdos), US-07 (Progresso cascade).
 - **Structure of Courses & Trails:** FULLY IMPLEMENTED (TrilhaAprendizagem, Curso, Modulo, Unidade, Inscricao, ProgressoUnidade, InscricaoTrilha, MensagemCurso, AulaSincrona)
 - **Endpoints for Trails:** FULLY IMPLEMENTED (GET/POST/PATCH/DELETE /api/v1/trilhas + inscrever/progresso/minhas-trilhas)
@@ -111,7 +114,7 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 - Chain new migrations with `down_revision` pointing to latest migration (currently `'005_add_telefone_unique_constraint'`).
 - Use Pydantic v2 style (no `orm_mode`, use `model_config`).
 - SQLAlchemy 2.0 style — use `select()`, `await db.execute()`, no `Query` API.
-- Run tests with `pytest` before major changes — 15 test files with 1,600+ lines of coverage.
+- Run tests with `pytest` before major changes — 19 test files with 1,600+ lines of coverage.
 - **When modifying a model (adding field/constraint):**
   - [ ] Verify schema Pydantic reflects the change
   - [ ] Verify API response model includes the field
@@ -303,6 +306,40 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 - app/schemas/__init__.py (imports sandbox schemas)
 - ROADMAP.md (tarefas marcadas como concluídas)
 
+### Issue #21: perfis no UsuarioRead e JWT ✅ CONCLUÍDA
+**Issue GitHub:** #21
+
+**Status:** Concluída em 15/07/2026
+
+**Problema:** `UsuarioRead` não incluía campo `perfis` no response. JWT não continha claim `perfis` para uso no frontend.
+
+**Solução:**
+- Adicionado `perfis: list[PerfilRead]` ao schema `UsuarioRead`
+- Adicionado `selectinload(Usuario.perfis)` em `get_current_user()`, registro, login, listar, obter, atualizar e criar-subordinado
+- Corrigido MissingGreenlet no `PATCH /usuarios/{id}`
+
+**Testes:** 6/6 (`tests/test_issue21_perfis.py`)
+
+### Issue #22: validação de campos únicos antes do INSERT ✅ CONCLUÍDA
+**Issue GitHub:** #22
+
+**Status:** Concluída em 15/07/2026
+
+**Problema:** Email, CPF e telefone duplicados geravam `IntegrityError 500` (exception não tratada).
+
+**Solução:** Função `check_unique_fields()` em `app/api/auth.py` consulta o banco antes de inserir e retorna `409 Conflict` com mensagem específica por campo.
+
+**Testes:** 6/6 (`tests/test_issue22_validacao.py`)
+
+### Issue #23: unique constraint no telefone ✅ CONCLUÍDA
+**Issue GitHub:** #23
+
+**Status:** Concluída em 15/07/2026
+
+**Solução:** Adicionado `unique=True` no campo `telefone` do model `Usuario` + migração Alembic `005_add_telefone_unique_constraint`. Validação pré-insert já captura duplicatas e retorna 409.
+
+**Testes:** 5/5 (`tests/test_issue23_telefone.py`)
+
 ## Próximas Prioridades (segundo ROADMAP.md)
 
 - Estrutura Organizacional (estados, municípios, secretarias, unidades)
@@ -322,7 +359,7 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 - ✅ Progresso cascade (unidade → curso → trilha)
 - ✅ Integração Teams (opcional)
 - ✅ Recuperação de senha
-- ✅ Testes abrangentes (14 arquivos, 1.542 linhas)
+- ✅ Testes abrangentes (19 arquivos, 1.600+ linhas)
 
 ## T-06.10: Integração Teams + Artefato S3 (14/07/2026)
 
