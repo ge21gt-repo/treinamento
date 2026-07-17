@@ -1,14 +1,16 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import check_unique_fields
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
+from app.services.paginacao import apply_search, count_query
+from app.services.rbac import Permissoes
 from app.schemas.usuario import (
     CriarSubordinadoRequest,
     PerfilCreate,
@@ -33,18 +35,24 @@ async def listar_usuarios(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     perfil_nome: str | None = Query(None, description="Filtrar por nome do perfil"),
+    q: str | None = Query(None, description="Busca textual por nome ou email"),
     db: AsyncSession = Depends(get_db),
+    response: Response = None,
     _: Usuario = Depends(get_current_user),
 ):
     query = select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil))
 
-    # Adicionar filtro por perfil se fornecido
     if perfil_nome:
         query = query.join(UsuarioPerfil).join(Perfil).where(Perfil.nome == perfil_nome)
 
-    query = query.offset(skip).limit(limit)
-    result = await db.execute(query)
-    return result.scalars().all()
+    query = apply_search(query, [Usuario.nome_completo, Usuario.email], q)
+    total = await count_query(db, query)
+
+    result = await db.execute(query.offset(skip).limit(limit))
+    items = result.scalars().all()
+
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.get("/{usuario_id}", response_model=UsuarioRead)
@@ -125,6 +133,7 @@ async def criar_perfil(
 async def atribuir_perfil(
     payload: UsuarioPerfilCreate,
     db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.PERFIL_ATRIBUIR)),
     current_user: Usuario = Depends(get_current_user),
 ):
     up = UsuarioPerfil(

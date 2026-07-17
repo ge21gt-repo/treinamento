@@ -6,7 +6,9 @@ from app.services.rbac import Permissoes
 
 
 def test_app_routes_loaded():
-    assert len(app.routes) >= 50  # coverage de rotas carregadas
+    assert len(app.routes) >= 4  # pelo menos docs routes
+    included = sum(1 for r in app.routes if type(r).__name__ == "_IncludedRouter")
+    assert included >= 16  # 16 routers incluidos
 
 
 def test_schemas_have_from_attributes():

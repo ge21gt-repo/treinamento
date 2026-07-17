@@ -9,13 +9,14 @@ from sqlalchemy import text
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-tests-only")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "480")
+os.environ["STORAGE_BACKEND"] = "local"
 
 from app.api.deps import get_current_user, get_db
 from app.config import settings
 
-# Garantir que DATABASE_URL venha do .env, nao do setdefault
-if "DATABASE_URL" not in os.environ:
-    os.environ["DATABASE_URL"] = settings.DATABASE_URL
+# Tests usam TEST_DATABASE_URL se definido, senao DATABASE_URL
+_TEST_DB_URL = settings.TEST_DATABASE_URL or settings.DATABASE_URL
+os.environ["DATABASE_URL"] = _TEST_DB_URL
 from app.database import engine as app_engine
 from app.main import app
 from app.models import Base
@@ -38,7 +39,7 @@ def event_loop():
 async def db_setup():
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    _engine = create_async_engine(settings.DATABASE_URL)
+    _engine = create_async_engine(_TEST_DB_URL)
     async with _engine.begin() as conn:
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS lms"))
         await conn.run_sync(Base.metadata.create_all)
@@ -73,7 +74,7 @@ async def db_setup():
 async def db_clean(db_setup):
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    _clean_engine = create_async_engine(settings.DATABASE_URL)
+    _clean_engine = create_async_engine(_TEST_DB_URL)
     async with _clean_engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             if table.name != "perfis":
@@ -112,7 +113,7 @@ async def _assign_perfil(session, usuario_id, perfil_nome):
 async def admin_user(db_clean):
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    _eng = create_async_engine(settings.DATABASE_URL)
+    _eng = create_async_engine(_TEST_DB_URL)
     _session_maker = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
     session = _session_maker()
     try:
@@ -129,7 +130,7 @@ async def admin_user(db_clean):
 async def participante_user(db_clean):
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    _eng = create_async_engine(settings.DATABASE_URL)
+    _eng = create_async_engine(_TEST_DB_URL)
     _session_maker = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
     session = _session_maker()
     try:
@@ -155,7 +156,7 @@ async def admin_token(admin_user):
 async def client(admin_user, admin_token):
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    _client_eng = create_async_engine(settings.DATABASE_URL)
+    _client_eng = create_async_engine(_TEST_DB_URL)
 
     async def override_get_db():
         _maker = async_sessionmaker(_client_eng, class_=AsyncSession, expire_on_commit=False)

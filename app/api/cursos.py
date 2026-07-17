@@ -1,7 +1,7 @@
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models.conteudo import Conteudo, EntregaAtividade
 from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemCurso, Modulo, ProgressoUnidade, Unidade
 from app.models.usuario import Usuario
+from app.services.paginacao import apply_search, count_query
 from app.schemas.curso import (
     AulaSincronaCreate,
     AulaSincronaRead,
@@ -26,6 +27,8 @@ from app.schemas.curso import (
     ModuloCreate,
     ModuloRead,
     ModuloUpdate,
+    PresencaRegistroRead,
+    ProcessarGravacaoResponse,
     ProgressoUnidadeCreate,
     ProgressoUnidadeRead,
     ProgressoUnidadeUpdate,
@@ -49,14 +52,20 @@ async def listar_cursos(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     trilha_id: int | None = Query(None),
+    q: str | None = Query(None, description="Busca textual por titulo"),
     db: AsyncSession = Depends(get_db),
+    response: Response = None,
     _: Usuario = Depends(get_current_user),
 ):
-    stmt = select(Curso)
+    query = select(Curso)
     if trilha_id is not None:
-        stmt = stmt.where(Curso.trilha_id == trilha_id)
-    result = await db.execute(stmt.offset(skip).limit(limit))
-    return result.scalars().all()
+        query = query.where(Curso.trilha_id == trilha_id)
+    query = apply_search(query, [Curso.titulo], q)
+    total = await count_query(db, query)
+    result = await db.execute(query.offset(skip).limit(limit))
+    items = result.scalars().all()
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.post("", response_model=CursoRead, status_code=status.HTTP_201_CREATED)
@@ -732,3 +741,48 @@ async def consumo_curso(
         "descricao": curso.descricao,
         "modulos": modulos_data,
     }
+
+
+@router.post("/aulas/{aula_id}/processar-gravacao", response_model=ProcessarGravacaoResponse)
+async def processar_gravacao_aula(
+    aula_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AULA_PROCESSAR_GRAVACAO)),
+):
+    result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
+    aula = result.scalar_one_or_none()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+    if not aula.teams_meeting_id:
+        raise HTTPException(status_code=400, detail="Aula nao possui reuniao Teams vinculada")
+
+    resultado = await teams_service.processar_gravacao(
+        meeting_id=aula.teams_meeting_id,
+        titulo_aula=aula.titulo,
+        db_session=db,
+    )
+
+    if resultado["success"]:
+        aula.gravacao_conteudo_id = resultado["conteudo_id"]
+        await db.commit()
+
+    return resultado
+
+
+@router.get("/aulas/{aula_id}/presenca", response_model=list[PresencaRegistroRead])
+async def listar_presenca_aula(
+    aula_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AULA_VER_PRESENCA)),
+):
+    result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
+    aula = result.scalar_one_or_none()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+    if not aula.teams_meeting_id:
+        raise HTTPException(status_code=400, detail="Aula nao possui reuniao Teams vinculada")
+
+    return await teams_service.sincronizar_presenca(
+        meeting_id=aula.teams_meeting_id,
+        aula_id=aula.id,
+    )

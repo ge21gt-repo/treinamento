@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +6,7 @@ from app.api.deps import require_permissao
 from app.database import get_db
 from app.models.conteudo import Conteudo, MaterialComplementar
 from app.models.usuario import Usuario
+from app.services.paginacao import apply_search, count_query
 from app.schemas.conteudo import (
     ConteudoCreate,
     ConteudoRead,
@@ -25,15 +26,20 @@ async def listar_conteudos(
     unidade_id: int | None = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    q: str | None = Query(None, description="Busca textual por titulo ou descricao"),
     db: AsyncSession = Depends(get_db),
+    response: Response = None,
     _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_VISUALIZAR)),
 ):
-    q = select(Conteudo)
+    query = select(Conteudo)
     if unidade_id is not None:
-        q = q.where(Conteudo.unidade_id == unidade_id)
-    q = q.order_by(Conteudo.ordem).offset(skip).limit(limit)
-    result = await db.execute(q)
-    return result.scalars().all()
+        query = query.where(Conteudo.unidade_id == unidade_id)
+    query = apply_search(query, [Conteudo.titulo, Conteudo.descricao], q)
+    total = await count_query(db, query)
+    result = await db.execute(query.order_by(Conteudo.ordem).offset(skip).limit(limit))
+    items = result.scalars().all()
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.post("", response_model=ConteudoRead, status_code=status.HTTP_201_CREATED)

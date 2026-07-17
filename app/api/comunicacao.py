@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +6,7 @@ from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.comunicacao import ForumResposta, ForumTopico, MensagemChat
 from app.models.usuario import Usuario
+from app.services.paginacao import apply_search, count_query
 from app.schemas.comunicacao import (
     ForumRespostaCreate,
     ForumRespostaRead,
@@ -41,16 +42,20 @@ async def listar_mensagens(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
+    response: Response = None,
     _: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(
+    query = (
         select(MensagemChat)
         .where(MensagemChat.sessao_id == sessao_id)
-        .order_by(MensagemChat.enviado_em)
-        .offset(skip)
-        .limit(limit)
     )
-    return result.scalars().all()
+    total = await count_query(db, query)
+    result = await db.execute(
+        query.order_by(MensagemChat.enviado_em).offset(skip).limit(limit)
+    )
+    items = result.scalars().all()
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 # --- Forum ---
@@ -61,17 +66,20 @@ async def listar_topicos(
     curso_id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    q: str | None = Query(None, description="Busca textual por titulo ou conteudo"),
     db: AsyncSession = Depends(get_db),
+    response: Response = None,
     _: Usuario = Depends(get_current_user),
 ):
+    query = select(ForumTopico).where(ForumTopico.curso_id == curso_id)
+    query = apply_search(query, [ForumTopico.titulo, ForumTopico.conteudo], q)
+    total = await count_query(db, query)
     result = await db.execute(
-        select(ForumTopico)
-        .where(ForumTopico.curso_id == curso_id)
-        .order_by(ForumTopico.fixado.desc(), ForumTopico.criado_em.desc())
-        .offset(skip)
-        .limit(limit)
+        query.order_by(ForumTopico.fixado.desc(), ForumTopico.criado_em.desc()).offset(skip).limit(limit)
     )
-    return result.scalars().all()
+    items = result.scalars().all()
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.post("/forum", response_model=ForumTopicoRead, status_code=status.HTTP_201_CREATED)

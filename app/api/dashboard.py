@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ from app.models.log import LogAcesso, MetricaEngajamento
 from app.models.sessao import SessaoAoVivo
 from app.models.usuario import Usuario
 from app.schemas.log import LogAcessoRead, MetricaEngajamentoRead
+from app.services.paginacao import count_query
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard e Analytics"])
 
@@ -121,13 +122,17 @@ async def listar_logs(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    response: Response = None,
     _: Usuario = Depends(get_current_user),
 ):
-    q = select(LogAcesso)
+    query = select(LogAcesso)
     if usuario_id is not None:
-        q = q.where(LogAcesso.usuario_id == usuario_id)
-    result = await db.execute(q.order_by(LogAcesso.criado_em.desc()).offset(skip).limit(limit))
-    return result.scalars().all()
+        query = query.where(LogAcesso.usuario_id == usuario_id)
+    total = await count_query(db, query)
+    result = await db.execute(query.order_by(LogAcesso.criado_em.desc()).offset(skip).limit(limit))
+    items = result.scalars().all()
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.get("/cursos/{curso_id}/stats")

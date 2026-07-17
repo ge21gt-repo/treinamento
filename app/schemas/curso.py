@@ -175,6 +175,7 @@ class AulaSincronaBase(BaseModel):
     duracao_minutos: int | None = None
     status: str = "agendada"
     teams_meeting_id: str | None = None
+    gravacao_conteudo_id: int | None = None
 
 
 class AulaSincronaCreate(AulaSincronaBase):
@@ -188,6 +189,7 @@ class AulaSincronaUpdate(BaseModel):
     link_externo: str | None = None
     duracao_minutos: int | None = None
     status: str | None = None
+    gravacao_conteudo_id: int | None = None
 
 
 class AulaSincronaRead(AulaSincronaBase):
@@ -268,3 +270,17 @@ class TrilhaProgressoRead(BaseModel):
     data_conclusao: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class PresencaRegistroRead(BaseModel):
+    email: str
+    nome: str
+    tempo_segundos: int
+    tempo_formatado: str
+
+
+class ProcessarGravacaoResponse(BaseModel):
+    success: bool
+    error: str | None = None
+    conteudo_id: int | None = None
+    url: str | None = None

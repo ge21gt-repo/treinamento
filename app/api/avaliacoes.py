@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,6 +8,7 @@ from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaParticipante, ResultadoAvaliacao
 from app.models.usuario import Usuario
+from app.services.paginacao import apply_search, count_query
 from app.schemas.avaliacao import (
     AlternativaCreate,
     AlternativaRead,
@@ -31,14 +32,20 @@ async def listar_avaliacoes(
     unidade_id: int | None = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    q: str | None = Query(None, description="Busca textual por titulo"),
     db: AsyncSession = Depends(get_db),
+    response: Response = None,
     _: Usuario = Depends(get_current_user),
 ):
-    q = select(Avaliacao)
+    query = select(Avaliacao)
     if unidade_id is not None:
-        q = q.where(Avaliacao.unidade_id == unidade_id)
-    result = await db.execute(q.offset(skip).limit(limit))
-    return result.scalars().all()
+        query = query.where(Avaliacao.unidade_id == unidade_id)
+    query = apply_search(query, [Avaliacao.titulo], q)
+    total = await count_query(db, query)
+    result = await db.execute(query.offset(skip).limit(limit))
+    items = result.scalars().all()
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.post("", response_model=AvaliacaoRead, status_code=status.HTTP_201_CREATED)

@@ -104,6 +104,42 @@ async def upload_file(file: UploadFile, folder: str) -> str:
     return await _upload_local(file, folder)
 
 
+async def _upload_bytes_s3(content: bytes, filename: str, folder: str) -> str:
+    try:
+        import aioboto3
+    except ImportError:
+        raise RuntimeError("aioboto3 is required for S3 storage")
+
+    ext = Path(filename).suffix
+    key = f"{folder}/{uuid.uuid4().hex}{ext}"
+    session = aioboto3.Session(
+        aws_access_key_id=settings.S3_ACCESS_KEY,
+        aws_secret_access_key=settings.S3_SECRET_KEY,
+        region_name=settings.S3_REGION,
+    )
+    async with session.client("s3", endpoint_url=settings.S3_ENDPOINT or None) as s3:
+        await s3.put_object(Bucket=settings.S3_BUCKET, Key=key, Body=content)
+    endpoint = settings.S3_ENDPOINT or f"https://{settings.S3_BUCKET}.s3.{settings.S3_REGION}.amazonaws.com"
+    return f"{endpoint}/{key}"
+
+
+async def _upload_bytes_local(content: bytes, filename: str, folder: str) -> str:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    target_dir = UPLOAD_DIR / folder
+    target_dir.mkdir(parents=True, exist_ok=True)
+    ext = Path(filename).suffix
+    name = f"{uuid.uuid4().hex}{ext}"
+    path = target_dir / name
+    path.write_bytes(content)
+    return f"/uploads/{folder}/{name}"
+
+
+async def upload_bytes(content: bytes, filename: str, folder: str) -> str:
+    if settings.STORAGE_BACKEND == "s3":
+        return await _upload_bytes_s3(content, filename, folder)
+    return await _upload_bytes_local(content, filename, folder)
+
+
 async def delete_file(url: str) -> None:
     if settings.STORAGE_BACKEND == "s3":
         await _delete_s3(url)

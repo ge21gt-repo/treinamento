@@ -55,6 +55,11 @@ class Permissoes:
     SCORM_GERENCIAR = "scorm:gerenciar"
     SCORM_VISUALIZAR = "scorm:visualizar"
 
+    AULA_PROCESSAR_GRAVACAO = "aula:processar_gravacao"
+    AULA_VER_PRESENCA = "aula:ver_presenca"
+
+    PERFIL_ATRIBUIR = "perfil:atribuir"
+
 
 # Mapeamento de perfil → permissões (baseado na lógica de produto)
 PERFIL_PERMISSOES = {
@@ -98,6 +103,9 @@ PERFIL_PERMISSOES = {
         Permissoes.ENTREGA_CORRIGIR,
         Permissoes.SCORM_GERENCIAR,
         Permissoes.SCORM_VISUALIZAR,
+        Permissoes.AULA_PROCESSAR_GRAVACAO,
+        Permissoes.AULA_VER_PRESENCA,
+        Permissoes.PERFIL_ATRIBUIR,
     ],
     "administrador": [
         # Todas exceto auditoria (mesmo de admin_geral por enquanto)
@@ -139,6 +147,9 @@ PERFIL_PERMISSOES = {
         Permissoes.ENTREGA_CORRIGIR,
         Permissoes.SCORM_GERENCIAR,
         Permissoes.SCORM_VISUALIZAR,
+        Permissoes.AULA_PROCESSAR_GRAVACAO,
+        Permissoes.AULA_VER_PRESENCA,
+        Permissoes.PERFIL_ATRIBUIR,
     ],
     "instrutor": [
         # Pode criar/editar avaliações e comentários, cursos, sandbox
@@ -170,6 +181,8 @@ PERFIL_PERMISSOES = {
         Permissoes.ENTREGA_CORRIGIR,
         Permissoes.SCORM_GERENCIAR,
         Permissoes.SCORM_VISUALIZAR,
+        Permissoes.AULA_PROCESSAR_GRAVACAO,
+        Permissoes.AULA_VER_PRESENCA,
     ],
     "auditor": [
         # Apenas visualização (relatórios, dashboards, avaliações, comentários, conteúdos)

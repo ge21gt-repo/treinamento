@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models.curso import Inscricao, InscricaoTrilha, TrilhaAprendizagem
 from app.models.usuario import Usuario
 from app.schemas.curso import InscricaoTrilhaRead, TrilhaCreate, TrilhaProgressoRead, TrilhaRead, TrilhaUpdate
+from app.services.paginacao import apply_search, count_query
 from app.services.rbac import Permissoes
 
 router = APIRouter(prefix="/trilhas", tags=["Trilhas de Aprendizagem"])
@@ -18,14 +19,20 @@ async def listar_trilhas(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     nivel: str | None = Query(None),
+    q: str | None = Query(None, description="Busca textual por titulo ou descricao"),
     db: AsyncSession = Depends(get_db),
+    response: Response = None,
     _: Usuario = Depends(get_current_user),
 ):
-    stmt = select(TrilhaAprendizagem)
+    query = select(TrilhaAprendizagem)
     if nivel:
-        stmt = stmt.where(TrilhaAprendizagem.nivel == nivel)
-    result = await db.execute(stmt.offset(skip).limit(limit))
-    return result.scalars().all()
+        query = query.where(TrilhaAprendizagem.nivel == nivel)
+    query = apply_search(query, [TrilhaAprendizagem.titulo, TrilhaAprendizagem.descricao], q)
+    total = await count_query(db, query)
+    result = await db.execute(query.offset(skip).limit(limit))
+    items = result.scalars().all()
+    response.headers["X-Total-Count"] = str(total)
+    return items
 
 
 @router.post("", response_model=TrilhaRead, status_code=status.HTTP_201_CREATED)
