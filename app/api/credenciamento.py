@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.database import get_db
@@ -21,6 +22,7 @@ async def listar_solicitacoes_pendentes(
     # Por enquanto, retorna todas as pendentes
     result = await db.execute(
         select(SolicitacaoCredenciamento)
+        .options(selectinload(SolicitacaoCredenciamento.usuario))
         .where(SolicitacaoCredenciamento.status == "pendente")
         .order_by(SolicitacaoCredenciamento.solicitado_em)
     )

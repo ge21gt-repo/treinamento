@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 __all__ = [
     "SolicitacaoCredenciamentoBase",
@@ -41,6 +41,8 @@ class SolicitacaoCredenciamentoRead(SolicitacaoCredenciamentoBase):
 
     id: int
     usuario_id: uuid.UUID
+    usuario_nome: str = ""
+    usuario_email: str = ""
     status: str
     solicitado_em: datetime
     avaliado_por: uuid.UUID | None
@@ -48,6 +50,17 @@ class SolicitacaoCredenciamentoRead(SolicitacaoCredenciamentoBase):
     motivo_rejeicao: str | None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_usuario_info(cls, data):
+        if isinstance(data, dict):
+            return data
+        usuario = getattr(data, "usuario", None)
+        if usuario:
+            data.usuario_nome = usuario.nome_completo
+            data.usuario_email = usuario.email
+        return data
 
 
 class AprovacaoHierarquicaBase(BaseModel):
