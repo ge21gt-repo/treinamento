@@ -142,3 +142,4 @@ class CriarSubordinadoRequest(BaseModel):
     orgao_instituicao: str | None = None
     cargo: str | None = None
     telefone: str | None = None
+    perfil: str = "participante"
