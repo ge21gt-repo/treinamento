@@ -11,12 +11,14 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-tests-only")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "480")
 os.environ["STORAGE_BACKEND"] = "local"
 
-from app.api.deps import get_current_user, get_db
 from app.config import settings
 
 # Tests usam TEST_DATABASE_URL se definido, senao DATABASE_URL
 _TEST_DB_URL = settings.TEST_DATABASE_URL or settings.DATABASE_URL
+settings.DATABASE_URL = _TEST_DB_URL
 os.environ["DATABASE_URL"] = _TEST_DB_URL
+
+from app.api.deps import get_current_user, get_db
 from app.database import engine as app_engine
 from app.main import app
 from app.models import Base
