@@ -252,3 +252,26 @@ def can_create_comentario(perfil_nome: str) -> bool:
 def can_use_sandbox(perfil_nome: str) -> bool:
     """Verifica se perfil pode usar sandbox (regra: apenas instrutor)"""
     return has_permission(perfil_nome, Permissoes.SANDBOX_TESTAR)
+
+
+# Hierarquia de criação de usuários por perfil
+# Quem cria → lista de perfis que pode criar
+CRIACAO_PERMITIDA: dict[str, list[str]] = {
+    "administrador_geral": ["administrador", "gestor", "instrutor", "auditor", "participante"],
+    "administrador": ["gestor", "instrutor", "auditor", "participante"],
+}
+
+
+def can_create_perfil(criador_perfil: str, alvo_perfil: str) -> bool:
+    """
+    Valida se um perfil pode criar outro perfil.
+
+    Regras:
+      - administrador_geral → qualquer perfil
+      - administrador → gestor, instrutor, auditor, participante
+      - qualquer outro perfil → apenas participante
+    """
+    if alvo_perfil == "participante":
+        return True
+    permitidos = CRIACAO_PERMITIDA.get(criador_perfil, [])
+    return alvo_perfil in permitidos
