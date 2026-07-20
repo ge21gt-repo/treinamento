@@ -10,7 +10,7 @@ from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.paginacao import apply_search, count_query
-from app.services.rbac import Permissoes
+from app.services.rbac import Permissoes, can_create_perfil
 from app.schemas.usuario import (
     CriarSubordinadoRequest,
     PerfilCreate,
@@ -192,7 +192,22 @@ async def criar_subordinado(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Endpoint para gestor criar conta de participante (subordinado)"""
+    """Endpoint para gestor criar conta de subordinado com perfil definido"""
+    # Verificar se o perfil solicitado existe no banco
+    perfil_existente = await db.execute(select(Perfil).where(Perfil.nome == payload.perfil))
+    perfil = perfil_existente.scalar_one_or_none()
+    if not perfil:
+        raise HTTPException(status_code=400, detail=f"Perfil '{payload.perfil}' não encontrado")
+
+    # Validar hierarquia: quem cria pode criar este perfil?
+    perfis_criador = [up.perfil.nome for up in current_user.perfis] if current_user.perfis else []
+    autorizado = any(can_create_perfil(p, payload.perfil) for p in perfis_criador)
+    if not autorizado:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Seu perfil não tem permissão para criar usuários do perfil '{payload.perfil}'",
+        )
+
     # Verificar unicidade de email, CPF e telefone
     await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
 
@@ -206,17 +221,14 @@ async def criar_subordinado(
         cargo=payload.cargo,
         telefone=payload.telefone,
         ativo=True,
-        status_credenciamento="aprovado",  # Criado por gestor, já aprovado
+        status_credenciamento="aprovado",  # Criado por superior, já aprovado
         criado_por=current_user.id,
     )
     db.add(subordinado)
     await db.flush()
 
-    # Atribuir perfil participante
-    perfil_participante = await db.execute(select(Perfil).where(Perfil.nome == "participante"))
-    perfil = perfil_participante.scalar_one_or_none()
-    if perfil:
-        db.add(UsuarioPerfil(usuario_id=subordinado.id, perfil_id=perfil.id, atribuido_por=current_user.id))
+    # Atribuir perfil solicitado
+    db.add(UsuarioPerfil(usuario_id=subordinado.id, perfil_id=perfil.id, atribuido_por=current_user.id))
 
     await db.commit()
     await db.refresh(subordinado)
