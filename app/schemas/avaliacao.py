@@ -84,6 +84,14 @@ class AlternativaRead(AlternativaBase):
     model_config = {"from_attributes": True}
 
 
+class QuestaoReadWithAlternativas(QuestaoRead):
+    alternativas: list[AlternativaRead] = []
+
+
+class AvaliacaoReadWithQuestoes(AvaliacaoRead):
+    questoes: list[QuestaoReadWithAlternativas] = []
+
+
 class RespostaParticipanteBase(BaseModel):
     usuario_id: uuid.UUID
     questao_id: int

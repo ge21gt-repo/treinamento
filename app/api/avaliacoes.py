@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaParticipante, ResultadoAvaliacao
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
+from app.services.rbac import Permissoes
 from app.schemas.avaliacao import (
     AlternativaCreate,
     AlternativaRead,
@@ -35,7 +36,7 @@ async def listar_avaliacoes(
     q: str | None = Query(None, description="Busca textual por titulo"),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
 ):
     query = select(Avaliacao)
     if unidade_id is not None:
@@ -52,7 +53,7 @@ async def listar_avaliacoes(
 async def criar_avaliacao(
     payload: AvaliacaoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_CRIAR)),
 ):
     avaliacao = Avaliacao(**payload.model_dump())
     db.add(avaliacao)
@@ -65,7 +66,7 @@ async def criar_avaliacao(
 async def obter_avaliacao(
     avaliacao_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
 ):
     result = await db.execute(select(Avaliacao).where(Avaliacao.id == avaliacao_id))
     avaliacao = result.scalar_one_or_none()
@@ -79,7 +80,7 @@ async def atualizar_avaliacao(
     avaliacao_id: int,
     payload: AvaliacaoUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EDITAR)),
 ):
     result = await db.execute(select(Avaliacao).where(Avaliacao.id == avaliacao_id))
     avaliacao = result.scalar_one_or_none()
@@ -96,7 +97,7 @@ async def atualizar_avaliacao(
 async def excluir_avaliacao(
     avaliacao_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EXCLUIR)),
 ):
     result = await db.execute(select(Avaliacao).where(Avaliacao.id == avaliacao_id))
     avaliacao = result.scalar_one_or_none()
@@ -113,7 +114,7 @@ async def excluir_avaliacao(
 async def listar_questoes(
     avaliacao_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
 ):
     result = await db.execute(select(Questao).where(Questao.avaliacao_id == avaliacao_id).order_by(Questao.ordem))
     return result.scalars().all()
@@ -123,7 +124,7 @@ async def listar_questoes(
 async def criar_questao(
     payload: QuestaoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_CRIAR)),
 ):
     questao = Questao(**payload.model_dump())
     db.add(questao)
@@ -137,7 +138,7 @@ async def atualizar_questao(
     questao_id: int,
     payload: QuestaoUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EDITAR)),
 ):
     result = await db.execute(select(Questao).where(Questao.id == questao_id))
     questao = result.scalar_one_or_none()
@@ -157,7 +158,7 @@ async def atualizar_questao(
 async def listar_alternativas(
     questao_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
 ):
     result = await db.execute(
         select(Alternativa).where(Alternativa.questao_id == questao_id).order_by(Alternativa.ordem)
@@ -169,7 +170,7 @@ async def listar_alternativas(
 async def criar_alternativa(
     payload: AlternativaCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_CRIAR)),
 ):
     alternativa = Alternativa(**payload.model_dump())
     db.add(alternativa)
@@ -185,7 +186,7 @@ async def criar_alternativa(
 async def registrar_resposta(
     payload: RespostaParticipanteCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_RESPONDER)),
 ):
     resposta = RespostaParticipante(**payload.model_dump())
     if resposta.alternativa_id:
@@ -206,7 +207,7 @@ async def registrar_resposta(
 async def registrar_resultado(
     payload: ResultadoAvaliacaoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_RESPONDER)),
 ):
     resultado = ResultadoAvaliacao(**payload.model_dump())
     db.add(resultado)
@@ -219,7 +220,7 @@ async def registrar_resultado(
 async def listar_resultados_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
 ):
     result = await db.execute(select(ResultadoAvaliacao).where(ResultadoAvaliacao.usuario_id == usuario_id))
     return result.scalars().all()

@@ -1,3 +1,19 @@
+from app.schemas.avaliacao import (
+    AlternativaCreate,
+    AlternativaRead,
+    AvaliacaoCreate,
+    AvaliacaoRead,
+    AvaliacaoReadWithQuestoes,
+    AvaliacaoUpdate,
+    QuestaoCreate,
+    QuestaoRead,
+    QuestaoReadWithAlternativas,
+    QuestaoUpdate,
+    RespostaParticipanteCreate,
+    RespostaParticipanteRead,
+    ResultadoAvaliacaoCreate,
+    ResultadoAvaliacaoRead,
+)
 from app.schemas.conteudo import (
     ConteudoBase,
     ConteudoCreate,
@@ -71,6 +87,20 @@ from app.schemas.usuario import (
 )
 
 __all__ = [
+    "AlternativaCreate",
+    "AlternativaRead",
+    "AvaliacaoCreate",
+    "AvaliacaoRead",
+    "AvaliacaoReadWithQuestoes",
+    "AvaliacaoUpdate",
+    "QuestaoCreate",
+    "QuestaoRead",
+    "QuestaoReadWithAlternativas",
+    "QuestaoUpdate",
+    "RespostaParticipanteCreate",
+    "RespostaParticipanteRead",
+    "ResultadoAvaliacaoCreate",
+    "ResultadoAvaliacaoRead",
     "UsuarioBase",
     "UsuarioCreate",
     "UsuarioUpdate",
