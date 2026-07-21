@@ -357,6 +357,7 @@ async def submeter_avaliacao(
             detail=f"Questoes {invalidas} nao pertencem a esta avaliacao",
         )
 
+    respostas_alternativas = {}
     for r in payload.respostas:
         resposta = RespostaParticipante(
             usuario_id=current_user.id,
@@ -369,20 +370,25 @@ async def submeter_avaliacao(
             alt = await db.get(Alternativa, r.alternativa_id)
             if alt:
                 resposta.correta = alt.correta
+                respostas_alternativas[r.questao_id] = r.alternativa_id
         db.add(resposta)
+
+    from app.services.avaliacao import calcular_nota
+
+    nota, aprovado = await calcular_nota(db, avaliacao, questoes_ids, respostas_alternativas)
 
     resultado = ResultadoAvaliacao(
         usuario_id=current_user.id,
         avaliacao_id=avaliacao_id,
-        nota=Decimal("0"),
-        aprovado=False,
+        nota=nota,
+        aprovado=aprovado,
         tentativa_num=tentativa_num,
     )
     db.add(resultado)
     await db.commit()
     await db.refresh(resultado)
 
-    return {"message": "Avaliacao submetida com sucesso", "resultado_id": resultado.id, "tentativa": tentativa_num}
+    return {"message": "Avaliacao submetida com sucesso", "resultado_id": resultado.id, "tentativa": tentativa_num, "nota": float(nota), "aprovado": aprovado}
 
 
 # --- Respostas ---
