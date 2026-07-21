@@ -114,6 +114,49 @@ class AvaliacaoReadWithQuestoes(AvaliacaoRead):
     questoes: list[QuestaoReadWithAlternativas] = []
 
 
+class AlternativaResponderRead(BaseModel):
+    id: int
+    questao_id: int
+    texto: str
+    ordem: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class QuestaoResponderRead(BaseModel):
+    id: int
+    avaliacao_id: int
+    enunciado: str
+    tipo: str
+    pontuacao: Decimal = Decimal("1.00")
+    ordem: int = 0
+    alternativas: list[AlternativaResponderRead] = []
+
+    model_config = {"from_attributes": True}
+
+
+class AvaliacaoResponderRead(BaseModel):
+    id: int
+    titulo: str
+    descricao: str | None = None
+    tipo: str
+    tentativas_max: int = 3
+    tempo_limite_min: int | None = None
+    questoes: list[QuestaoResponderRead] = []
+
+    model_config = {"from_attributes": True}
+
+
+class RespostaSubmeterItem(BaseModel):
+    questao_id: int
+    alternativa_id: int | None = None
+    resposta_texto: str | None = None
+
+
+class SubmeterAvaliacaoRequest(BaseModel):
+    respostas: list[RespostaSubmeterItem]
+
+
 class RespostaParticipanteBase(BaseModel):
     usuario_id: uuid.UUID
     questao_id: int

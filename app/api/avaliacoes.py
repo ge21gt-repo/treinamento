@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaParticipante, ResultadoAvaliacao
+from app.models.curso import Inscricao, Unidade, Modulo
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
 from app.services.rbac import Permissoes
@@ -16,6 +18,7 @@ from app.schemas.avaliacao import (
     AlternativaUpdate,
     AvaliacaoCreate,
     AvaliacaoRead,
+    AvaliacaoResponderRead,
     AvaliacaoUpdate,
     QuestaoCreate,
     QuestaoRead,
@@ -24,6 +27,7 @@ from app.schemas.avaliacao import (
     RespostaParticipanteRead,
     ResultadoAvaliacaoCreate,
     ResultadoAvaliacaoRead,
+    SubmeterAvaliacaoRequest,
 )
 
 router = APIRouter(prefix="/avaliacoes", tags=["Avaliacoes"])
@@ -222,6 +226,163 @@ async def excluir_alternativa(
         raise HTTPException(status_code=404, detail="Alternativa nao encontrada")
     await db.delete(alternativa)
     await db.commit()
+
+
+# --- Realizacao da avaliacao ---
+
+
+@router.get("/{avaliacao_id}/responder", response_model=AvaliacaoResponderRead)
+async def responder_avaliacao(
+    avaliacao_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_RESPONDER)),
+):
+    result = await db.execute(select(Avaliacao).where(Avaliacao.id == avaliacao_id))
+    avaliacao = result.scalar_one_or_none()
+    if not avaliacao:
+        raise HTTPException(status_code=404, detail="Avaliacao nao encontrada")
+    if not avaliacao.ativa:
+        raise HTTPException(status_code=400, detail="Avaliacao nao esta ativa")
+
+    if avaliacao.unidade_id:
+        unidade = await db.get(Unidade, avaliacao.unidade_id)
+        if unidade:
+            modulo = await db.get(Modulo, unidade.modulo_id)
+            if modulo:
+                insc = await db.execute(
+                    select(Inscricao).where(
+                        Inscricao.curso_id == modulo.curso_id,
+                        Inscricao.usuario_id == current_user.id,
+                    )
+                )
+                if not insc.scalar_one_or_none():
+                    raise HTTPException(
+                        status_code=403, detail="Usuario nao esta inscrito no curso desta avaliacao"
+                    )
+
+    questoes = (
+        await db.execute(select(Questao).where(Questao.avaliacao_id == avaliacao_id).order_by(Questao.ordem))
+    ).scalars().all()
+
+    from app.schemas.avaliacao import AlternativaResponderRead, QuestaoResponderRead
+
+    questoes_read = []
+    for q in questoes:
+        alternativas = (
+            await db.execute(
+                select(Alternativa).where(Alternativa.questao_id == q.id).order_by(Alternativa.ordem)
+            )
+        ).scalars().all()
+        questoes_read.append(
+            QuestaoResponderRead(
+                id=q.id,
+                avaliacao_id=q.avaliacao_id,
+                enunciado=q.enunciado,
+                tipo=q.tipo,
+                pontuacao=q.pontuacao,
+                ordem=q.ordem,
+                alternativas=[
+                    AlternativaResponderRead(
+                        id=a.id, questao_id=a.questao_id, texto=a.texto, ordem=a.ordem
+                    )
+                    for a in alternativas
+                ],
+            )
+        )
+
+    return AvaliacaoResponderRead(
+        id=avaliacao.id,
+        titulo=avaliacao.titulo,
+        descricao=avaliacao.descricao,
+        tipo=avaliacao.tipo,
+        tentativas_max=avaliacao.tentativas_max,
+        tempo_limite_min=avaliacao.tempo_limite_min,
+        questoes=questoes_read,
+    )
+
+
+@router.post("/{avaliacao_id}/submeter", status_code=status.HTTP_201_CREATED)
+async def submeter_avaliacao(
+    avaliacao_id: int,
+    payload: SubmeterAvaliacaoRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_RESPONDER)),
+):
+    result = await db.execute(select(Avaliacao).where(Avaliacao.id == avaliacao_id))
+    avaliacao = result.scalar_one_or_none()
+    if not avaliacao:
+        raise HTTPException(status_code=404, detail="Avaliacao nao encontrada")
+    if not avaliacao.ativa:
+        raise HTTPException(status_code=400, detail="Avaliacao nao esta ativa")
+
+    if avaliacao.unidade_id:
+        unidade = await db.get(Unidade, avaliacao.unidade_id)
+        if unidade:
+            modulo = await db.get(Modulo, unidade.modulo_id)
+            if modulo:
+                insc = await db.execute(
+                    select(Inscricao).where(
+                        Inscricao.curso_id == modulo.curso_id,
+                        Inscricao.usuario_id == current_user.id,
+                    )
+                )
+                if not insc.scalar_one_or_none():
+                    raise HTTPException(
+                        status_code=403, detail="Usuario nao esta inscrito no curso desta avaliacao"
+                    )
+
+    tentativas = await db.scalar(
+        select(func.count()).where(
+            ResultadoAvaliacao.avaliacao_id == avaliacao_id,
+            ResultadoAvaliacao.usuario_id == current_user.id,
+        )
+    )
+    if tentativas >= avaliacao.tentativas_max:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Limite de {avaliacao.tentativas_max} tentativas atingido",
+        )
+
+    tentativa_num = tentativas + 1
+
+    questoes_ids = {r.questao_id for r in payload.respostas}
+    questoes_db = (
+        await db.execute(select(Questao).where(Questao.avaliacao_id == avaliacao_id))
+    ).scalars().all()
+    questoes_validas = {q.id for q in questoes_db}
+    invalidas = questoes_ids - questoes_validas
+    if invalidas:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Questoes {invalidas} nao pertencem a esta avaliacao",
+        )
+
+    for r in payload.respostas:
+        resposta = RespostaParticipante(
+            usuario_id=current_user.id,
+            questao_id=r.questao_id,
+            alternativa_id=r.alternativa_id,
+            resposta_texto=r.resposta_texto,
+            tentativa_num=tentativa_num,
+        )
+        if r.alternativa_id:
+            alt = await db.get(Alternativa, r.alternativa_id)
+            if alt:
+                resposta.correta = alt.correta
+        db.add(resposta)
+
+    resultado = ResultadoAvaliacao(
+        usuario_id=current_user.id,
+        avaliacao_id=avaliacao_id,
+        nota=Decimal("0"),
+        aprovado=False,
+        tentativa_num=tentativa_num,
+    )
+    db.add(resultado)
+    await db.commit()
+    await db.refresh(resultado)
+
+    return {"message": "Avaliacao submetida com sucesso", "resultado_id": resultado.id, "tentativa": tentativa_num}
 
 
 # --- Respostas ---
