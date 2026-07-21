@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+TIPOS_QUESTAO = {"multipla_escolha", "verdadeiro_falso", "dissertativa"}
 
 
 class AvaliacaoBase(BaseModel):
@@ -47,6 +49,13 @@ class QuestaoBase(BaseModel):
     ordem: int = 0
     explicacao: str | None = None
 
+    @field_validator("tipo")
+    @classmethod
+    def validar_tipo(cls, v: str) -> str:
+        if v not in TIPOS_QUESTAO:
+            raise ValueError(f"tipo deve ser um de: {', '.join(sorted(TIPOS_QUESTAO))}")
+        return v
+
 
 class QuestaoCreate(QuestaoBase):
     pass
@@ -58,6 +67,13 @@ class QuestaoUpdate(BaseModel):
     pontuacao: Decimal | None = None
     ordem: int | None = None
     explicacao: str | None = None
+
+    @field_validator("tipo")
+    @classmethod
+    def validar_tipo(cls, v: str | None) -> str | None:
+        if v is not None and v not in TIPOS_QUESTAO:
+            raise ValueError(f"tipo deve ser um de: {', '.join(sorted(TIPOS_QUESTAO))}")
+        return v
 
 
 class QuestaoRead(QuestaoBase):

@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
@@ -172,6 +172,18 @@ async def criar_alternativa(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_CRIAR)),
 ):
+    questao = await db.get(Questao, payload.questao_id)
+    if not questao:
+        raise HTTPException(status_code=404, detail="Questao nao encontrada")
+    if questao.tipo == "verdadeiro_falso":
+        count = await db.scalar(
+            select(func.count()).where(Alternativa.questao_id == payload.questao_id)
+        )
+        if count >= 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Questao verdadeiro_falso ja possui 2 alternativas (verdadeiro/falso)",
+            )
     alternativa = Alternativa(**payload.model_dump())
     db.add(alternativa)
     await db.commit()
