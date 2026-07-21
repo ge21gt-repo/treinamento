@@ -30,13 +30,13 @@ The app **also auto-creates tables, seeds profiles and niveis** on startup via F
 - **DATABASE_URL normalization** — `config.py` auto-converts `postgres://` or `postgresql://` to `postgresql+asyncpg://` and strips `?sslmode=`. On Fly.io (`.flycast` in URL), SSL is disabled.
 - **Lifespan auto-migrate** — `app.main.py` runs `Base.metadata.create_all` and seeds profiles/niveis on every startup. Do not rely on this in prod; use Alembic.
 - **CORS** defaults to `["http://localhost:3000"]`, configurable via `.env`.
-- **`.env` vars:** `DATABASE_URL`, `SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES` (default 480), `CORS_ORIGINS`, `STORAGE_BACKEND` (local/s3), `S3_*` (S3 config), `TEAMS_*` (Teams integration), `SMTP_*` (email), `BASE_URL`, `RESET_TOKEN_EXPIRE_MINUTES`, `MAX_UPLOAD_SIZE`.
+- **`.env` vars:** `DATABASE_URL`, `SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES` (default 480), `CORS_ORIGINS`, `STORAGE_BACKEND` (local/s3), `S3_*` (S3 config), `TEAMS_*` (Teams integration), `SMTP_*` (email), `BASE_URL`, `RESET_TOKEN_EXPIRE_MINUTES`, `MAX_UPLOAD_SIZE`, `TEST_DATABASE_URL`, `TEST_STORAGE_BACKEND`, `TEST_S3_BUCKET`.
 
 ## Dev Workflow
 
-- **Tests:** 15 test files with 1,600+ lines covering auth, RBAC, US-04/05/06/07, bug fixes, and other modules. Run with `pytest`.
-- **Test Database:** Tests use PostgreSQL real configured in `.env` (DATABASE_URL=lms_idesp), not test database.
-- **Test infrastructure:** `pytest.ini` uses `asyncio_default_test_loop_scope = session`. Raw ASGI middleware (no BaseHTTPMiddleware). `db_clean` fixture uses separate engine to avoid pool corruption. `event_loop` fixture is session-scoped.
+- **Tests:** 19 test files with 1,600+ lines covering auth, RBAC, US-04/05/06/07, bug fixes, and other modules. Run with `pytest`.
+- **Test Database:** Uses `TEST_DATABASE_URL` (database-2, senha separada) — isolado do dev. Bucket S3 de teste: `lms-conteudos-teste`.
+- **Test infrastructure:** `pytest.ini` uses `asyncio_default_test_loop_scope = session`. Raw ASGI middleware (no BaseHTTPMiddleware). `db_clean` fixture uses separate engine to avoid pool corruption. `event_loop` fixture is session-scoped. Tests override `STORAGE_BACKEND=local`.
 - **No linter/formatter/typechecker config** — no ruff, flake8, mypy, black, isort. CI only checks that `from app.main import app` works.
 - **CI** (`.github/workflows/ci.yml`): runs on push/PR to `main`, installs deps, runs `python -c "from app.main import app; print(len(app.routes))"`.
 - **Deploy** (`fly.io`): `fly deploy` via GitHub Actions or manually. Dockerfile serves on port 8080.
@@ -94,6 +94,7 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 ## Project State
 
 - **Branch:** `devin/1782154515-backend-lms` (development branch)
+- **Current work branch:** `fix/paginacao-e-busca` (issues #26/#27 — not yet merged)
 - **Production Branch:** `main` (PR → deploy)
 - **Roadmap:** 31/72 tasks done (43%). US-04 ✅, US-05 ✅, US-06 ✅, US-07 ✅, Pendências Técnicas ✅, Issues #21/#22/#23 ✅.
 - **Next up:** US-08 (Sistema de Avaliações — issue #25)
@@ -339,6 +340,49 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 **Solução:** Adicionado `unique=True` no campo `telefone` do model `Usuario` + migração Alembic `005_add_telefone_unique_constraint`. Validação pré-insert já captura duplicatas e retorna 409.
 
 **Testes:** 5/5 (`tests/test_issue23_telefone.py`)
+
+### Issue #26: Paginação sem X-Total-Count ✅ CONCLUÍDA
+**Issue GitHub:** #26
+
+**Status:** Concluída em 20/07/2026
+
+**Problema:** Endpoints paginados não retornavam total de registros — frontend não sabia quantas páginas existem.
+
+**Solução:**
+- Novo serviço `app/services/paginacao.py` com helpers `count_query()` e `apply_search()`
+- 9 endpoints paginados agora retornam header `X-Total-Count` com total de registros
+- Backward compatible — sem mudança no envelope de resposta
+
+**Arquivos criados/modificados:**
+- app/services/paginacao.py (novo)
+- app/api/avaliacoes.py, cursos.py, trilhas.py, conteudos.py, sessoes.py, comunicacao.py, dashboard.py, usuarios.py
+
+### Issue #27: Busca por query string (ILIKE) ✅ CONCLUÍDA
+**Issue GitHub:** #27
+
+**Status:** Concluída em 20/07/2026
+
+**Problema:** Nenhum endpoint suportava busca textual — frontend precisava filtrar no cliente.
+
+**Solução:**
+- 7 endpoints aceitam `?q=...` para busca server-side com ILIKE
+- Endpoints: usuários, cursos, trilhas, avaliações, conteúdos, sessões, fórum
+- Chat e logs excluídos conforme especificação
+
+**Arquivos modificados:**
+- app/api/avaliacoes.py, cursos.py, trilhas.py, conteudos.py, sessoes.py, comunicacao.py, usuarios.py
+- app/services/paginacao.py (helper `apply_search`)
+
+### Proteção RBAC: POST /usuarios/perfis/atribuir ✅ IMPLEMENTADO
+
+**Status:** Concluída em 20/07/2026
+
+**Problema:** Endpoint de atribuição de perfil não tinha proteção RBAC — qualquer usuário autenticado podia chamar.
+
+**Solução:**
+- Adicionada permissão `Permissoes.PERFIL_ATRIBUIR = "perfil:atribuir"`
+- Mapeada para `administrador_geral` e `administrador` em `PERFIL_PERMISSOES`
+- Endpoint `POST /usuarios/perfis/atribuir` agora usa `Depends(require_permissao(Permissoes.PERFIL_ATRIBUIR))`
 
 ## Próximas Prioridades (segundo ROADMAP.md)
 
