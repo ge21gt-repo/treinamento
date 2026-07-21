@@ -1,6 +1,7 @@
 from app.schemas.avaliacao import (
     AlternativaCreate,
     AlternativaRead,
+    AlternativaUpdate,
     AvaliacaoCreate,
     AvaliacaoRead,
     AvaliacaoReadWithQuestoes,
@@ -89,6 +90,7 @@ from app.schemas.usuario import (
 __all__ = [
     "AlternativaCreate",
     "AlternativaRead",
+    "AlternativaUpdate",
     "AvaliacaoCreate",
     "AvaliacaoRead",
     "AvaliacaoReadWithQuestoes",

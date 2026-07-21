@@ -100,6 +100,12 @@ class AlternativaRead(AlternativaBase):
     model_config = {"from_attributes": True}
 
 
+class AlternativaUpdate(BaseModel):
+    texto: str | None = None
+    correta: bool | None = None
+    ordem: int | None = None
+
+
 class QuestaoReadWithAlternativas(QuestaoRead):
     alternativas: list[AlternativaRead] = []
 

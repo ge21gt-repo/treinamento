@@ -13,6 +13,7 @@ from app.services.rbac import Permissoes
 from app.schemas.avaliacao import (
     AlternativaCreate,
     AlternativaRead,
+    AlternativaUpdate,
     AvaliacaoCreate,
     AvaliacaoRead,
     AvaliacaoUpdate,
@@ -189,6 +190,38 @@ async def criar_alternativa(
     await db.commit()
     await db.refresh(alternativa)
     return alternativa
+
+
+@router.patch("/alternativas/{alternativa_id}", response_model=AlternativaRead)
+async def atualizar_alternativa(
+    alternativa_id: int,
+    payload: AlternativaUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EDITAR)),
+):
+    result = await db.execute(select(Alternativa).where(Alternativa.id == alternativa_id))
+    alternativa = result.scalar_one_or_none()
+    if not alternativa:
+        raise HTTPException(status_code=404, detail="Alternativa nao encontrada")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(alternativa, field, value)
+    await db.commit()
+    await db.refresh(alternativa)
+    return alternativa
+
+
+@router.delete("/alternativas/{alternativa_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def excluir_alternativa(
+    alternativa_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EXCLUIR)),
+):
+    result = await db.execute(select(Alternativa).where(Alternativa.id == alternativa_id))
+    alternativa = result.scalar_one_or_none()
+    if not alternativa:
+        raise HTTPException(status_code=404, detail="Alternativa nao encontrada")
+    await db.delete(alternativa)
+    await db.commit()
 
 
 # --- Respostas ---
