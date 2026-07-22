@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from pydantic import BaseModel, field_validator
@@ -155,6 +155,7 @@ class RespostaSubmeterItem(BaseModel):
 
 class SubmeterAvaliacaoRequest(BaseModel):
     respostas: list[RespostaSubmeterItem]
+    iniciado_em: datetime | None = None
 
 
 class RespostaParticipanteBase(BaseModel):

@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -343,6 +344,14 @@ async def submeter_avaliacao(
             detail=f"Limite de {avaliacao.tentativas_max} tentativas atingido",
         )
 
+    if avaliacao.tempo_limite_min and payload.iniciado_em:
+        elapsed = (datetime.now(timezone.utc) - payload.iniciado_em).total_seconds()
+        if elapsed > avaliacao.tempo_limite_min * 60:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tempo limite de {avaliacao.tempo_limite_min} minutos excedido",
+            )
+
     tentativa_num = tentativas + 1
 
     questoes_ids = {r.questao_id for r in payload.respostas}
@@ -377,12 +386,17 @@ async def submeter_avaliacao(
 
     nota, aprovado = await calcular_nota(db, avaliacao, questoes_ids, respostas_alternativas)
 
+    tempo_gasto = None
+    if payload.iniciado_em:
+        tempo_gasto = int((datetime.now(timezone.utc) - payload.iniciado_em).total_seconds())
+
     resultado = ResultadoAvaliacao(
         usuario_id=current_user.id,
         avaliacao_id=avaliacao_id,
         nota=nota,
         aprovado=aprovado,
         tentativa_num=tentativa_num,
+        tempo_gasto_seg=tempo_gasto,
     )
     db.add(resultado)
     await db.commit()
