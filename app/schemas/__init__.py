@@ -18,6 +18,9 @@ from app.schemas.avaliacao import (
     RespostaSubmeterItem,
     ResultadoAvaliacaoCreate,
     ResultadoAvaliacaoRead,
+    ResultadoFeedbackAlternativa,
+    ResultadoFeedbackQuestao,
+    ResultadoFeedbackRead,
     SubmeterAvaliacaoRequest,
 )
 from app.schemas.conteudo import (
@@ -112,6 +115,9 @@ __all__ = [
     "RespostaSubmeterItem",
     "ResultadoAvaliacaoCreate",
     "ResultadoAvaliacaoRead",
+    "ResultadoFeedbackAlternativa",
+    "ResultadoFeedbackQuestao",
+    "ResultadoFeedbackRead",
     "SubmeterAvaliacaoRequest",
     "UsuarioBase",
     "UsuarioCreate",

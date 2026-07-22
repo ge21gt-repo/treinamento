@@ -28,6 +28,7 @@ from app.schemas.avaliacao import (
     RespostaParticipanteRead,
     ResultadoAvaliacaoCreate,
     ResultadoAvaliacaoRead,
+    ResultadoFeedbackRead,
     SubmeterAvaliacaoRequest,
 )
 
@@ -440,6 +441,89 @@ async def registrar_resultado(
     await db.commit()
     await db.refresh(resultado)
     return resultado
+
+
+@router.get("/{avaliacao_id}/resultado/{tentativa}", response_model=ResultadoFeedbackRead)
+async def obter_resultado_com_feedback(
+    avaliacao_id: int,
+    tentativa: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
+):
+    result = await db.execute(
+        select(ResultadoAvaliacao).where(
+            ResultadoAvaliacao.avaliacao_id == avaliacao_id,
+            ResultadoAvaliacao.tentativa_num == tentativa,
+            ResultadoAvaliacao.usuario_id == current_user.id,
+        )
+    )
+    resultado = result.scalar_one_or_none()
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Resultado nao encontrado para esta tentativa")
+
+    respostas = (
+        await db.execute(
+            select(RespostaParticipante).where(
+                RespostaParticipante.usuario_id == current_user.id,
+                RespostaParticipante.tentativa_num == tentativa,
+            )
+        )
+    ).scalars().all()
+
+    questoes = (
+        await db.execute(select(Questao).where(Questao.avaliacao_id == avaliacao_id).order_by(Questao.ordem))
+    ).scalars().all()
+
+    respostas_por_questao = {r.questao_id: r for r in respostas}
+    questoes_read = []
+    for q in questoes:
+        resp = respostas_por_questao.get(q.id)
+        alternativas = (
+            await db.execute(
+                select(Alternativa).where(Alternativa.questao_id == q.id).order_by(Alternativa.ordem)
+            )
+        ).scalars().all()
+
+        from app.schemas.avaliacao import ResultadoFeedbackAlternativa
+
+        alternativas_read = []
+        pontuacao_obtida = Decimal("0")
+        for a in alternativas:
+            escolhida = resp is not None and resp.alternativa_id == a.id
+            alternativas_read.append(
+                ResultadoFeedbackAlternativa(
+                    id=a.id, texto=a.texto, correta=a.correta, escolhida=escolhida, ordem=a.ordem
+                )
+            )
+            if escolhida and a.correta:
+                pontuacao_obtida += q.pontuacao
+
+        from app.schemas.avaliacao import ResultadoFeedbackQuestao
+
+        questoes_read.append(
+            ResultadoFeedbackQuestao(
+                id=q.id,
+                enunciado=q.enunciado,
+                tipo=q.tipo,
+                pontuacao=q.pontuacao,
+                pontuacao_obtida=pontuacao_obtida,
+                alternativas=alternativas_read,
+                explicacao=q.explicacao,
+            )
+        )
+
+    from app.schemas.avaliacao import ResultadoFeedbackRead
+
+    return ResultadoFeedbackRead(
+        resultado_id=resultado.id,
+        avaliacao_id=avaliacao_id,
+        nota=resultado.nota,
+        aprovado=resultado.aprovado,
+        tentativa_num=resultado.tentativa_num,
+        tempo_gasto_seg=resultado.tempo_gasto_seg,
+        realizado_em=resultado.realizado_em,
+        questoes=questoes_read,
+    )
 
 
 @router.get("/resultados/{usuario_id}", response_model=list[ResultadoAvaliacaoRead])
