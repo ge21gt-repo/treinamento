@@ -179,3 +179,238 @@ class TestRespostasResultados:
         r = await client.get(f"/api/v1/avaliacoes/resultados/{uid}")
         assert r.status_code == status.HTTP_200_OK
         assert len(r.json()) >= 1
+
+
+class TestTipoQuestaoValidation:
+    async def _setup_avaliacao(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso T", "descricao": "x", "ordem": 0})
+        cid = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": cid, "titulo": "Mod T", "descricao": "x", "ordem": 0})
+        mid = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mid, "titulo": "Unid T", "tipo": "conteudo", "ordem": 0})
+        uid = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uid, "titulo": "Aval T", "tipo": "prova"})
+        return r.json()["id"]
+
+    async def test_criar_questao_tipo_invalido(self, client):
+        av_id = await self._setup_avaliacao(client)
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes",
+            json={"avaliacao_id": av_id, "enunciado": "Teste", "tipo": "tipo_invalido"},
+        )
+        assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    async def test_atualizar_questao_tipo_invalido(self, client):
+        av_id = await self._setup_avaliacao(client)
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Teste", "tipo": "dissertativa"}
+        )
+        q_id = r.json()["id"]
+        r = await client.patch(f"/api/v1/avaliacoes/questoes/{q_id}", json={"tipo": "invalido"})
+        assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    async def test_vf_limit_2_alternativas(self, client):
+        av_id = await self._setup_avaliacao(client)
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "V ou F?", "tipo": "verdadeiro_falso"}
+        )
+        q_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "V", "correta": True, "ordem": 0})
+        assert r.status_code == status.HTTP_201_CREATED
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "F", "correta": False, "ordem": 1})
+        assert r.status_code == status.HTTP_201_CREATED
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "Terceira", "correta": False, "ordem": 2})
+        assert r.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestAlternativaCRUD:
+    async def test_patch_alternativa(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Alt", "descricao": "x", "ordem": 0})
+        cid = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": cid, "titulo": "Mod Alt", "descricao": "x", "ordem": 0})
+        mid = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mid, "titulo": "Unid Alt", "tipo": "conteudo", "ordem": 0})
+        uid = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uid, "titulo": "Aval Alt", "tipo": "prova"})
+        av_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Q?", "tipo": "multipla_escolha"}
+        )
+        q_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "Original", "correta": False, "ordem": 0})
+        alt_id = r.json()["id"]
+
+        r = await client.patch(f"/api/v1/avaliacoes/alternativas/{alt_id}", json={"texto": "Atualizada", "correta": True})
+        assert r.status_code == status.HTTP_200_OK
+        assert r.json()["texto"] == "Atualizada"
+        assert r.json()["correta"] is True
+
+    async def test_delete_alternativa(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Del", "descricao": "x", "ordem": 0})
+        cid = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": cid, "titulo": "Mod Del", "descricao": "x", "ordem": 0})
+        mid = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mid, "titulo": "Unid Del", "tipo": "conteudo", "ordem": 0})
+        uid = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uid, "titulo": "Aval Del", "tipo": "prova"})
+        av_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Q?", "tipo": "multipla_escolha"}
+        )
+        q_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "Delete me", "correta": False, "ordem": 0})
+        alt_id = r.json()["id"]
+
+        r = await client.delete(f"/api/v1/avaliacoes/alternativas/{alt_id}")
+        assert r.status_code == status.HTTP_204_NO_CONTENT
+
+
+class TestSubmeterAvaliacao:
+    async def _setup_completo(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Sub", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod Sub", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid Sub", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval Sub", "tipo": "prova", "nota_minima": 50})
+        av_id = r.json()["id"]
+
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "2+2?", "tipo": "multipla_escolha", "pontuacao": 10}
+        )
+        q_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "4", "correta": True, "ordem": 0})
+        alt_certa = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "5", "correta": False, "ordem": 1})
+        alt_errada = r.json()["id"]
+
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+        return {"av_id": av_id, "q_id": q_id, "alt_certa": alt_certa, "alt_errada": alt_errada}
+
+    async def test_submeter_correcao_automatica(self, client):
+        setup = await self._setup_completo(client)
+        r = await client.post(
+            f"/api/v1/avaliacoes/{setup['av_id']}/submeter",
+            json={"respostas": [{"questao_id": setup["q_id"], "alternativa_id": setup["alt_certa"]}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        data = r.json()
+        assert data["aprovado"] is True
+        assert data["nota"] == 100.0
+
+    async def test_submeter_resposta_errada(self, client):
+        setup = await self._setup_completo(client)
+        r = await client.post(
+            f"/api/v1/avaliacoes/{setup['av_id']}/submeter",
+            json={"respostas": [{"questao_id": setup["q_id"], "alternativa_id": setup["alt_errada"]}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        data = r.json()
+        assert data["aprovado"] is False
+        assert data["nota"] == 0.0
+
+    async def test_submeter_sem_inscricao(self, client, admin_user):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso NoIns", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod NoIns", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid NoIns", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval NoIns", "tipo": "prova"})
+        av_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Q?", "tipo": "multipla_escolha"}
+        )
+        q_id = r.json()["id"]
+
+        r = await client.post(
+            f"/api/v1/avaliacoes/{av_id}/submeter",
+            json={"respostas": [{"questao_id": q_id}]},
+        )
+        assert r.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_limite_tentativas(self, client):
+        setup = await self._setup_completo(client)
+        for i in range(3):
+            r = await client.post(
+                f"/api/v1/avaliacoes/{setup['av_id']}/submeter",
+                json={"respostas": [{"questao_id": setup["q_id"], "alternativa_id": setup["alt_certa"]}]},
+            )
+            assert r.status_code == status.HTTP_201_CREATED
+        r = await client.post(
+            f"/api/v1/avaliacoes/{setup['av_id']}/submeter",
+            json={"respostas": [{"questao_id": setup["q_id"], "alternativa_id": setup["alt_certa"]}]},
+        )
+        assert r.status_code == status.HTTP_400_BAD_REQUEST
+        assert "tentativas" in r.json()["detail"].lower()
+
+
+class TestFeedbackResultados:
+    async def test_meus_resultados(self, client):
+        r = await client.get("/api/v1/avaliacoes/meus-resultados")
+        assert r.status_code == status.HTTP_200_OK
+        assert isinstance(r.json(), list)
+
+    async def test_feedback_endpoint(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso F", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod F", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid F", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval F", "tipo": "prova", "nota_minima": 50})
+        av_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Q?", "tipo": "multipla_escolha", "explicacao": "Porque sim"}
+        )
+        q_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "Correta", "correta": True, "ordem": 0})
+        alt_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+        r = await client.post(
+            f"/api/v1/avaliacoes/{av_id}/submeter",
+            json={"respostas": [{"questao_id": q_id, "alternativa_id": alt_id}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.get(f"/api/v1/avaliacoes/{av_id}/resultado/1")
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        assert "questoes" in data
+        assert len(data["questoes"]) >= 1
+        questao = data["questoes"][0]
+        assert questao["explicacao"] == "Porque sim"
+        alternativas = questao["alternativas"]
+        assert any(a["escolhida"] for a in alternativas)
+        assert any(a["correta"] for a in alternativas)
+
+    async def test_estatisticas(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso E", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod E", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid E", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval E", "tipo": "prova", "nota_minima": 50})
+        av_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Q?", "tipo": "multipla_escolha"}
+        )
+        q_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "Correta", "correta": True, "ordem": 0})
+        alt_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+
+        r = await client.post(
+            f"/api/v1/avaliacoes/{av_id}/submeter",
+            json={"respostas": [{"questao_id": q_id, "alternativa_id": alt_id}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.get(f"/api/v1/avaliacoes/{av_id}/estatisticas")
+        assert r.status_code == status.HTTP_200_OK
+        stats = r.json()
+        assert stats["total_tentativas"] >= 1
+        assert stats["total_aprovados"] >= 1
+        assert stats["taxa_aprovacao"] > 0
