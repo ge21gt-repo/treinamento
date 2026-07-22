@@ -70,6 +70,19 @@ async def criar_avaliacao(
     return avaliacao
 
 
+@router.get("/meus-resultados", response_model=list[ResultadoAvaliacaoRead])
+async def meus_resultados(
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
+):
+    result = await db.execute(
+        select(ResultadoAvaliacao)
+        .where(ResultadoAvaliacao.usuario_id == current_user.id)
+        .order_by(ResultadoAvaliacao.realizado_em.desc())
+    )
+    return result.scalars().all()
+
+
 @router.get("/{avaliacao_id}", response_model=AvaliacaoRead)
 async def obter_avaliacao(
     avaliacao_id: int,
@@ -533,19 +546,6 @@ async def obter_resultado_com_feedback(
         realizado_em=resultado.realizado_em,
         questoes=questoes_read,
     )
-
-
-@router.get("/meus-resultados", response_model=list[ResultadoAvaliacaoRead])
-async def meus_resultados(
-    db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
-):
-    result = await db.execute(
-        select(ResultadoAvaliacao)
-        .where(ResultadoAvaliacao.usuario_id == current_user.id)
-        .order_by(ResultadoAvaliacao.realizado_em.desc())
-    )
-    return result.scalars().all()
 
 
 @router.get("/{avaliacao_id}/resultados", response_model=list[ResultadoAvaliacaoRead])
