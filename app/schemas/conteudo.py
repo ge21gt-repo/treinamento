@@ -90,3 +90,27 @@ class EntregaAtividadeRead(EntregaAtividadeBase):
 class EntregaAtividadeCorrigir(BaseModel):
     nota: float
     feedback: str
+
+
+# --- Chunked Upload ---
+
+
+class IniciarUploadChunkedRequest(BaseModel):
+    filename: str
+    folder: str
+    total_chunks: int
+
+
+class IniciarUploadChunkedResponse(BaseModel):
+    upload_id: str
+    filename: str
+    folder: str
+    total_chunks: int
+
+
+class UploadChunkedStatusResponse(BaseModel):
+    upload_id: str
+    total_chunks: int
+    received_chunks: list[int]
+    missing_chunks: list[int]
+    complete: bool

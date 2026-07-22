@@ -37,6 +37,9 @@ from app.schemas.conteudo import (
     MaterialComplementarCreate,
     MaterialComplementarRead,
     MaterialComplementarUpdate,
+    IniciarUploadChunkedRequest,
+    IniciarUploadChunkedResponse,
+    UploadChunkedStatusResponse,
 )
 from app.schemas.credenciamento import (
     AprovacaoHierarquicaBase,

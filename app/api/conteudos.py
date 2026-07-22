@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,10 +11,14 @@ from app.schemas.conteudo import (
     ConteudoCreate,
     ConteudoRead,
     ConteudoUpdate,
+    IniciarUploadChunkedRequest,
+    IniciarUploadChunkedResponse,
     MaterialComplementarCreate,
     MaterialComplementarRead,
     MaterialComplementarUpdate,
+    UploadChunkedStatusResponse,
 )
+from app.services.chunked_upload import ChunkedUploadTracker
 from app.services.rbac import Permissoes
 from app.services.storage import delete_file, upload_file
 
@@ -86,6 +90,92 @@ async def upload_conteudo(
         titulo=titulo,
         descricao=descricao,
         mime_type=arquivo.content_type,
+        url_arquivo=url,
+        duracao_segundos=duracao_segundos,
+        ordem=ordem,
+        criado_por=current_user.id,
+    )
+    db.add(conteudo)
+    await db.commit()
+    await db.refresh(conteudo)
+    return conteudo
+
+
+# --- Chunked Upload (Retomável) ---
+
+
+@router.post("/upload/iniciar", response_model=IniciarUploadChunkedResponse)
+async def iniciar_upload_chunked(
+    payload: IniciarUploadChunkedRequest,
+    _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_CRIAR)),
+):
+    upload_id = ChunkedUploadTracker.init_upload(
+        filename=payload.filename,
+        folder=payload.folder,
+        total_chunks=payload.total_chunks,
+    )
+    return IniciarUploadChunkedResponse(
+        upload_id=upload_id,
+        filename=payload.filename,
+        folder=payload.folder,
+        total_chunks=payload.total_chunks,
+    )
+
+
+@router.post("/upload/{upload_id}/chunk", status_code=status.HTTP_204_NO_CONTENT)
+async def upload_chunk(
+    upload_id: str,
+    chunk_index: int = Query(...),
+    request: Request = None,
+    _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_CRIAR)),
+):
+    data = await request.body()
+    try:
+        ChunkedUploadTracker.save_chunk(upload_id, chunk_index, data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/upload/{upload_id}/status", response_model=UploadChunkedStatusResponse)
+async def status_upload_chunked(
+    upload_id: str,
+    _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_CRIAR)),
+):
+    try:
+        meta = ChunkedUploadTracker.get_status(upload_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    missing = ChunkedUploadTracker.list_missing(upload_id)
+    return UploadChunkedStatusResponse(
+        upload_id=upload_id,
+        total_chunks=meta["total_chunks"],
+        received_chunks=meta["received_chunks"],
+        missing_chunks=missing,
+        complete=len(missing) == 0,
+    )
+
+
+@router.post("/upload/{upload_id}/completar", response_model=ConteudoRead, status_code=status.HTTP_201_CREATED)
+async def completar_upload_chunked(
+    upload_id: str,
+    unidade_id: int = Query(...),
+    tipo_midia: str = Query(...),
+    titulo: str = Query(...),
+    descricao: str | None = Query(None),
+    duracao_segundos: int | None = Query(None),
+    ordem: int = Query(0),
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_CRIAR)),
+):
+    try:
+        url = ChunkedUploadTracker.complete_and_store(upload_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    conteudo = Conteudo(
+        unidade_id=unidade_id,
+        tipo_midia=tipo_midia,
+        titulo=titulo,
+        descricao=descricao,
         url_arquivo=url,
         duracao_segundos=duracao_segundos,
         ordem=ordem,

@@ -29,8 +29,10 @@ async def _upload_local(file: UploadFile, folder: str) -> str:
     ext = Path(file.filename or "file").suffix
     filename = f"{uuid.uuid4().hex}{ext}"
     path = target_dir / filename
-    content = await file.read()
-    path.write_bytes(content)
+    # Stream in chunks to avoid loading entire file in memory
+    with open(path, "wb") as f:
+        while chunk := await file.read(8 * 1024 * 1024):
+            f.write(chunk)
     return f"/uploads/{folder}/{filename}"
 
 
@@ -48,14 +50,14 @@ async def _upload_s3(file: UploadFile, folder: str) -> str:
 
     ext = Path(file.filename or "file").suffix
     key = f"{folder}/{uuid.uuid4().hex}{ext}"
-    content = await file.read()
     session = aioboto3.Session(
         aws_access_key_id=settings.S3_ACCESS_KEY,
         aws_secret_access_key=settings.S3_SECRET_KEY,
         region_name=settings.S3_REGION,
     )
     async with session.client("s3", endpoint_url=settings.S3_ENDPOINT or None) as s3:
-        await s3.put_object(Bucket=settings.S3_BUCKET, Key=key, Body=content)
+        # Stream in chunks to avoid loading entire file in memory
+        await s3.upload_fileobj(file.file, settings.S3_BUCKET, key)
     endpoint = settings.S3_ENDPOINT or f"https://{settings.S3_BUCKET}.s3.{settings.S3_REGION}.amazonaws.com"
     return f"{endpoint}/{key}"
 
@@ -90,10 +92,12 @@ async def validate_mime(file: UploadFile) -> str:
 
 
 async def validate_size(file: UploadFile) -> None:
-    content = await file.read()
+    total = 0
+    while chunk := await file.read(8 * 1024 * 1024):
+        total += len(chunk)
+        if total > settings.MAX_UPLOAD_SIZE:
+            raise ValueError(f"Arquivo excede o limite de {settings.MAX_UPLOAD_SIZE // (1024 * 1024)}MB")
     await file.seek(0)
-    if len(content) > settings.MAX_UPLOAD_SIZE:
-        raise ValueError(f"Arquivo excede o limite de {settings.MAX_UPLOAD_SIZE // (1024 * 1024)}MB")
 
 
 async def upload_file(file: UploadFile, folder: str) -> str:
