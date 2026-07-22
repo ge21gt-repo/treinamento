@@ -60,6 +60,21 @@ class Permissoes:
 
     PERFIL_ATRIBUIR = "perfil:atribuir"
 
+    SESSAO_CRIAR = "sessao:criar"
+    SESSAO_EDITAR = "sessao:editar"
+    SESSAO_EXCLUIR = "sessao:excluir"
+    SESSAO_VISUALIZAR = "sessao:visualizar"
+    SESSAO_GERENCIAR_PRESENCA = "sessao:gerenciar_presenca"
+    SESSAO_VER_PRESENCA = "sessao:ver_presenca"
+
+    FORUM_CRIAR = "forum:criar"
+    FORUM_EDITAR = "forum:editar"
+    FORUM_EXCLUIR = "forum:excluir"
+    FORUM_VISUALIZAR = "forum:visualizar"
+
+    CHAT_ENVIAR = "chat:enviar"
+    CHAT_VISUALIZAR = "chat:visualizar"
+
 
 # Mapeamento de perfil → permissões (baseado na lógica de produto)
 PERFIL_PERMISSOES = {
@@ -106,6 +121,18 @@ PERFIL_PERMISSOES = {
         Permissoes.AULA_PROCESSAR_GRAVACAO,
         Permissoes.AULA_VER_PRESENCA,
         Permissoes.PERFIL_ATRIBUIR,
+        Permissoes.SESSAO_CRIAR,
+        Permissoes.SESSAO_EDITAR,
+        Permissoes.SESSAO_EXCLUIR,
+        Permissoes.SESSAO_VISUALIZAR,
+        Permissoes.SESSAO_GERENCIAR_PRESENCA,
+        Permissoes.SESSAO_VER_PRESENCA,
+        Permissoes.FORUM_CRIAR,
+        Permissoes.FORUM_EDITAR,
+        Permissoes.FORUM_EXCLUIR,
+        Permissoes.FORUM_VISUALIZAR,
+        Permissoes.CHAT_ENVIAR,
+        Permissoes.CHAT_VISUALIZAR,
     ],
     "administrador": [
         # Todas exceto auditoria (mesmo de admin_geral por enquanto)
@@ -150,6 +177,18 @@ PERFIL_PERMISSOES = {
         Permissoes.AULA_PROCESSAR_GRAVACAO,
         Permissoes.AULA_VER_PRESENCA,
         Permissoes.PERFIL_ATRIBUIR,
+        Permissoes.SESSAO_CRIAR,
+        Permissoes.SESSAO_EDITAR,
+        Permissoes.SESSAO_EXCLUIR,
+        Permissoes.SESSAO_VISUALIZAR,
+        Permissoes.SESSAO_GERENCIAR_PRESENCA,
+        Permissoes.SESSAO_VER_PRESENCA,
+        Permissoes.FORUM_CRIAR,
+        Permissoes.FORUM_EDITAR,
+        Permissoes.FORUM_EXCLUIR,
+        Permissoes.FORUM_VISUALIZAR,
+        Permissoes.CHAT_ENVIAR,
+        Permissoes.CHAT_VISUALIZAR,
     ],
     "instrutor": [
         # Pode criar/editar avaliações e comentários, cursos, sandbox
@@ -183,6 +222,18 @@ PERFIL_PERMISSOES = {
         Permissoes.SCORM_VISUALIZAR,
         Permissoes.AULA_PROCESSAR_GRAVACAO,
         Permissoes.AULA_VER_PRESENCA,
+        Permissoes.SESSAO_CRIAR,
+        Permissoes.SESSAO_EDITAR,
+        Permissoes.SESSAO_EXCLUIR,
+        Permissoes.SESSAO_VISUALIZAR,
+        Permissoes.SESSAO_GERENCIAR_PRESENCA,
+        Permissoes.SESSAO_VER_PRESENCA,
+        Permissoes.FORUM_CRIAR,
+        Permissoes.FORUM_EDITAR,
+        Permissoes.FORUM_EXCLUIR,
+        Permissoes.FORUM_VISUALIZAR,
+        Permissoes.CHAT_ENVIAR,
+        Permissoes.CHAT_VISUALIZAR,
     ],
     "auditor": [
         # Apenas visualização (relatórios, dashboards, avaliações, comentários, conteúdos)
@@ -192,6 +243,10 @@ PERFIL_PERMISSOES = {
         Permissoes.COMENTARIO_VISUALIZAR,
         Permissoes.CONTEUDO_VISUALIZAR,
         Permissoes.SCORM_VISUALIZAR,
+        Permissoes.SESSAO_VISUALIZAR,
+        Permissoes.SESSAO_VER_PRESENCA,
+        Permissoes.FORUM_VISUALIZAR,
+        Permissoes.CHAT_VISUALIZAR,
     ],
     "gestor": [
         # Criar usuários (subordinados), inscrever outros, visualizar (mas não criar avaliações/comentários)
@@ -206,6 +261,12 @@ PERFIL_PERMISSOES = {
         Permissoes.CONTEUDO_VISUALIZAR,
         Permissoes.ENTREGA_VISUALIZAR,
         Permissoes.SCORM_VISUALIZAR,
+        Permissoes.SESSAO_VISUALIZAR,
+        Permissoes.SESSAO_VER_PRESENCA,
+        Permissoes.FORUM_CRIAR,
+        Permissoes.FORUM_VISUALIZAR,
+        Permissoes.CHAT_ENVIAR,
+        Permissoes.CHAT_VISUALIZAR,
     ],
     "participante": [
         # Apenas inscrever em cursos, responder avaliações, visualizar
@@ -219,6 +280,12 @@ PERFIL_PERMISSOES = {
         Permissoes.ENTREGA_CRIAR,
         Permissoes.ENTREGA_VISUALIZAR,
         Permissoes.SCORM_VISUALIZAR,
+        Permissoes.SESSAO_VISUALIZAR,
+        Permissoes.SESSAO_VER_PRESENCA,
+        Permissoes.FORUM_CRIAR,
+        Permissoes.FORUM_VISUALIZAR,
+        Permissoes.CHAT_ENVIAR,
+        Permissoes.CHAT_VISUALIZAR,
     ],
 }
 

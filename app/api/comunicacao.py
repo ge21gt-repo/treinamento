@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.comunicacao import ForumResposta, ForumTopico, MensagemChat
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
+from app.services.rbac import Permissoes
 from app.schemas.comunicacao import (
     ForumRespostaCreate,
     ForumRespostaRead,
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/comunicacao", tags=["Comunicacao"])
 async def enviar_mensagem(
     payload: MensagemChatCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CHAT_ENVIAR)),
 ):
     msg = MensagemChat(**payload.model_dump(), usuario_id=current_user.id)
     db.add(msg)
@@ -43,7 +44,7 @@ async def listar_mensagens(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CHAT_VISUALIZAR)),
 ):
     query = (
         select(MensagemChat)
@@ -69,7 +70,7 @@ async def listar_topicos(
     q: str | None = Query(None, description="Busca textual por titulo ou conteudo"),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_VISUALIZAR)),
 ):
     query = select(ForumTopico).where(ForumTopico.curso_id == curso_id)
     query = apply_search(query, [ForumTopico.titulo, ForumTopico.conteudo], q)
@@ -86,7 +87,7 @@ async def listar_topicos(
 async def criar_topico(
     payload: ForumTopicoCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_CRIAR)),
 ):
     topico = ForumTopico(**payload.model_dump(), autor_id=current_user.id)
     db.add(topico)
@@ -99,7 +100,7 @@ async def criar_topico(
 async def obter_topico(
     topico_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_VISUALIZAR)),
 ):
     result = await db.execute(select(ForumTopico).where(ForumTopico.id == topico_id))
     topico = result.scalar_one_or_none()
@@ -113,7 +114,7 @@ async def atualizar_topico(
     topico_id: int,
     payload: ForumTopicoUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_EDITAR)),
 ):
     result = await db.execute(select(ForumTopico).where(ForumTopico.id == topico_id))
     topico = result.scalar_one_or_none()
@@ -130,7 +131,7 @@ async def atualizar_topico(
 async def excluir_topico(
     topico_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_EXCLUIR)),
 ):
     result = await db.execute(select(ForumTopico).where(ForumTopico.id == topico_id))
     topico = result.scalar_one_or_none()
@@ -147,7 +148,7 @@ async def excluir_topico(
 async def listar_respostas(
     topico_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_VISUALIZAR)),
 ):
     result = await db.execute(
         select(ForumResposta).where(ForumResposta.topico_id == topico_id).order_by(ForumResposta.criado_em)
@@ -159,7 +160,7 @@ async def listar_respostas(
 async def criar_resposta_forum(
     payload: ForumRespostaCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_CRIAR)),
 ):
     resposta = ForumResposta(**payload.model_dump(), autor_id=current_user.id)
     db.add(resposta)

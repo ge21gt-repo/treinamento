@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.sessao import Presenca, SessaoAoVivo
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
+from app.services.rbac import Permissoes
 from app.schemas.sessao import (
     PresencaCreate,
     PresencaRead,
@@ -27,7 +28,7 @@ async def listar_sessoes(
     q: str | None = Query(None, description="Busca textual por titulo"),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.SESSAO_VISUALIZAR)),
 ):
     query = select(SessaoAoVivo)
     if curso_id is not None:
@@ -44,7 +45,7 @@ async def listar_sessoes(
 async def criar_sessao(
     payload: SessaoAoVivoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.SESSAO_CRIAR)),
 ):
     sessao = SessaoAoVivo(**payload.model_dump())
     db.add(sessao)
@@ -57,7 +58,7 @@ async def criar_sessao(
 async def obter_sessao(
     sessao_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.SESSAO_VISUALIZAR)),
 ):
     result = await db.execute(select(SessaoAoVivo).where(SessaoAoVivo.id == sessao_id))
     sessao = result.scalar_one_or_none()
@@ -71,7 +72,7 @@ async def atualizar_sessao(
     sessao_id: int,
     payload: SessaoAoVivoUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.SESSAO_EDITAR)),
 ):
     result = await db.execute(select(SessaoAoVivo).where(SessaoAoVivo.id == sessao_id))
     sessao = result.scalar_one_or_none()
@@ -88,7 +89,7 @@ async def atualizar_sessao(
 async def excluir_sessao(
     sessao_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.SESSAO_EXCLUIR)),
 ):
     result = await db.execute(select(SessaoAoVivo).where(SessaoAoVivo.id == sessao_id))
     sessao = result.scalar_one_or_none()
@@ -105,7 +106,7 @@ async def excluir_sessao(
 async def registrar_presenca(
     payload: PresencaCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.SESSAO_GERENCIAR_PRESENCA)),
 ):
     presenca = Presenca(**payload.model_dump())
     db.add(presenca)
@@ -118,7 +119,7 @@ async def registrar_presenca(
 async def listar_presenca(
     sessao_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.SESSAO_VER_PRESENCA)),
 ):
     result = await db.execute(select(Presenca).where(Presenca.sessao_id == sessao_id))
     return result.scalars().all()
@@ -129,7 +130,7 @@ async def atualizar_presenca(
     presenca_id: int,
     payload: PresencaUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.SESSAO_GERENCIAR_PRESENCA)),
 ):
     result = await db.execute(select(Presenca).where(Presenca.id == presenca_id))
     presenca = result.scalar_one_or_none()
