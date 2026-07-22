@@ -198,6 +198,13 @@ class ResultadoAvaliacaoRead(ResultadoAvaliacaoBase):
     model_config = {"from_attributes": True}
 
 
+class EstatisticasAvaliacaoRead(BaseModel):
+    total_tentativas: int
+    total_aprovados: int
+    media_nota: float
+    taxa_aprovacao: float
+
+
 class ResultadoFeedbackAlternativa(BaseModel):
     id: int
     texto: str

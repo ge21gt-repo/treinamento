@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaParticipante, ResultadoAvaliacao
-from app.models.curso import Inscricao, Unidade, Modulo
+from app.models.curso import Inscricao, Unidade, Modulo, ProgressoUnidade
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
 from app.services.rbac import Permissoes
@@ -21,6 +21,7 @@ from app.schemas.avaliacao import (
     AvaliacaoRead,
     AvaliacaoResponderRead,
     AvaliacaoUpdate,
+    EstatisticasAvaliacaoRead,
     QuestaoCreate,
     QuestaoRead,
     QuestaoUpdate,
@@ -391,6 +392,14 @@ async def submeter_avaliacao(
     if payload.iniciado_em:
         tempo_gasto = int((datetime.now(timezone.utc) - payload.iniciado_em).total_seconds())
 
+    if aprovado and avaliacao.unidade_id:
+        from app.services.progresso import concluir_unidade
+
+        try:
+            await concluir_unidade(db, current_user.id, avaliacao.unidade_id, tempo_gasto or 0)
+        except ValueError:
+            pass
+
     resultado = ResultadoAvaliacao(
         usuario_id=current_user.id,
         avaliacao_id=avaliacao_id,
@@ -523,6 +532,55 @@ async def obter_resultado_com_feedback(
         tempo_gasto_seg=resultado.tempo_gasto_seg,
         realizado_em=resultado.realizado_em,
         questoes=questoes_read,
+    )
+
+
+@router.get("/meus-resultados", response_model=list[ResultadoAvaliacaoRead])
+async def meus_resultados(
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
+):
+    result = await db.execute(
+        select(ResultadoAvaliacao)
+        .where(ResultadoAvaliacao.usuario_id == current_user.id)
+        .order_by(ResultadoAvaliacao.realizado_em.desc())
+    )
+    return result.scalars().all()
+
+
+@router.get("/{avaliacao_id}/resultados", response_model=list[ResultadoAvaliacaoRead])
+async def listar_resultados_avaliacao(
+    avaliacao_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
+):
+    result = await db.execute(
+        select(ResultadoAvaliacao)
+        .where(ResultadoAvaliacao.avaliacao_id == avaliacao_id)
+        .order_by(ResultadoAvaliacao.realizado_em.desc())
+    )
+    return result.scalars().all()
+
+
+@router.get("/{avaliacao_id}/estatisticas", response_model=EstatisticasAvaliacaoRead)
+async def estatisticas_avaliacao(
+    avaliacao_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
+):
+    result = await db.execute(select(ResultadoAvaliacao).where(ResultadoAvaliacao.avaliacao_id == avaliacao_id))
+    resultados = result.scalars().all()
+
+    total = len(resultados)
+    aprovados = sum(1 for r in resultados if r.aprovado)
+    media = float(sum(r.nota for r in resultados) / total) if total > 0 else 0.0
+    taxa = (aprovados / total * 100) if total > 0 else 0.0
+
+    return EstatisticasAvaliacaoRead(
+        total_tentativas=total,
+        total_aprovados=aprovados,
+        media_nota=round(media, 2),
+        taxa_aprovacao=round(taxa, 2),
     )
 
 
