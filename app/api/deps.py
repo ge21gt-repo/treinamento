@@ -63,14 +63,15 @@ def require_permissao(permissao: str):
             )
 
         result = await db.execute(select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == current_user.id))
-        perfil = result.scalar_one_or_none()
+        perfis = result.scalars().all()
 
-        if not perfil:
+        if not perfis:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario não tem perfil atribuído.")
 
-        if not has_permission(perfil.nome, permissao):
+        if not any(has_permission(p.nome, permissao) for p in perfis):
+            nomes = ", ".join(p.nome for p in perfis)
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail=f"Perfil '{perfil.nome}' não tem permissão '{permissao}'."
+                status_code=status.HTTP_403_FORBIDDEN, detail=f"Nenhum dos perfis '{nomes}' tem permissão '{permissao}'."
             )
 
         return current_user

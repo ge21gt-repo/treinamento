@@ -82,19 +82,21 @@ async def aprovar_solicitacao(
     if not aprovador:
         raise ValueError("Aprovador não encontrado")
 
-    # Buscar perfil do aprovador para validar hierarquia
+    # Buscar perfis do aprovador para validar hierarquia
     result_perfil_aprovador = await db.execute(
         select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == aprovador_id)
     )
-    perfil_aprovador = result_perfil_aprovador.scalar_one_or_none()
-    perfil_aprovador_nome = perfil_aprovador.nome if perfil_aprovador else "participante"
+    perfis_aprovador = result_perfil_aprovador.scalars().all()
+    nomes_aprovador = [p.nome for p in perfis_aprovador] or ["participante"]
 
-    # Validar autorização hierárquica
-    if not pode_aprovar(perfil_aprovador_nome, solicitacao.perfil_solicitado):
+    # Validar autorização hierárquica (qualquer perfil do aprovador pode aprovar)
+    if not any(pode_aprovar(p, solicitacao.perfil_solicitado) for p in nomes_aprovador):
         raise ValueError(
-            f"Perfil '{perfil_aprovador_nome}' não pode aprovar perfil '{solicitacao.perfil_solicitado}'. "
-            f"Autorização hierárquica negada."
+            f"Nenhum dos perfis '{', '.join(nomes_aprovador)}' pode aprovar perfil "
+            f"'{solicitacao.perfil_solicitado}'. Autorização hierárquica negada."
         )
+
+    perfil_aprovador_nome = nomes_aprovador[0]
 
     # Buscar usuario solicitante
     result_usuario = await db.execute(select(Usuario).where(Usuario.id == solicitacao.usuario_id))
@@ -164,19 +166,21 @@ async def rejeitar_solicitacao(solicitacao_id: int, aprovador_id: uuid.UUID, mot
     if not aprovador:
         raise ValueError("Aprovador não encontrado")
 
-    # Buscar perfil do aprovador para validar hierarquia
+    # Buscar perfis do aprovador para validar hierarquia
     result_perfil_aprovador = await db.execute(
         select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == aprovador_id)
     )
-    perfil_aprovador = result_perfil_aprovador.scalar_one_or_none()
-    perfil_aprovador_nome = perfil_aprovador.nome if perfil_aprovador else "participante"
+    perfis_aprovador = result_perfil_aprovador.scalars().all()
+    nomes_aprovador = [p.nome for p in perfis_aprovador] or ["participante"]
 
-    # Validar autorização hierárquica
-    if not pode_aprovar(perfil_aprovador_nome, solicitacao.perfil_solicitado):
+    # Validar autorização hierárquica (qualquer perfil do aprovador pode aprovar)
+    if not any(pode_aprovar(p, solicitacao.perfil_solicitado) for p in nomes_aprovador):
         raise ValueError(
-            f"Perfil '{perfil_aprovador_nome}' não pode aprovar perfil '{solicitacao.perfil_solicitado}'. "
-            f"Autorização hierárquica negada."
+            f"Nenhum dos perfis '{', '.join(nomes_aprovador)}' pode rejeitar perfil "
+            f"'{solicitacao.perfil_solicitado}'. Autorização hierárquica negada."
         )
+
+    perfil_aprovador_nome = nomes_aprovador[0]
 
     # Buscar usuario solicitante
     result_usuario = await db.execute(select(Usuario).where(Usuario.id == solicitacao.usuario_id))
