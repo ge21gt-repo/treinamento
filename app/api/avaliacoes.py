@@ -172,6 +172,20 @@ async def atualizar_questao(
     return questao
 
 
+@router.delete("/questoes/{questao_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def excluir_questao(
+    questao_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EXCLUIR)),
+):
+    result = await db.execute(select(Questao).where(Questao.id == questao_id))
+    questao = result.scalar_one_or_none()
+    if not questao:
+        raise HTTPException(status_code=404, detail="Questao nao encontrada")
+    await db.delete(questao)
+    await db.commit()
+
+
 # --- Alternativas ---
 
 
