@@ -449,9 +449,10 @@ async def submeter_avaliacao(
 async def registrar_resposta(
     payload: RespostaParticipanteCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_RESPONDER)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_RESPONDER)),
 ):
-    resposta = RespostaParticipante(**payload.model_dump())
+    data = payload.model_dump(exclude={"usuario_id"})
+    resposta = RespostaParticipante(usuario_id=current_user.id, **data)
     if resposta.alternativa_id:
         alt = await db.execute(select(Alternativa).where(Alternativa.id == resposta.alternativa_id))
         alternativa = alt.scalar_one_or_none()
@@ -470,9 +471,51 @@ async def registrar_resposta(
 async def registrar_resultado(
     payload: ResultadoAvaliacaoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_RESPONDER)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_RESPONDER)),
 ):
-    resultado = ResultadoAvaliacao(**payload.model_dump())
+    # Buscar avaliacao para nota_minima
+    avaliacao = await db.get(Avaliacao, payload.avaliacao_id)
+    if not avaliacao:
+        raise HTTPException(status_code=404, detail="Avaliacao nao encontrada")
+
+    # Buscar respostas do usuario para esta avaliacao + tentativa
+    respostas = (
+        await db.execute(
+            select(RespostaParticipante).where(
+                RespostaParticipante.usuario_id == current_user.id,
+                RespostaParticipante.tentativa_num == payload.tentativa_num,
+            )
+        )
+    ).scalars().all()
+
+    respostas_ids = {r.questao_id for r in respostas if r.correta}
+    respostas_questoes_ids = {r.questao_id for r in respostas}
+
+    # Buscar questoes da avaliacao
+    questoes = (
+        await db.execute(
+            select(Questao).where(Questao.avaliacao_id == payload.avaliacao_id)
+        )
+    ).scalars().all()
+
+    pontuacao_total = sum(q.pontuacao for q in questoes if q.id in respostas_questoes_ids)
+    pontuacao_obtida = sum(q.pontuacao for q in questoes if q.id in respostas_ids)
+
+    nota = Decimal("0")
+    aprovado = False
+    if pontuacao_total > 0:
+        nota = (pontuacao_obtida / pontuacao_total) * Decimal("100")
+        nota = nota.quantize(Decimal("0.01"))
+        aprovado = nota >= avaliacao.nota_minima
+
+    resultado = ResultadoAvaliacao(
+        usuario_id=current_user.id,
+        avaliacao_id=payload.avaliacao_id,
+        nota=nota,
+        aprovado=aprovado,
+        tentativa_num=payload.tentativa_num,
+        tempo_gasto_seg=payload.tempo_gasto_seg,
+    )
     db.add(resultado)
     await db.commit()
     await db.refresh(resultado)
