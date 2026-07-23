@@ -10,9 +10,9 @@ from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaParticipante, ResultadoAvaliacao
 from app.models.curso import Inscricao, Unidade, Modulo, ProgressoUnidade
-from app.models.usuario import Usuario
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.paginacao import apply_search, count_query
-from app.services.rbac import Permissoes
+from app.services.rbac import Permissoes, has_permission
 from app.schemas.avaliacao import (
     AlternativaCreate,
     AlternativaRead,
@@ -609,11 +609,18 @@ async def obter_resultado_com_feedback(
 async def listar_resultados_avaliacao(
     avaliacao_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
 ):
+    result_perfis = await db.execute(select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == current_user.id))
+    pode_avaliar = any(has_permission(p.nome, Permissoes.AVALIACAO_AVALIAR) for p in result_perfis.scalars().all())
+
+    where_clause = [ResultadoAvaliacao.avaliacao_id == avaliacao_id]
+    if not pode_avaliar:
+        where_clause.append(ResultadoAvaliacao.usuario_id == current_user.id)
+
     result = await db.execute(
         select(ResultadoAvaliacao)
-        .where(ResultadoAvaliacao.avaliacao_id == avaliacao_id)
+        .where(*where_clause)
         .order_by(ResultadoAvaliacao.realizado_em.desc())
     )
     return result.scalars().all()
@@ -645,7 +652,18 @@ async def estatisticas_avaliacao(
 async def listar_resultados_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
 ):
+    if current_user.id != usuario_id:
+        result_perfis = await db.execute(
+            select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == current_user.id)
+        )
+        pode_avaliar = any(has_permission(p.nome, Permissoes.AVALIACAO_AVALIAR) for p in result_perfis.scalars().all())
+        if not pode_avaliar:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Você só pode visualizar seus próprios resultados.",
+            )
+
     result = await db.execute(select(ResultadoAvaliacao).where(ResultadoAvaliacao.usuario_id == usuario_id))
     return result.scalars().all()

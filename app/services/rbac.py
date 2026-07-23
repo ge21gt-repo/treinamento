@@ -10,6 +10,7 @@ class Permissoes:
     AVALIACAO_EDITAR = "avaliacao:editar"
     AVALIACAO_EXCLUIR = "avaliacao:excluir"
     AVALIACAO_VISUALIZAR = "avaliacao:visualizar"
+    AVALIACAO_AVALIAR = "avaliacao:avaliar"
 
     COMENTARIO_CRIAR = "comentario:criar"
     COMENTARIO_EDITAR = "comentario:editar"
@@ -85,6 +86,7 @@ PERFIL_PERMISSOES = {
         Permissoes.AVALIACAO_EDITAR,
         Permissoes.AVALIACAO_EXCLUIR,
         Permissoes.AVALIACAO_VISUALIZAR,
+        Permissoes.AVALIACAO_AVALIAR,
         Permissoes.COMENTARIO_CRIAR,
         Permissoes.COMENTARIO_EDITAR,
         Permissoes.COMENTARIO_EXCLUIR,
@@ -141,6 +143,7 @@ PERFIL_PERMISSOES = {
         Permissoes.AVALIACAO_EDITAR,
         Permissoes.AVALIACAO_EXCLUIR,
         Permissoes.AVALIACAO_VISUALIZAR,
+        Permissoes.AVALIACAO_AVALIAR,
         Permissoes.COMENTARIO_CRIAR,
         Permissoes.COMENTARIO_EDITAR,
         Permissoes.COMENTARIO_EXCLUIR,
@@ -197,6 +200,7 @@ PERFIL_PERMISSOES = {
         Permissoes.AVALIACAO_EDITAR,
         Permissoes.AVALIACAO_EXCLUIR,
         Permissoes.AVALIACAO_VISUALIZAR,
+        Permissoes.AVALIACAO_AVALIAR,
         Permissoes.COMENTARIO_CRIAR,
         Permissoes.COMENTARIO_EDITAR,
         Permissoes.COMENTARIO_EXCLUIR,
