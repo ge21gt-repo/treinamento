@@ -1,0 +1,40 @@
+# fly.toml — example for local dev (copy to fly.toml and fill secrets)
+# DO NOT commit fly.toml with real secrets!
+
+app = "lms-idesp"
+primary_region = "gru"
+
+[build]
+
+[env]
+  PORT = "8080"
+  DATABASE_URL = "postgresql+asyncpg://USER:PASS@HOST:5432/DB"
+  TEST_DATABASE_URL = "postgresql+asyncpg://USER:PASS@HOST:5432/DB"
+  SECRET_KEY = "CHANGE_ME"
+  ACCESS_TOKEN_EXPIRE_MINUTES = "480"
+  CORS_ORIGINS = '["http://localhost:3000"]'
+  STORAGE_BACKEND = "local"
+  S3_ACCESS_KEY = "CHANGE_ME"
+  S3_SECRET_KEY = "CHANGE_ME"
+  S3_BUCKET = "lms-conteudos"
+  S3_REGION = "us-east-2"
+  MAX_UPLOAD_SIZE = "524288000"
+  BASE_URL = "https://lms-idesp.fly.dev/api/v1"
+  SMTP_HOST = "CHANGE_ME"
+  SMTP_PORT = "587"
+  SMTP_FROM = "noreply@lms-idesp.com"
+  SMTP_TLS = "true"
+  RESET_TOKEN_EXPIRE_MINUTES = "60"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
