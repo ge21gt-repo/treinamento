@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+
+from app.services.storage import resolve_file_url
 
 
 class TrilhaBase(BaseModel):
@@ -121,6 +123,13 @@ class UnidadeRead(UnidadeBase):
     id: int
     criado_em: datetime
 
+    @computed_field
+    @property
+    def url_acesso(self) -> str | None:
+        if self.conteudo_url:
+            return resolve_file_url(self.conteudo_url)
+        return None
+
     model_config = {"from_attributes": True}
 
 
@@ -221,6 +230,13 @@ class CursoArvoreItem(BaseModel):
     ordem: int
     conteudo_url: str | None = None
     url_externa: str | None = None
+
+    @computed_field
+    @property
+    def url_acesso(self) -> str | None:
+        if self.conteudo_url:
+            return resolve_file_url(self.conteudo_url)
+        return None
 
 
 class ModuloArvoreRead(BaseModel):

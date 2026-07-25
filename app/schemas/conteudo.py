@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+
+from app.services.storage import resolve_file_url
 
 
 class ConteudoBase(BaseModel):
@@ -35,6 +37,11 @@ class ConteudoRead(ConteudoBase):
     criado_por: uuid.UUID | None = None
     criado_em: datetime
 
+    @computed_field
+    @property
+    def url_acesso(self) -> str:
+        return resolve_file_url(self.url_arquivo)
+
     model_config = {"from_attributes": True}
 
 
@@ -60,6 +67,11 @@ class MaterialComplementarRead(MaterialComplementarBase):
     criado_por: uuid.UUID | None = None
     criado_em: datetime
 
+    @computed_field
+    @property
+    def url_acesso(self) -> str:
+        return resolve_file_url(self.url_arquivo)
+
     model_config = {"from_attributes": True}
 
 
@@ -83,6 +95,11 @@ class EntregaAtividadeRead(EntregaAtividadeBase):
     nota: float | None = None
     feedback: str | None = None
     criado_em: datetime
+
+    @computed_field
+    @property
+    def url_acesso(self) -> str:
+        return resolve_file_url(self.url_arquivo)
 
     model_config = {"from_attributes": True}
 

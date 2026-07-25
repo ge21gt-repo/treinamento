@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+
+from app.services.storage import resolve_file_url
 
 
 class PacoteScormBase(BaseModel):
@@ -19,6 +21,11 @@ class PacoteScormRead(PacoteScormBase):
     scorm_version: str | None = None
     criado_por: uuid.UUID | None = None
     criado_em: datetime
+
+    @computed_field
+    @property
+    def url_acesso(self) -> str:
+        return resolve_file_url(self.arquivo_url)
 
     model_config = {"from_attributes": True}
 
@@ -65,3 +72,8 @@ class ScormLaunchResponse(BaseModel):
     url: str
     token: str
     sco_id: str
+
+    @computed_field
+    @property
+    def url_acesso(self) -> str:
+        return resolve_file_url(self.url)
