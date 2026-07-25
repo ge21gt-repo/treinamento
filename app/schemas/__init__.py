@@ -95,7 +95,6 @@ from app.schemas.usuario import (
     UsuarioCreate,
     UsuarioPerfilCreate,
     UsuarioRead,
-    UsuarioRegistro,
     UsuarioUpdate,
 )
 
@@ -127,7 +126,7 @@ __all__ = [
     "UsuarioCreate",
     "UsuarioUpdate",
     "UsuarioRead",
-    "UsuarioRegistro",
+
     "PerfilBase",
     "PerfilCreate",
     "PerfilRead",

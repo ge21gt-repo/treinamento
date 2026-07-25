@@ -11,15 +11,13 @@ from app.api.rate_limit import limiter
 from app.config import settings
 from app.database import get_db
 from app.models.token_reset import TokenResetSenha
-from app.models.usuario import Perfil, Usuario, UsuarioPerfil
+from app.models.usuario import Usuario, UsuarioPerfil
 from app.schemas.usuario import (
     EsqueciSenhaRequest,
     LoginRequest,
     RedefinirSenhaRequest,
     Token,
     UsuarioCreate,
-    UsuarioRead,
-    UsuarioRegistro,
 )
 from app.services.auth import create_access_token, hash_password, verify_password
 from app.services.credenciamento import criar_solicitacao_credenciamento
@@ -45,45 +43,9 @@ async def check_unique_fields(db: AsyncSession, email: str, cpf: str | None, tel
             raise HTTPException(status_code=409, detail="Telefone ja cadastrado")
 
 
-@router.post("/registro", response_model=UsuarioRead, status_code=status.HTTP_201_CREATED)
+@router.post("/registro", response_model=dict, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
 async def registrar(request: Request, payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
-    if not payload.aceite_lgpd:
-        raise HTTPException(status_code=422, detail="Aceite dos termos LGPD é obrigatorio")
-
-    await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
-
-    user = Usuario(
-        nome_completo=payload.nome_completo,
-        email=payload.email,
-        cpf=payload.cpf,
-        senha_hash=hash_password(payload.senha),
-        orgao_instituicao=payload.orgao_instituicao,
-        cargo=payload.cargo,
-        telefone=payload.telefone,
-        avatar_url=payload.avatar_url,
-        aceite_lgpd=True,
-        data_aceite_lgpd=datetime.now(timezone.utc),
-    )
-    db.add(user)
-    await db.flush()
-
-    perfil_participante = await db.execute(select(Perfil).where(Perfil.nome == "participante"))
-    perfil = perfil_participante.scalar_one_or_none()
-    if perfil:
-        db.add(UsuarioPerfil(usuario_id=user.id, perfil_id=perfil.id))
-
-    await db.commit()
-    # Recarregar com perfis para o schema UsuarioRead
-    result = await db.execute(
-        select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == user.id)
-    )
-    return result.scalar_one()
-
-
-@router.post("/registro-com-perfil", response_model=dict, status_code=status.HTTP_201_CREATED)
-@limiter.limit("10/minute")
-async def registrar_com_perfil(request: Request, payload: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
     if not payload.aceite_lgpd:
         raise HTTPException(status_code=422, detail="Aceite dos termos LGPD é obrigatorio")
 

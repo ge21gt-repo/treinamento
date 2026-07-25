@@ -49,7 +49,7 @@ class TestTelefoneDuplicado:
             assert r1.status_code == 201
 
             r2 = await ac.post(
-                "/api/v1/auth/registro-com-perfil",
+                "/api/v1/auth/registro",
                 json={
                     "nome_completo": "Tel D",
                     "email": "teld@test.com",
@@ -84,6 +84,7 @@ class TestTelefoneDuplicado:
                     "email": "telf@test.com",
                     "telefone": "11988885555",
                     "senha": "123456",
+                    "aceite_lgpd": True,
                 },
             )
         assert r2.status_code == 409

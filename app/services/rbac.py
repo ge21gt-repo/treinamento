@@ -60,6 +60,37 @@ class Permissoes:
     AULA_VER_PRESENCA = "aula:ver_presenca"
 
     PERFIL_ATRIBUIR = "perfil:atribuir"
+    PERFIL_CRIAR = "perfil:criar"
+    PERFIL_EDITAR = "perfil:editar"
+    PERFIL_EXCLUIR = "perfil:excluir"
+
+    CURSO_MODULO_CRIAR = "curso:modulo_criar"
+    CURSO_MODULO_EDITAR = "curso:modulo_editar"
+    CURSO_MODULO_EXCLUIR = "curso:modulo_excluir"
+    CURSO_UNIDADE_CRIAR = "curso:unidade_criar"
+    CURSO_UNIDADE_EDITAR = "curso:unidade_editar"
+    CURSO_UNIDADE_EXCLUIR = "curso:unidade_excluir"
+    CURSO_AULA_CRIAR = "curso:aula_criar"
+    CURSO_AULA_EDITAR = "curso:aula_editar"
+    CURSO_AULA_EXCLUIR = "curso:aula_excluir"
+    CURSO_VER_INSCRICOES = "curso:ver_inscricoes"
+    CURSO_PROGRESSO_GERENCIAR = "curso:progresso_gerenciar"
+
+    CERTIFICADO_CRIAR = "certificado:criar"
+    CERTIFICADO_MODELO_CRIAR = "certificado:modelo_criar"
+    CERTIFICADO_VISUALIZAR = "certificado:visualizar"
+
+    DASHBOARD_RESUMO = "dashboard:resumo"
+    DASHBOARD_METRICAS = "dashboard:metricas"
+    DASHBOARD_LOGS = "dashboard:logs"
+    DASHBOARD_STATS = "dashboard:stats"
+    DASHBOARD_METRICAS_USUARIO = "dashboard:metricas_usuario"
+
+    GAMIFICACAO_GERENCIAR = "gamificacao:gerenciar"
+    GAMIFICACAO_VISUALIZAR = "gamificacao:visualizar"
+    GAMIFICACAO_CRIAR = "gamificacao:criar"
+    GAMIFICACAO_EDITAR = "gamificacao:editar"
+    GAMIFICACAO_LISTAR = "gamificacao:listar"
 
     SESSAO_CRIAR = "sessao:criar"
     SESSAO_EDITAR = "sessao:editar"
@@ -123,6 +154,33 @@ PERFIL_PERMISSOES = {
         Permissoes.AULA_PROCESSAR_GRAVACAO,
         Permissoes.AULA_VER_PRESENCA,
         Permissoes.PERFIL_ATRIBUIR,
+        Permissoes.PERFIL_CRIAR,
+        Permissoes.PERFIL_EDITAR,
+        Permissoes.PERFIL_EXCLUIR,
+        Permissoes.CURSO_MODULO_CRIAR,
+        Permissoes.CURSO_MODULO_EDITAR,
+        Permissoes.CURSO_MODULO_EXCLUIR,
+        Permissoes.CURSO_UNIDADE_CRIAR,
+        Permissoes.CURSO_UNIDADE_EDITAR,
+        Permissoes.CURSO_UNIDADE_EXCLUIR,
+        Permissoes.CURSO_AULA_CRIAR,
+        Permissoes.CURSO_AULA_EDITAR,
+        Permissoes.CURSO_AULA_EXCLUIR,
+        Permissoes.CURSO_VER_INSCRICOES,
+        Permissoes.CURSO_PROGRESSO_GERENCIAR,
+        Permissoes.CERTIFICADO_CRIAR,
+        Permissoes.CERTIFICADO_MODELO_CRIAR,
+        Permissoes.CERTIFICADO_VISUALIZAR,
+        Permissoes.DASHBOARD_LOGS,
+        Permissoes.DASHBOARD_METRICAS_USUARIO,
+        Permissoes.DASHBOARD_RESUMO,
+        Permissoes.DASHBOARD_METRICAS,
+        Permissoes.DASHBOARD_STATS,
+        Permissoes.GAMIFICACAO_GERENCIAR,
+        Permissoes.GAMIFICACAO_VISUALIZAR,
+        Permissoes.GAMIFICACAO_CRIAR,
+        Permissoes.GAMIFICACAO_EDITAR,
+        Permissoes.GAMIFICACAO_LISTAR,
         Permissoes.SESSAO_CRIAR,
         Permissoes.SESSAO_EDITAR,
         Permissoes.SESSAO_EXCLUIR,
@@ -180,6 +238,33 @@ PERFIL_PERMISSOES = {
         Permissoes.AULA_PROCESSAR_GRAVACAO,
         Permissoes.AULA_VER_PRESENCA,
         Permissoes.PERFIL_ATRIBUIR,
+        Permissoes.PERFIL_CRIAR,
+        Permissoes.PERFIL_EDITAR,
+        Permissoes.PERFIL_EXCLUIR,
+        Permissoes.CURSO_MODULO_CRIAR,
+        Permissoes.CURSO_MODULO_EDITAR,
+        Permissoes.CURSO_MODULO_EXCLUIR,
+        Permissoes.CURSO_UNIDADE_CRIAR,
+        Permissoes.CURSO_UNIDADE_EDITAR,
+        Permissoes.CURSO_UNIDADE_EXCLUIR,
+        Permissoes.CURSO_AULA_CRIAR,
+        Permissoes.CURSO_AULA_EDITAR,
+        Permissoes.CURSO_AULA_EXCLUIR,
+        Permissoes.CURSO_VER_INSCRICOES,
+        Permissoes.CURSO_PROGRESSO_GERENCIAR,
+        Permissoes.CERTIFICADO_CRIAR,
+        Permissoes.CERTIFICADO_MODELO_CRIAR,
+        Permissoes.CERTIFICADO_VISUALIZAR,
+        Permissoes.DASHBOARD_LOGS,
+        Permissoes.DASHBOARD_METRICAS_USUARIO,
+        Permissoes.DASHBOARD_RESUMO,
+        Permissoes.DASHBOARD_METRICAS,
+        Permissoes.DASHBOARD_STATS,
+        Permissoes.GAMIFICACAO_GERENCIAR,
+        Permissoes.GAMIFICACAO_VISUALIZAR,
+        Permissoes.GAMIFICACAO_CRIAR,
+        Permissoes.GAMIFICACAO_EDITAR,
+        Permissoes.GAMIFICACAO_LISTAR,
         Permissoes.SESSAO_CRIAR,
         Permissoes.SESSAO_EDITAR,
         Permissoes.SESSAO_EXCLUIR,
@@ -201,6 +286,8 @@ PERFIL_PERMISSOES = {
         Permissoes.AVALIACAO_EXCLUIR,
         Permissoes.AVALIACAO_VISUALIZAR,
         Permissoes.AVALIACAO_AVALIAR,
+        Permissoes.CREDENCIAMENTO_APROVAR,
+        Permissoes.CREDENCIAMENTO_LISTAR,
         Permissoes.COMENTARIO_CRIAR,
         Permissoes.COMENTARIO_EDITAR,
         Permissoes.COMENTARIO_EXCLUIR,
@@ -226,6 +313,24 @@ PERFIL_PERMISSOES = {
         Permissoes.SCORM_VISUALIZAR,
         Permissoes.AULA_PROCESSAR_GRAVACAO,
         Permissoes.AULA_VER_PRESENCA,
+        Permissoes.CURSO_MODULO_CRIAR,
+        Permissoes.CURSO_MODULO_EDITAR,
+        Permissoes.CURSO_MODULO_EXCLUIR,
+        Permissoes.CURSO_UNIDADE_CRIAR,
+        Permissoes.CURSO_UNIDADE_EDITAR,
+        Permissoes.CURSO_UNIDADE_EXCLUIR,
+        Permissoes.CURSO_AULA_CRIAR,
+        Permissoes.CURSO_AULA_EDITAR,
+        Permissoes.CURSO_AULA_EXCLUIR,
+        Permissoes.CURSO_VER_INSCRICOES,
+        Permissoes.CURSO_PROGRESSO_GERENCIAR,
+        Permissoes.CERTIFICADO_VISUALIZAR,
+        Permissoes.DASHBOARD_METRICAS_USUARIO,
+        Permissoes.DASHBOARD_RESUMO,
+        Permissoes.DASHBOARD_STATS,
+        Permissoes.DASHBOARD_METRICAS,
+        Permissoes.GAMIFICACAO_VISUALIZAR,
+        Permissoes.GAMIFICACAO_LISTAR,
         Permissoes.SESSAO_CRIAR,
         Permissoes.SESSAO_EDITAR,
         Permissoes.SESSAO_EXCLUIR,
@@ -247,6 +352,13 @@ PERFIL_PERMISSOES = {
         Permissoes.COMENTARIO_VISUALIZAR,
         Permissoes.CONTEUDO_VISUALIZAR,
         Permissoes.SCORM_VISUALIZAR,
+        Permissoes.CERTIFICADO_VISUALIZAR,
+        Permissoes.GAMIFICACAO_VISUALIZAR,
+        Permissoes.GAMIFICACAO_LISTAR,
+        Permissoes.DASHBOARD_RESUMO,
+        Permissoes.DASHBOARD_METRICAS,
+        Permissoes.DASHBOARD_LOGS,
+        Permissoes.DASHBOARD_STATS,
         Permissoes.SESSAO_VISUALIZAR,
         Permissoes.SESSAO_VER_PRESENCA,
         Permissoes.FORUM_VISUALIZAR,
@@ -255,6 +367,14 @@ PERFIL_PERMISSOES = {
     "gestor": [
         # Criar usuários (subordinados), inscrever outros, visualizar (mas não criar avaliações/comentários)
         Permissoes.USUARIO_CRIAR,
+        Permissoes.USUARIO_LISTAR,
+        Permissoes.CERTIFICADO_VISUALIZAR,
+        Permissoes.GAMIFICACAO_VISUALIZAR,
+        Permissoes.GAMIFICACAO_LISTAR,
+        Permissoes.DASHBOARD_RESUMO,
+        Permissoes.DASHBOARD_METRICAS,
+        Permissoes.DASHBOARD_STATS,
+        Permissoes.CURSO_VER_INSCRICOES,
         Permissoes.CURSO_INSCREVER_OUTROS,
         Permissoes.RELATORIO_VISUALIZAR,
         Permissoes.DASHBOARD_VISUALIZAR,
@@ -275,6 +395,8 @@ PERFIL_PERMISSOES = {
     "participante": [
         # Apenas inscrever em cursos, responder avaliações, visualizar
         Permissoes.CURSO_INSCREVER,
+        Permissoes.CERTIFICADO_VISUALIZAR,
+        Permissoes.GAMIFICACAO_VISUALIZAR,
         Permissoes.AVALIACAO_RESPONDER,
         Permissoes.AVALIACAO_VISUALIZAR,
         Permissoes.COMENTARIO_VISUALIZAR,

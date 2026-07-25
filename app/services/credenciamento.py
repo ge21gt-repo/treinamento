@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.credenciamento import AprovacaoHierarquica, SolicitacaoCredenciamento
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
-from app.schemas.usuario import UsuarioRegistro
+from app.schemas.usuario import UsuarioCreate
 from app.services.auth import hash_password
 
 # Regras de autorização hierárquica
@@ -27,7 +27,7 @@ def pode_aprovar(perfil_aprovador: str, perfil_solicitado: str) -> bool:
     return perfil_solicitado in perfis_permitidos
 
 
-async def criar_solicitacao_credenciamento(payload: UsuarioRegistro, db: AsyncSession) -> SolicitacaoCredenciamento:
+async def criar_solicitacao_credenciamento(payload: UsuarioCreate, db: AsyncSession) -> SolicitacaoCredenciamento:
     """
     Cria uma solicitacao de credenciamento pendente
     Em vez de criar usuario ativo, cria solicitacao que precisa ser aprovada

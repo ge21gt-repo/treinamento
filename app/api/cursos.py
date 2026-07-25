@@ -72,7 +72,7 @@ async def listar_cursos(
 async def criar_curso(
     payload: CursoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_CRIAR)),
 ):
     if payload.pre_requisito_curso_id:
         result = await db.execute(select(Curso).where(Curso.id == payload.pre_requisito_curso_id))
@@ -103,7 +103,7 @@ async def atualizar_curso(
     curso_id: int,
     payload: CursoUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_EDITAR)),
 ):
     result = await db.execute(select(Curso).where(Curso.id == curso_id))
     curso = result.scalar_one_or_none()
@@ -120,7 +120,7 @@ async def atualizar_curso(
 async def excluir_curso(
     curso_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_EXCLUIR)),
 ):
     result = await db.execute(select(Curso).where(Curso.id == curso_id))
     curso = result.scalar_one_or_none()
@@ -181,7 +181,7 @@ async def listar_modulos(
 async def criar_modulo(
     payload: ModuloCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_MODULO_CRIAR)),
 ):
     modulo = Modulo(**payload.model_dump())
     db.add(modulo)
@@ -194,7 +194,7 @@ async def criar_modulo(
 async def reordenar_modulos(
     payload: list[ReorderItem],
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_MODULO_EDITAR)),
 ):
     ids = [item.id for item in payload]
     result = await db.execute(select(Modulo).where(Modulo.id.in_(ids)))
@@ -210,7 +210,7 @@ async def atualizar_modulo(
     modulo_id: int,
     payload: ModuloUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_MODULO_EDITAR)),
 ):
     result = await db.execute(select(Modulo).where(Modulo.id == modulo_id))
     modulo = result.scalar_one_or_none()
@@ -227,7 +227,7 @@ async def atualizar_modulo(
 async def excluir_modulo(
     modulo_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_MODULO_EXCLUIR)),
 ):
     result = await db.execute(select(Modulo).where(Modulo.id == modulo_id))
     modulo = result.scalar_one_or_none()
@@ -254,7 +254,7 @@ async def listar_unidades(
 async def criar_unidade(
     payload: UnidadeCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_UNIDADE_CRIAR)),
 ):
     unidade = Unidade(**payload.model_dump())
     db.add(unidade)
@@ -267,7 +267,7 @@ async def criar_unidade(
 async def reordenar_unidades(
     payload: list[ReorderItem],
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_UNIDADE_EDITAR)),
 ):
     ids = [item.id for item in payload]
     result = await db.execute(select(Unidade).where(Unidade.id.in_(ids)))
@@ -283,7 +283,7 @@ async def atualizar_unidade(
     unidade_id: int,
     payload: UnidadeUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_UNIDADE_EDITAR)),
 ):
     result = await db.execute(select(Unidade).where(Unidade.id == unidade_id))
     unidade = result.scalar_one_or_none()
@@ -300,7 +300,7 @@ async def atualizar_unidade(
 async def excluir_unidade(
     unidade_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_UNIDADE_EXCLUIR)),
 ):
     result = await db.execute(select(Unidade).where(Unidade.id == unidade_id))
     unidade = result.scalar_one_or_none()
@@ -330,7 +330,7 @@ async def criar_aula(
     curso_id: int,
     payload: AulaSincronaCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_AULA_CRIAR)),
 ):
     data = payload.model_dump(exclude={"criar_reuniao_teams"})
     aula = AulaSincrona(**data, criado_por=current_user.id)
@@ -370,7 +370,7 @@ async def atualizar_aula(
     aula_id: int,
     payload: AulaSincronaUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_AULA_EDITAR)),
 ):
     result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
     aula = result.scalar_one_or_none()
@@ -387,7 +387,7 @@ async def atualizar_aula(
 async def excluir_aula(
     aula_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_AULA_EXCLUIR)),
 ):
     result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
     aula = result.scalar_one_or_none()
@@ -471,7 +471,7 @@ async def enviar_mensagem(
     curso_id: int,
     payload: dict,
     db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CHAT_ENVIAR)),
 ):
     from app.models.curso import MensagemCurso
 
@@ -564,7 +564,7 @@ async def listar_minhas_inscricoes(
 async def listar_inscricoes_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_VER_INSCRICOES)),
 ):
     result = await db.execute(
         select(Inscricao).where(Inscricao.usuario_id == usuario_id).order_by(Inscricao.data_inscricao.desc())
@@ -616,7 +616,7 @@ async def concluir_unidade(
 async def criar_progresso(
     payload: ProgressoUnidadeCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_PROGRESSO_GERENCIAR)),
 ):
     progresso = ProgressoUnidade(**payload.model_dump())
     db.add(progresso)
@@ -630,7 +630,7 @@ async def atualizar_progresso(
     progresso_id: int,
     payload: ProgressoUnidadeUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_PROGRESSO_GERENCIAR)),
 ):
     result = await db.execute(select(ProgressoUnidade).where(ProgressoUnidade.id == progresso_id))
     progresso = result.scalar_one_or_none()
