@@ -334,7 +334,18 @@ Arquivos enviados por upload vão para o **bucket S3** `lms-conteudos`. A escolh
 
 **Validação:** MIME type e tamanho máximo (500MB) são verificados antes do upload. `MAX_UPLOAD_SIZE` no `.env`.
 
-**Presigned URLs:** Para conteúdo privado no S3, o backend gera URLs temporárias (1h) para player/view.
+### Presigned URLs (url_acesso)
+
+Os uploads são salvos como objetos **privados** no S3. Para acessá-los, o backend gera **URLs assinadas** temporárias (`X-Amz-Signature`):
+
+| Campo | Descrição |
+|-------|-----------|
+| `url_arquivo` | URL direta do S3 (retorna 403 se o objeto é privado) |
+| `url_acesso` | URL assinada válida por **1 hora** (use esta para exibir/baixar) |
+
+**Schemas que expõem `url_acesso`:** `ConteudoRead`, `MaterialComplementarRead`, `EntregaAtividadeRead`, `PacoteScormRead`, `ScormLaunchResponse`, `UnidadeRead`, `CursoArvoreItem`.
+
+Em storage local (`STORAGE_BACKEND=local`), `url_acesso` retorna o mesmo valor de `url_arquivo`.
 
 ---
 
