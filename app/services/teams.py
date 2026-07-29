@@ -147,6 +147,7 @@ async def processar_gravacao(
         content=content,
         filename=f"gravacao_{meeting_id}.mp4",
         folder="gravacoes",
+        content_type=mime_type,
     )
 
     conteudo = Conteudo(

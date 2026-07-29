@@ -57,7 +57,7 @@ async def _upload_s3(file: UploadFile, folder: str) -> str:
     )
     async with session.client("s3", endpoint_url=settings.S3_ENDPOINT or None) as s3:
         # Stream in chunks to avoid loading entire file in memory
-        await s3.upload_fileobj(file.file, settings.S3_BUCKET, key)
+        await s3.upload_fileobj(file.file, settings.S3_BUCKET, key, ExtraArgs={"ContentType": file.content_type})
     endpoint = settings.S3_ENDPOINT or f"https://{settings.S3_BUCKET}.s3.{settings.S3_REGION}.amazonaws.com"
     return f"{endpoint}/{key}"
 
@@ -108,7 +108,7 @@ async def upload_file(file: UploadFile, folder: str) -> str:
     return await _upload_local(file, folder)
 
 
-async def _upload_bytes_s3(content: bytes, filename: str, folder: str) -> str:
+async def _upload_bytes_s3(content: bytes, filename: str, folder: str, content_type: str = "application/octet-stream") -> str:
     try:
         import aioboto3
     except ImportError:
@@ -122,7 +122,7 @@ async def _upload_bytes_s3(content: bytes, filename: str, folder: str) -> str:
         region_name=settings.S3_REGION,
     )
     async with session.client("s3", endpoint_url=settings.S3_ENDPOINT or None) as s3:
-        await s3.put_object(Bucket=settings.S3_BUCKET, Key=key, Body=content)
+        await s3.put_object(Bucket=settings.S3_BUCKET, Key=key, Body=content, ContentType=content_type)
     endpoint = settings.S3_ENDPOINT or f"https://{settings.S3_BUCKET}.s3.{settings.S3_REGION}.amazonaws.com"
     return f"{endpoint}/{key}"
 
@@ -138,9 +138,9 @@ async def _upload_bytes_local(content: bytes, filename: str, folder: str) -> str
     return f"/uploads/{folder}/{name}"
 
 
-async def upload_bytes(content: bytes, filename: str, folder: str) -> str:
+async def upload_bytes(content: bytes, filename: str, folder: str, content_type: str = "application/octet-stream") -> str:
     if settings.STORAGE_BACKEND == "s3":
-        return await _upload_bytes_s3(content, filename, folder)
+        return await _upload_bytes_s3(content, filename, folder, content_type=content_type)
     return await _upload_bytes_local(content, filename, folder)
 
 
