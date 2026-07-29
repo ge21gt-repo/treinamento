@@ -4,10 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.gamificacao import Badge, Missao, Nivel, PontosXP, Streak, UsuarioBadge, UsuarioMissao
 from app.models.usuario import Usuario
+from app.services.rbac import Permissoes
 from app.schemas.gamificacao import (
     BadgeCreate,
     BadgeRead,
@@ -46,7 +47,7 @@ async def listar_niveis(
 async def criar_nivel(
     payload: NivelCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
     nivel = Nivel(**payload.model_dump())
     db.add(nivel)
@@ -62,7 +63,7 @@ async def criar_nivel(
 async def adicionar_xp(
     payload: PontosXPCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
     pontos = PontosXP(**payload.model_dump())
     db.add(pontos)
@@ -75,7 +76,7 @@ async def adicionar_xp(
 async def listar_xp_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_LISTAR)),
 ):
     result = await db.execute(
         select(PontosXP).where(PontosXP.usuario_id == usuario_id).order_by(PontosXP.criado_em.desc())
@@ -87,7 +88,7 @@ async def listar_xp_usuario(
 async def xp_total_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_LISTAR)),
 ):
     result = await db.execute(
         select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == usuario_id)
@@ -158,7 +159,7 @@ async def listar_badges(
 async def criar_badge(
     payload: BadgeCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
     badge = Badge(**payload.model_dump())
     db.add(badge)
@@ -171,7 +172,7 @@ async def criar_badge(
 async def atribuir_badge(
     payload: UsuarioBadgeCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
     ub = UsuarioBadge(**payload.model_dump())
     db.add(ub)
@@ -184,7 +185,7 @@ async def atribuir_badge(
 async def badges_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_LISTAR)),
 ):
     result = await db.execute(select(UsuarioBadge).where(UsuarioBadge.usuario_id == usuario_id))
     return result.scalars().all()
@@ -206,7 +207,7 @@ async def listar_missoes(
 async def criar_missao(
     payload: MissaoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
     missao = Missao(**payload.model_dump())
     db.add(missao)
@@ -220,7 +221,7 @@ async def atualizar_missao(
     missao_id: int,
     payload: MissaoUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_EDITAR)),
 ):
     result = await db.execute(select(Missao).where(Missao.id == missao_id))
     missao = result.scalar_one_or_none()
@@ -237,7 +238,7 @@ async def atualizar_missao(
 async def participar_missao(
     payload: UsuarioMissaoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
     um = UsuarioMissao(**payload.model_dump())
     db.add(um)
@@ -251,7 +252,7 @@ async def atualizar_progresso_missao(
     usuario_missao_id: int,
     payload: UsuarioMissaoUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_EDITAR)),
 ):
     result = await db.execute(select(UsuarioMissao).where(UsuarioMissao.id == usuario_missao_id))
     um = result.scalar_one_or_none()
@@ -271,7 +272,7 @@ async def atualizar_progresso_missao(
 async def obter_streak(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_LISTAR)),
 ):
     result = await db.execute(select(Streak).where(Streak.usuario_id == usuario_id))
     streak = result.scalar_one_or_none()

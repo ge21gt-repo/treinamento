@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
@@ -8,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.api.auth import check_unique_fields
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
+from app.models.credenciamento import AprovacaoHierarquica, SolicitacaoCredenciamento
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.paginacao import apply_search, count_query
 from app.services.rbac import Permissoes, can_create_perfil
@@ -38,7 +40,7 @@ async def listar_usuarios(
     q: str | None = Query(None, description="Busca textual por nome ou email"),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.USUARIO_LISTAR)),
 ):
     query = select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil))
 
@@ -59,7 +61,7 @@ async def listar_usuarios(
 async def obter_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.USUARIO_LISTAR)),
 ):
     result = await db.execute(
         select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == usuario_id)
@@ -75,7 +77,7 @@ async def atualizar_usuario(
     usuario_id: uuid.UUID,
     payload: UsuarioUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.USUARIO_EDITAR)),
 ):
     result = await db.execute(select(Usuario).where(Usuario.id == usuario_id))
     user = result.scalar_one_or_none()
@@ -94,7 +96,7 @@ async def atualizar_usuario(
 async def excluir_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.USUARIO_EXCLUIR)),
 ):
     result = await db.execute(select(Usuario).where(Usuario.id == usuario_id))
     user = result.scalar_one_or_none()
@@ -110,7 +112,7 @@ async def excluir_usuario(
 @router.get("/perfis/todos", response_model=list[PerfilRead])
 async def listar_perfis(
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.USUARIO_LISTAR)),
 ):
     result = await db.execute(select(Perfil))
     return result.scalars().all()
@@ -120,7 +122,7 @@ async def listar_perfis(
 async def criar_perfil(
     payload: PerfilCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.PERFIL_CRIAR)),
 ):
     perfil = Perfil(**payload.model_dump())
     db.add(perfil)
@@ -151,7 +153,7 @@ async def atualizar_perfil(
     perfil_id: int,
     payload: PerfilUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.PERFIL_EDITAR)),
 ):
     result = await db.execute(select(Perfil).where(Perfil.id == perfil_id))
     perfil = result.scalar_one_or_none()
@@ -168,7 +170,7 @@ async def atualizar_perfil(
 async def excluir_perfil(
     perfil_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.PERFIL_EXCLUIR)),
 ):
     result = await db.execute(select(Perfil).where(Perfil.id == perfil_id))
     perfil = result.scalar_one_or_none()
@@ -191,6 +193,7 @@ async def criar_subordinado(
     payload: CriarSubordinadoRequest,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
+    _: None = Depends(require_permissao(Permissoes.USUARIO_CRIAR)),
 ):
     """Endpoint para gestor criar conta de subordinado com perfil definido"""
     # Verificar se o perfil solicitado existe no banco
@@ -208,6 +211,10 @@ async def criar_subordinado(
             detail=f"Seu perfil não tem permissão para criar usuários do perfil '{payload.perfil}'",
         )
 
+    # Validar aceite LGPD
+    if not payload.aceite_lgpd:
+        raise HTTPException(status_code=422, detail="Aceite dos termos LGPD é obrigatorio")
+
     # Verificar unicidade de email, CPF e telefone
     await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
 
@@ -221,14 +228,38 @@ async def criar_subordinado(
         cargo=payload.cargo,
         telefone=payload.telefone,
         ativo=True,
-        status_credenciamento="aprovado",  # Criado por superior, já aprovado
+        status_credenciamento="aprovado",
         criado_por=current_user.id,
+        aceite_lgpd=True,
+        data_aceite_lgpd=datetime.now(timezone.utc),
     )
     db.add(subordinado)
     await db.flush()
 
     # Atribuir perfil solicitado
     db.add(UsuarioPerfil(usuario_id=subordinado.id, perfil_id=perfil.id, atribuido_por=current_user.id))
+
+    # Criar solicitacao de credenciamento como aprovada (trilha de auditoria)
+    solicitacao = SolicitacaoCredenciamento(
+        usuario_id=subordinado.id,
+        perfil_solicitado=payload.perfil,
+        status="aprovado",
+        avaliado_por=current_user.id,
+        avaliado_em=datetime.now(timezone.utc),
+    )
+    db.add(solicitacao)
+    await db.flush()
+
+    # Registrar aprovacao hierarquica
+    perfis_criador = [up.perfil.nome for up in current_user.perfis] if current_user.perfis else []
+    nivel_hierarquico = perfis_criador[0] if perfis_criador else "participante"
+    db.add(AprovacaoHierarquica(
+        solicitacao_id=solicitacao.id,
+        aprovador_id=current_user.id,
+        nivel_hierarquico=nivel_hierarquico,
+        acao="aprovar",
+        motivo="Criado por superior hierarquico",
+    ))
 
     await db.commit()
     await db.refresh(subordinado)

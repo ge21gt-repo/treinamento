@@ -39,7 +39,7 @@ async def listar_trilhas(
 async def criar_trilha(
     payload: TrilhaCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permissao(Permissoes.TRILHA_CRIAR)),
 ):
     trilha = TrilhaAprendizagem(**payload.model_dump(), criado_por=current_user.id)
     db.add(trilha)
@@ -220,7 +220,7 @@ async def atualizar_trilha(
     trilha_id: int,
     payload: TrilhaUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.TRILHA_EDITAR)),
 ):
     result = await db.execute(select(TrilhaAprendizagem).where(TrilhaAprendizagem.id == trilha_id))
     trilha = result.scalar_one_or_none()
@@ -301,7 +301,7 @@ async def progresso_trilha_detalhado(
 async def excluir_trilha(
     trilha_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.TRILHA_EXCLUIR)),
 ):
     result = await db.execute(select(TrilhaAprendizagem).where(TrilhaAprendizagem.id == trilha_id))
     trilha = result.scalar_one_or_none()

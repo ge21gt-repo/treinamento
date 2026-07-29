@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.certificado import Certificado, ModeloCertificado
 from app.models.usuario import Usuario
+from app.services.rbac import Permissoes
 from app.schemas.certificado import (
     CertificadoCreate,
     CertificadoRead,
@@ -35,7 +36,7 @@ async def listar_modelos(
 async def criar_modelo(
     payload: ModeloCertificadoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CERTIFICADO_CRIAR)),
 ):
     modelo = ModeloCertificado(**payload.model_dump())
     db.add(modelo)
@@ -51,7 +52,7 @@ async def criar_modelo(
 async def emitir_certificado(
     payload: CertificadoCreate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CERTIFICADO_CRIAR)),
 ):
     cert = Certificado(**payload.model_dump())
     db.add(cert)
@@ -91,7 +92,7 @@ async def validar_certificado(
 async def listar_certificados_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.CERTIFICADO_VISUALIZAR)),
 ):
     result = await db.execute(select(Certificado).where(Certificado.usuario_id == usuario_id))
     return result.scalars().all()

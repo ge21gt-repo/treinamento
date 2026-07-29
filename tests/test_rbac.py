@@ -60,14 +60,20 @@ class TestAutenticacao:
 
 
 class TestPermissoesCurso:
-    async def test_qualquer_usuario_pode_criar_curso(self, db_clean):
+    async def test_participante_nao_pode_criar_curso(self, db_clean):
         uid = await _criar_usuario("participante", "part@test.com")
+        async with await _client_para(uid) as ac:
+            r = await ac.post("/api/v1/cursos", json={"titulo": "Curso", "descricao": "x", "ordem": 0})
+        assert r.status_code == 403
+
+    async def test_admin_pode_criar_curso(self, db_clean):
+        uid = await _criar_usuario("administrador_geral", "admin_cria@test.com")
         async with await _client_para(uid) as ac:
             r = await ac.post("/api/v1/cursos", json={"titulo": "Curso", "descricao": "x", "ordem": 0})
         assert r.status_code == 201
 
-    async def test_qualquer_usuario_pode_editar_curso(self, db_clean):
-        uid = await _criar_usuario("participante", "part2@test.com")
+    async def test_admin_pode_editar_curso(self, db_clean):
+        uid = await _criar_usuario("administrador_geral", "admin_edi@test.com")
         async with await _client_para(uid) as ac:
             r1 = await ac.post("/api/v1/cursos", json={"titulo": "Original", "descricao": "x", "ordem": 0})
             cid = r1.json()["id"]
@@ -77,20 +83,24 @@ class TestPermissoesCurso:
 
 class TestPermissoesInscricao:
     async def test_participante_pode_se_inscrever(self, db_clean):
-        uid = await _criar_usuario("participante", "p3@test.com")
-        async with await _client_para(uid) as ac:
+        admin = await _criar_usuario("administrador_geral", "admin_insc@test.com")
+        async with await _client_para(admin) as ac:
             r = await ac.post("/api/v1/cursos", json={"titulo": "C", "descricao": "x", "ordem": 0})
             cid = r.json()["id"]
+        uid = await _criar_usuario("participante", "p3@test.com")
+        async with await _client_para(uid) as ac:
             r = await ac.post("/api/v1/cursos/inscricoes", json={"curso_id": cid})
         assert r.status_code == 201
 
     async def test_participante_nao_pode_inscrever_outro(self, db_clean):
-        uid = await _criar_usuario("participante", "p4@test.com")
-        async with await _client_para(uid) as ac:
+        admin = await _criar_usuario("administrador_geral", "admin_outro@test.com")
+        async with await _client_para(admin) as ac:
             r = await ac.post("/api/v1/cursos", json={"titulo": "C", "descricao": "x", "ordem": 0})
             cid = r.json()["id"]
-            outro = str(uuid.uuid4())
-            r = await ac.post("/api/v1/cursos/inscricoes", json={"curso_id": cid, "usuario_id": outro})
+        outro = await _criar_usuario("participante", "p4_outro@test.com")
+        uid = await _criar_usuario("participante", "p4@test.com")
+        async with await _client_para(uid) as ac:
+            r = await ac.post("/api/v1/cursos/inscricoes", json={"curso_id": cid, "usuario_id": str(outro)})
         assert r.status_code == 403
 
 
@@ -125,18 +135,29 @@ class TestPermissoesConteudo:
 
 
 class TestPermissoesAdmin:
-    async def test_admin_pode_inscrever_outro_em_curso(self, client):
+    async def test_admin_pode_inscrever_outro_em_curso(self, client, db_clean):
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+        from app.models.usuario import Usuario, UsuarioPerfil
+        from app.services.auth import hash_password
+
+        url = "postgresql+asyncpg://postgres:efyqqsTRfI7HoGlKlvXL@database-2.ch9pz6al6hii.us-east-2.rds.amazonaws.com:5432/postgres"
+        _eng = create_async_engine(url)
+        session = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)()
+        user = Usuario(
+            id=uuid.uuid4(), nome_completo="Outro User", email="outro@test.com",
+            senha_hash=hash_password("123456"), ativo=True, status_credenciamento="aprovado", aceite_lgpd=True,
+        )
+        session.add(user)
+        await session.flush()
+        result = await session.execute(text("SELECT id FROM lms.perfis WHERE nome = 'participante'"))
+        perfil_id = result.scalar_one()
+        session.add(UsuarioPerfil(usuario_id=user.id, perfil_id=perfil_id))
+        await session.commit()
+        outro_id = user.id
+        await session.close()
+        await _eng.dispose()
+
         r = await client.post("/api/v1/cursos", json={"titulo": "C", "descricao": "x", "ordem": 0})
         cid = r.json()["id"]
-        r = await client.post(
-            "/api/v1/auth/registro",
-            json={
-                "nome_completo": "Outro User",
-                "email": "outro@test.com",
-                "senha": "123456",
-                "aceite_lgpd": True,
-            },
-        )
-        outro_id = r.json()["id"]
-        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": cid, "usuario_id": outro_id})
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": cid, "usuario_id": str(outro_id)})
         assert r.status_code == 201

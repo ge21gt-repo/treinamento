@@ -170,3 +170,40 @@ async def get_presigned_url(key: str, expires_in: int = 3600) -> str | None:
             ExpiresIn=expires_in,
         )
         return url
+
+
+_s3_client = None
+
+
+def _get_s3_client():
+    global _s3_client
+    if _s3_client is None:
+        import boto3
+        _s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=settings.S3_ACCESS_KEY,
+            aws_secret_access_key=settings.S3_SECRET_KEY,
+            region_name=settings.S3_REGION,
+            endpoint_url=settings.S3_ENDPOINT or None,
+        )
+    return _s3_client
+
+
+def resolve_file_url(stored_url: str, expires_in: int = 3600) -> str:
+    """Converte URL armazenada (S3 direta) em URL assinada (presigned).
+    Para storage local, retorna a URL original.
+    """
+    if settings.STORAGE_BACKEND != "s3":
+        return stored_url
+    if not stored_url or "amazonaws.com" not in stored_url:
+        return stored_url
+    try:
+        bucket, key = _parse_s3_url(stored_url)
+        client = _get_s3_client()
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=expires_in,
+        )
+    except Exception:
+        return stored_url

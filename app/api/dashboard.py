@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.certificado import Certificado
 from app.models.curso import Curso, Inscricao, TrilhaAprendizagem
@@ -13,6 +13,7 @@ from app.models.log import LogAcesso, MetricaEngajamento
 from app.models.sessao import SessaoAoVivo
 from app.models.usuario import Usuario
 from app.schemas.log import LogAcessoRead, MetricaEngajamentoRead
+from app.services.rbac import Permissoes
 from app.services.paginacao import count_query
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard e Analytics"])
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard e Analytics"])
 @router.get("/resumo")
 async def resumo_geral(
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_RESUMO)),
 ):
     total_usuarios = (await db.execute(select(func.count(Usuario.id)))).scalar()
     total_cursos = (await db.execute(select(func.count(Curso.id)))).scalar()
@@ -105,7 +106,7 @@ async def metricas_usuario(
     usuario_id: uuid.UUID,
     limit: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_METRICAS)),
 ):
     result = await db.execute(
         select(MetricaEngajamento)
@@ -123,7 +124,7 @@ async def listar_logs(
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_LOGS)),
 ):
     query = select(LogAcesso)
     if usuario_id is not None:
@@ -139,7 +140,7 @@ async def listar_logs(
 async def stats_curso(
     curso_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_STATS)),
 ):
     total_inscritos = (
         await db.execute(select(func.count(Inscricao.id)).where(Inscricao.curso_id == curso_id))

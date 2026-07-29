@@ -16,14 +16,7 @@ class UsuarioBase(BaseModel):
 
 class UsuarioCreate(UsuarioBase):
     senha: str
-    aceite_lgpd: bool = False
-
-
-class UsuarioRegistro(UsuarioBase):
-    """Schema especifico para registro de usuario com selecao de perfil"""
-
-    senha: str
-    perfil_solicitado: str  # administrador_geral, instrutor, gestor, participante
+    perfil_solicitado: str = "participante"
     aceite_lgpd: bool = False
 
 
@@ -143,3 +136,4 @@ class CriarSubordinadoRequest(BaseModel):
     cargo: str | None = None
     telefone: str | None = None
     perfil: str = "participante"
+    aceite_lgpd: bool = False

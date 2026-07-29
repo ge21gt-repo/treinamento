@@ -334,26 +334,81 @@ Arquivos enviados por upload vão para o **bucket S3** `lms-conteudos`. A escolh
 
 **Validação:** MIME type e tamanho máximo (500MB) são verificados antes do upload. `MAX_UPLOAD_SIZE` no `.env`.
 
-**Presigned URLs:** Para conteúdo privado no S3, o backend gera URLs temporárias (1h) para player/view.
+### Presigned URLs (url_acesso)
+
+Os uploads são salvos como objetos **privados** no S3. Para acessá-los, o backend gera **URLs assinadas** temporárias (`X-Amz-Signature`):
+
+| Campo | Descrição |
+|-------|-----------|
+| `url_arquivo` | URL direta do S3 (retorna 403 se o objeto é privado) |
+| `url_acesso` | URL assinada válida por **1 hora** (use esta para exibir/baixar) |
+
+**Schemas que expõem `url_acesso`:** `ConteudoRead`, `MaterialComplementarRead`, `EntregaAtividadeRead`, `PacoteScormRead`, `ScormLaunchResponse`, `UnidadeRead`, `CursoArvoreItem`.
+
+Em storage local (`STORAGE_BACKEND=local`), `url_acesso` retorna o mesmo valor de `url_arquivo`.
 
 ---
 
 ## Teams / Microsoft Graph
 
-Integração opcional com Microsoft Teams para aulas síncronas.
+Integração opcional com Microsoft Teams para aulas síncronas. Existem dois fluxos:
 
-**Fluxo:**
-1. `POST /cursos/{id}/aulas` com `{"criar_reuniao_teams": true}`
-2. Backend chama `POST /users/{organizer_email}/onlineMeetings` no Graph API
-3. Retorna `join_url` + `meeting_id` → salvos na `AulaSincrona`
-4. Pós-aula: `buscar_gravacao()` baixa gravação → upload S3 → vincula ao conteúdo
+### Fluxo A — Automático (Teams via API)
+
+Usado quando o ambiente tem as permissões do Azure configuradas.
+
+1. **Criar aula com reunião Teams**
+   `POST /cursos/{id}/aulas` com `"criar_reuniao_teams": true`
+   - Backend chama `POST /users/{organizador}/onlineMeetings` no Graph API
+   - Retorna `joinWebUrl` + `meetingId` → salvos nos campos `link_externo` e `teams_meeting_id` da `AulaSincrona`
+
+2. **Professor e alunos participam**
+   - Entram pelo link gerado: `https://teams.microsoft.com/l/meetup-join/19%...`
+   - Professor clica em **"Gravar"** durante a aula
+
+3. **Processar gravação (pós-aula)**
+   `POST /cursos/aulas/{id}/processar-gravacao`
+   - Backend chama `GET /onlineMeetings/{id}/recordings` no Graph API
+   - Baixa o arquivo MP4 (vídeo da gravação)
+   - Faz upload para o S3 via `storage.upload_bytes()`
+   - Cria um registro `Conteudo` com `tipo_midia="video"` e vincula em `gravacao_conteudo_id` na aula
+
+4. **Aluno assiste**
+   - Ao acessar a aula, o frontend usa `url_acesso` do conteúdo vinculado
+   - O player reproduz o MP4 direto do S3 via URL assinada (válida por 1h)
 
 **Permissões necessárias no Azure AD:**
-- `OnlineMeetings.ReadWrite.All`
-- `OnlineMeetingRecording.Read.All`
-- `OnlineMeetingAttendanceReport.Read.All`
+- `OnlineMeetings.ReadWrite.All` — criar reuniões
+- `OnlineMeetingRecording.Read.All` — baixar gravações
+- `OnlineMeetingAttendanceReport.Read.All` — lista de presença
 
-Se não configurado, funciona em modo fallback (link manual).
+### Fluxo B — Manual (link externo + upload)
+
+Usado quando o Teams não está integrado ou o professor prefere outro provedor.
+
+1. **Criar aula com link manual**
+   `POST /cursos/{id}/aulas` com `"link_externo": "https://meet.google.com/..."` (ou Zoom, Teams manual, etc.)
+   - Nenhuma chamada ao Graph API é feita
+   - O link é salvo diretamente na `AulaSincrona`
+
+2. **Aula acontece normalmente** no provedor externo
+
+3. **Upload manual da gravação**
+   - Professor baixa o MP4 do provedor
+   - Faz upload via `POST /conteudos/upload` → recebe um `conteudo_id`
+   - Vincula à aula: `PATCH /cursos/aulas/{id}` com `{"gravacao_conteudo_id": <id>}`
+
+4. **Aluno assiste** — mesmo fluxo, o frontend exibe o player com `url_acesso`
+
+### Resumo dos dois fluxos
+
+| | Automático (Teams API) | Manual (link externo) |
+|---|---|---|
+| Criação da reunião | API do Teams cria automático | Professor cria por fora e passa o link |
+| Link na aula | `joinWebUrl` gerado pela API | `link_externo` informado manualmente |
+| Gravação | `processar-gravacao` baixa do Teams | Professor faz upload do MP4 |
+| Complexidade | Zero esforço manual | Professor baixa + faz upload |
+| Requer Azure | Sim (permissões configuradas) | Não
 
 ---
 

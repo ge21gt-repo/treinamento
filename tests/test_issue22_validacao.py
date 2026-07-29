@@ -105,7 +105,7 @@ class TestValidacaoCamposUnicos:
             assert r1.status_code == 201
 
             r2 = await ac.post(
-                "/api/v1/auth/registro-com-perfil",
+                "/api/v1/auth/registro",
                 json={
                     "nome_completo": "User Solic",
                     "email": "user@test.com",
@@ -133,7 +133,7 @@ class TestValidacaoCamposUnicos:
             assert r1.status_code == 201
 
             r2 = await ac.post(
-                "/api/v1/auth/registro-com-perfil",
+                "/api/v1/auth/registro",
                 json={
                     "nome_completo": "Solic",
                     "email": "solic@test.com",
@@ -171,6 +171,7 @@ class TestValidacaoSubordinado:
                     "nome_completo": "Sub",
                     "email": "existente@test.com",
                     "senha": "123456",
+                    "aceite_lgpd": True,
                 },
             )
         assert r2.status_code == 409
