@@ -12,6 +12,7 @@ from app.models.conteudo import Conteudo, EntregaAtividade
 from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemCurso, Modulo, ProgressoUnidade, Unidade
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
+from app.services.storage import resolve_file_url
 from app.schemas.curso import (
     AulaSincronaCreate,
     AulaSincronaRead,
@@ -703,7 +704,7 @@ async def consumo_curso(
                     "conteudo_url": u.conteudo_url,
                     "url_externa": u.url_externa,
                     "conteudos": [
-                        {"id": c.id, "tipo_midia": c.tipo_midia, "titulo": c.titulo, "url_arquivo": c.url_arquivo}
+                        {"id": c.id, "tipo_midia": c.tipo_midia, "titulo": c.titulo, "url_arquivo": resolve_file_url(c.url_arquivo)}
                         for c in cts
                     ],
                     "progresso": {
