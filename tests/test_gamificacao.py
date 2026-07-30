@@ -156,3 +156,55 @@ class TestStreaks:
     async def test_get_streak_inexistente(self, client):
         r = await client.get("/api/v1/gamificacao/streaks/00000000-0000-0000-0000-000000009999")
         assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestPerfil:
+    async def test_perfil_requires_auth(self):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.get("/api/v1/gamificacao/perfil")
+        assert r.status_code in AUTH_OK
+
+    async def test_perfil_retorna_campos_completos(self, client):
+        r = await client.get("/api/v1/gamificacao/perfil")
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        assert "usuario_id" in data
+        assert "nome_completo" in data
+        assert isinstance(data["xp_total"], int)
+        assert "nivel_atual" in data
+        assert "nome" in data["nivel_atual"]
+        assert "ordem" in data["nivel_atual"]
+        assert "xp_minimo" in data["nivel_atual"]
+        assert isinstance(data["badges"], list)
+        assert "streak" in data
+        assert "dias_consecutivos" in data["streak"]
+        assert "maior_streak" in data["streak"]
+        assert isinstance(data["historico_recente"], list)
+
+    async def test_perfil_reflete_dados_corretos(self, client, admin_user):
+        uid = str(admin_user.id)
+
+        r = await client.post(
+            "/api/v1/gamificacao/xp",
+            json={"usuario_id": uid, "quantidade": 200, "origem": "teste", "descricao": "XP teste perfil"},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.post(
+            "/api/v1/gamificacao/badges",
+            json={"nome": "BadgePerfil", "descricao": "Badge de teste", "criterio_tipo": "xp_acumulado", "criterio_valor": 1},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        badge_id = r.json()["id"]
+
+        r = await client.post("/api/v1/gamificacao/badges/atribuir", json={"usuario_id": uid, "badge_id": badge_id})
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.get("/api/v1/gamificacao/perfil")
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        assert data["xp_total"] >= 200
+        assert any(b["id"] == badge_id for b in data["badges"])
+        assert len(data["historico_recente"]) >= 1
+        assert data["historico_recente"][0]["quantidade"] == 200

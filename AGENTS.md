@@ -1,5 +1,9 @@
 # AGENTS.md — Plataforma de Treinamento LMS (backend)
 
+## ⚠️ REGRA ABSOLUTA
+
+**NUNCA RODAR NADA SILENCIOSAMENTE.** Todo comando/bash/git deve ser explicitamente descrito com `description=""` claro. Nada de rodar pytest, migrations, scripts, ou qualquer operação sem o usuário saber o que está sendo executado. Sempre explicar o que vai rodar ANTES de rodar.
+
 ## Stack
 
 - **Python 3.12** + **FastAPI** + **SQLAlchemy 2.0 async** + **asyncpg**

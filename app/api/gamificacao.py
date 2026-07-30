@@ -8,18 +8,25 @@ from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.gamificacao import Badge, Missao, Nivel, PontosXP, Streak, UsuarioBadge, UsuarioMissao
 from app.models.usuario import Usuario
+from app.services.gamificacao import calcular_nivel
 from app.services.rbac import Permissoes
 from app.schemas.gamificacao import (
     BadgeCreate,
+    BadgePerfilRead,
     BadgeRead,
+    HistoricoXPRead,
     LeaderboardEntry,
     MissaoCreate,
     MissaoRead,
     MissaoUpdate,
     NivelCreate,
+    NivelInfo,
     NivelRead,
+    PerfilGamificadoRead,
     PontosXPCreate,
     PontosXPRead,
+    ProximoNivelInfo,
+    StreakPerfilRead,
     StreakRead,
     UsuarioBadgeCreate,
     UsuarioBadgeRead,
@@ -141,6 +148,96 @@ async def leaderboard(
             )
         )
     return entries
+
+
+# --- Perfil ---
+
+
+@router.get("/perfil", response_model=PerfilGamificadoRead)
+async def perfil_gamificado(
+    db: AsyncSession = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    xp_total = await db.scalar(
+        select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == usuario.id)
+    ) or 0
+
+    nivel_atual, proximo = await calcular_nivel(db, usuario.id)
+
+    badge_rows = await db.execute(
+        select(
+            Badge.id,
+            Badge.nome,
+            Badge.descricao,
+            Badge.icone_url,
+            UsuarioBadge.conquistado_em,
+        )
+        .join(UsuarioBadge, UsuarioBadge.badge_id == Badge.id)
+        .where(UsuarioBadge.usuario_id == usuario.id)
+        .order_by(UsuarioBadge.conquistado_em.desc())
+    )
+    badges = [
+        BadgePerfilRead(
+            id=row.id,
+            nome=row.nome,
+            descricao=row.descricao,
+            icone_url=row.icone_url,
+            conquistado_em=row.conquistado_em,
+        )
+        for row in badge_rows
+    ]
+
+    streak_row = await db.execute(select(Streak).where(Streak.usuario_id == usuario.id))
+    streak = streak_row.scalar_one_or_none()
+    streak_data = StreakPerfilRead(
+        dias_consecutivos=streak.dias_consecutivos if streak else 0,
+        maior_streak=streak.maior_streak if streak else 0,
+    )
+
+    historico_rows = await db.execute(
+        select(PontosXP)
+        .where(PontosXP.usuario_id == usuario.id)
+        .order_by(PontosXP.criado_em.desc())
+        .limit(10)
+    )
+    historico = [
+        HistoricoXPRead(
+            quantidade=h.quantidade,
+            origem=h.origem,
+            descricao=h.descricao,
+            criado_em=h.criado_em,
+        )
+        for h in historico_rows.scalars()
+    ]
+
+    proximo_nivel = None
+    if proximo:
+        xp_restante = max(0, proximo.xp_minimo - xp_total)
+        intervalo = proximo.xp_minimo - nivel_atual.xp_minimo
+        progresso_pct = round(min(100, (xp_total - nivel_atual.xp_minimo) / intervalo * 100), 1) if intervalo > 0 else 0
+        proximo_nivel = ProximoNivelInfo(
+            nome=proximo.nome,
+            ordem=proximo.ordem,
+            xp_minimo=proximo.xp_minimo,
+            xp_restante=xp_restante,
+            progresso_pct=progresso_pct,
+        )
+
+    return PerfilGamificadoRead(
+        usuario_id=usuario.id,
+        nome_completo=usuario.nome_completo,
+        xp_total=xp_total,
+        nivel_atual=NivelInfo(
+            nome=nivel_atual.nome,
+            ordem=nivel_atual.ordem,
+            xp_minimo=nivel_atual.xp_minimo,
+            icone_url=nivel_atual.icone_url,
+        ),
+        proximo_nivel=proximo_nivel,
+        badges=badges,
+        streak=streak_data,
+        historico_recente=historico,
+    )
 
 
 # --- Badges ---

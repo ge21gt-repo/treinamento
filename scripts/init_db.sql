@@ -18,10 +18,12 @@ ON CONFLICT (nome) DO NOTHING;
 -- Seed: niveis de gamificacao
 INSERT INTO lms.niveis (nome, xp_minimo, ordem) VALUES
     ('Iniciante', 0, 1),
-    ('Intermediario', 500, 2),
-    ('Avancado', 1500, 3),
-    ('Especialista', 3500, 4),
-    ('Mestre', 7000, 5)
+    ('Bronze', 500, 2),
+    ('Prata', 1500, 3),
+    ('Ouro', 3000, 4),
+    ('Platina', 6000, 5),
+    ('Diamante', 10000, 6),
+    ('Mestre', 20000, 7)
 ON CONFLICT (nome) DO NOTHING;
 
 -- Indices de performance

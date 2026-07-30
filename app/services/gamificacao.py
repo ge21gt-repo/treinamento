@@ -12,7 +12,6 @@ EVENTOS_XP: dict[str, int] = {
     "curso_concluido": 200,
     "avaliacao_respondida": 30,
     "trilha_concluida": 500,
-    "login_streak": 10,
     "primeiro_acesso_dia": 5,
 }
 
@@ -24,9 +23,15 @@ async def atribuir_xp(
     descricao: str | None = None,
     referencia_id: int | None = None,
 ) -> PontosXP | None:
-    quantidade = EVENTOS_XP.get(evento)
-    if quantidade is None:
-        raise ValueError(f"Evento desconhecido: {evento}")
+    if evento == "login_streak":
+        streak = await db.execute(select(Streak).where(Streak.usuario_id == usuario_id))
+        s = streak.scalar_one_or_none()
+        days = s.dias_consecutivos if s else 0
+        quantidade = 10 * days
+    else:
+        quantidade = EVENTOS_XP.get(evento)
+        if quantidade is None:
+            raise ValueError(f"Evento desconhecido: {evento}")
 
     if referencia_id is not None:
         existente = await db.execute(
@@ -39,6 +44,9 @@ async def atribuir_xp(
         if existente.scalar_one_or_none():
             return None
 
+    if quantidade <= 0:
+        return None
+
     pontos = PontosXP(
         usuario_id=usuario_id,
         quantidade=quantidade,
@@ -50,6 +58,7 @@ async def atribuir_xp(
     await db.flush()
 
     await calcular_nivel(db, usuario_id)
+    await verificar_badges(db, usuario_id)
 
     return pontos
 
@@ -60,6 +69,10 @@ async def calcular_nivel(db: AsyncSession, usuario_id: uuid.UUID) -> tuple[Nivel
     )
     niveis = await db.execute(select(Nivel).order_by(Nivel.ordem.desc()))
     niveis_list = niveis.scalars().all()
+
+    if not niveis_list:
+        fallback = Nivel(nome="Iniciante", xp_minimo=0, ordem=0)
+        return fallback, None
 
     nivel_atual = niveis_list[-1]
     proximo = None

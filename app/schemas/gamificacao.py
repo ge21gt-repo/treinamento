@@ -145,3 +145,51 @@ class LeaderboardEntry(BaseModel):
     nome_completo: str
     xp_total: int
     nivel: str
+
+
+class NivelInfo(BaseModel):
+    nome: str
+    ordem: int
+    xp_minimo: int
+    icone_url: str | None = None
+
+
+class ProximoNivelInfo(BaseModel):
+    nome: str
+    ordem: int
+    xp_minimo: int
+    xp_restante: int
+    progresso_pct: float
+
+
+class BadgePerfilRead(BaseModel):
+    id: int
+    nome: str
+    descricao: str | None = None
+    icone_url: str | None = None
+    conquistado_em: datetime
+
+
+class HistoricoXPRead(BaseModel):
+    quantidade: int
+    origem: str
+    descricao: str | None = None
+    criado_em: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class StreakPerfilRead(BaseModel):
+    dias_consecutivos: int
+    maior_streak: int
+
+
+class PerfilGamificadoRead(BaseModel):
+    usuario_id: uuid.UUID
+    nome_completo: str
+    xp_total: int
+    nivel_atual: NivelInfo
+    proximo_nivel: ProximoNivelInfo | None = None
+    badges: list[BadgePerfilRead]
+    streak: StreakPerfilRead
+    historico_recente: list[HistoricoXPRead]
