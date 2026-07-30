@@ -49,10 +49,12 @@ async def atribuir_xp(
     db.add(pontos)
     await db.flush()
 
+    await calcular_nivel(db, usuario_id)
+
     return pontos
 
 
-async def _calcular_nivel(db: AsyncSession, usuario_id: uuid.UUID) -> tuple[Nivel, Nivel | None]:
+async def calcular_nivel(db: AsyncSession, usuario_id: uuid.UUID) -> tuple[Nivel, Nivel | None]:
     total = await db.scalar(
         select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == usuario_id)
     )

@@ -11,10 +11,11 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.models.gamificacao import PontosXP
+from app.models.gamificacao import Nivel, PontosXP
 from app.models.usuario import Usuario, UsuarioPerfil
 from app.services.auth import hash_password
-from app.services.gamificacao import atribuir_xp
+from app.models.gamificacao import Nivel
+from app.services.gamificacao import calcular_nivel, atribuir_xp
 
 pytestmark = pytest.mark.db
 
@@ -33,6 +34,17 @@ class TestEngine:
         async with maker.begin() as session:
             for tbl in ["lms.pontos_xp", "lms.usuario_perfil", "lms.usuarios"]:
                 await session.execute(text(f"TRUNCATE {tbl} CASCADE"))
+            niveis_exist = await session.scalar(text("SELECT COUNT(*) FROM lms.niveis"))
+            if not niveis_exist:
+                for i, (nome, xp, ordem) in enumerate([
+                    ("Iniciante", 0, 1),
+                    ("Intermediario", 500, 2),
+                    ("Avancado", 1500, 3),
+                    ("Especialista", 3500, 4),
+                    ("Mestre", 7000, 5),
+                ]):
+                    session.add(Nivel(nome=nome, xp_minimo=xp, ordem=ordem))
+                await session.flush()
             uid = uuid.uuid4()
             session.add(Usuario(
                 id=uid, nome_completo="Admin",
@@ -72,4 +84,18 @@ class TestEngine:
         async def check(session, uid):
             with pytest.raises(ValueError, match="Evento desconhecido"):
                 await atribuir_xp(session, usuario_id=uid, evento="evento_inexistente")
+        await self._run_with_session(db_url, check)
+
+    async def test_level_up_after_xp(self, db_url):
+        async def check(session, uid):
+            nivel, prox = await calcular_nivel(session, uid)
+            assert nivel.nome == "Iniciante"
+
+            await atribuir_xp(session, usuario_id=uid, evento="curso_concluido", referencia_id=1, descricao="Curso 1")
+            await atribuir_xp(session, usuario_id=uid, evento="curso_concluido", referencia_id=2, descricao="Curso 2")
+            await atribuir_xp(session, usuario_id=uid, evento="curso_concluido", referencia_id=3, descricao="Curso 3")
+
+            nivel, prox = await calcular_nivel(session, uid)
+            assert nivel.nome == "Intermediario"
+            assert nivel.xp_minimo == 500
         await self._run_with_session(db_url, check)
