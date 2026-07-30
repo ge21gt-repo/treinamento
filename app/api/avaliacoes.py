@@ -12,6 +12,7 @@ from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaPartic
 from app.models.curso import Inscricao, Unidade, Modulo, ProgressoUnidade
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.paginacao import apply_search, count_query
+from app.services.gamificacao import atribuir_xp as gamificacao_xp
 from app.services.rbac import Permissoes, has_permission
 from app.schemas.avaliacao import (
     AlternativaCreate,
@@ -517,6 +518,9 @@ async def registrar_resultado(
         tempo_gasto_seg=payload.tempo_gasto_seg,
     )
     db.add(resultado)
+
+    await gamificacao_xp(db, usuario_id=current_user.id, evento="avaliacao_respondida", referencia_id=avaliacao_id)
+
     await db.commit()
     await db.refresh(resultado)
     return resultado

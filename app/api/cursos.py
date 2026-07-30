@@ -40,6 +40,7 @@ from app.schemas.curso import (
 )
 from app.services import progresso as progresso_service
 from app.services import teams as teams_service
+from app.services.gamificacao import atribuir_xp as gamificacao_xp
 from app.services.rbac import Permissoes
 
 router = APIRouter(prefix="/cursos", tags=["Cursos"])
@@ -608,6 +609,9 @@ async def concluir_unidade(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    await gamificacao_xp(db, usuario_id=current_user.id, evento="unidade_concluida", referencia_id=unidade_id)
+
     await db.commit()
     await db.refresh(progresso)
     return progresso

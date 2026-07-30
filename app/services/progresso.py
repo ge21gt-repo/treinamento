@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.curso import Curso, Inscricao, InscricaoTrilha, Modulo, ProgressoUnidade, Unidade
+from app.services.gamificacao import atribuir_xp as gamificacao_xp
 
 
 async def _get_unidade_curso(db: AsyncSession, unidade_id: int) -> tuple[int, int | None]:
@@ -120,9 +121,12 @@ async def atualizar_progresso_curso(
     if inscricao:
         inscricao.progresso_pct = pct
         if pct >= 100:
+            foi_concluido_agora = not inscricao.data_conclusao
             inscricao.status = "concluido"
             if not inscricao.data_conclusao:
                 inscricao.data_conclusao = datetime.now(timezone.utc)
+            if foi_concluido_agora:
+                await gamificacao_xp(db, usuario_id=usuario_id, evento="curso_concluido", referencia_id=curso_id)
         elif inscricao.status == "concluido" and pct < 100:
             inscricao.status = "inscrito"
 
@@ -162,9 +166,12 @@ async def atualizar_progresso_trilha(
     if trilha_insc:
         trilha_insc.progresso_pct = media
         if media >= 100:
+            foi_concluido_agora = not trilha_insc.data_conclusao
             trilha_insc.status = "concluido"
             if not trilha_insc.data_conclusao:
                 trilha_insc.data_conclusao = datetime.now(timezone.utc)
+            if foi_concluido_agora:
+                await gamificacao_xp(db, usuario_id=usuario_id, evento="trilha_concluida", referencia_id=trilha_id)
 
     await db.flush()
     return trilha_insc
