@@ -519,7 +519,7 @@ async def registrar_resultado(
     )
     db.add(resultado)
 
-    await gamificacao_xp(db, usuario_id=current_user.id, evento="avaliacao_respondida", referencia_id=avaliacao_id)
+    await gamificacao_xp(db, usuario_id=current_user.id, evento="avaliacao_respondida", referencia_id=payload.avaliacao_id)
 
     await db.commit()
     await db.refresh(resultado)
