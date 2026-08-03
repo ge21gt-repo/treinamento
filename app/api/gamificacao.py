@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -112,6 +113,7 @@ async def xp_total_usuario(
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])
 async def leaderboard(
     limit: int = Query(10, ge=1, le=100),
+    periodo: str = Query("geral", pattern="^(geral|semanal|mensal)$"),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(get_current_user),
 ):
@@ -126,6 +128,12 @@ async def leaderboard(
         .order_by(func.sum(PontosXP.quantidade).desc())
         .limit(limit)
     )
+
+    if periodo == "semanal":
+        stmt = stmt.where(PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=7))
+    elif periodo == "mensal":
+        stmt = stmt.where(PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=30))
+
     result = await db.execute(stmt)
     rows = result.all()
 

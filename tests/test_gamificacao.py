@@ -78,6 +78,18 @@ class TestXP:
         if board:
             assert "usuario_id" in board[0]
 
+    async def test_leaderboard_aceita_periodos_validos(self, client, admin_user):
+        uid = str(admin_user.id)
+        await client.post("/api/v1/gamificacao/xp", json={"usuario_id": uid, "quantidade": 50, "origem": "teste"})
+        for periodo in ("geral", "semanal", "mensal"):
+            r = await client.get(f"/api/v1/gamificacao/leaderboard?periodo={periodo}")
+            assert r.status_code == status.HTTP_200_OK
+            assert isinstance(r.json(), list)
+
+    async def test_leaderboard_periodo_invalido(self, client):
+        r = await client.get("/api/v1/gamificacao/leaderboard?periodo=invalido")
+        assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
 
 class TestBadges:
     async def test_create_assign_and_get_badges(self, client, admin_user):
