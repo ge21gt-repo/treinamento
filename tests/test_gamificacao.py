@@ -111,7 +111,7 @@ class TestMissoes:
     async def test_create_missao(self, client):
         r = await client.post(
             "/api/v1/gamificacao/missoes",
-            json={"titulo": "Missao Teste", "tipo": "cursos", "xp_recompensa": 500, "criterio": {"cursos": 3}},
+            json={"titulo": "Missao Teste", "tipo": "diaria", "xp_recompensa": 500, "criterio": {"cursos": 3}},
         )
         assert r.status_code == status.HTTP_201_CREATED
         missao_id = r.json()["id"]
@@ -120,10 +120,17 @@ class TestMissoes:
         assert r.status_code == status.HTTP_200_OK
         assert any(m["id"] == missao_id for m in r.json())
 
+    async def test_criar_missao_tipo_invalido(self, client):
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Missao Inválida", "tipo": "mensal", "xp_recompensa": 300, "criterio": {"cursos": 3}},
+        )
+        assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
     async def test_update_missao(self, client):
         r = await client.post(
             "/api/v1/gamificacao/missoes",
-            json={"titulo": "Missao Original", "tipo": "xp", "xp_recompensa": 300, "criterio": {"xp": 1000}},
+            json={"titulo": "Missao Original", "tipo": "semanal", "xp_recompensa": 300, "criterio": {"xp": 1000}},
         )
         missao_id = r.json()["id"]
 
@@ -131,10 +138,20 @@ class TestMissoes:
         assert r.status_code == status.HTTP_200_OK
         assert r.json()["titulo"] == "Missao Atualizada"
 
+    async def test_atualizar_missao_tipo_invalido(self, client):
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Missao Original", "tipo": "especial", "xp_recompensa": 300, "criterio": {"xp": 1000}},
+        )
+        missao_id = r.json()["id"]
+
+        r = await client.patch(f"/api/v1/gamificacao/missoes/{missao_id}", json={"tipo": "mensal"})
+        assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
     async def test_participar_missao(self, client, admin_user):
         r = await client.post(
             "/api/v1/gamificacao/missoes",
-            json={"titulo": "Missao Participar", "tipo": "xp", "xp_recompensa": 300, "criterio": {"xp": 1000}},
+            json={"titulo": "Missao Participar", "tipo": "especial", "xp_recompensa": 300, "criterio": {"xp": 1000}},
         )
         missao_id = r.json()["id"]
 

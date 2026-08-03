@@ -2,7 +2,10 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+
+TIPOS_MISSAO = frozenset({"diaria", "semanal", "especial"})
 
 
 class NivelBase(BaseModel):
@@ -84,6 +87,13 @@ class MissaoBase(BaseModel):
     data_fim: date | None = None
     ativa: bool = True
 
+    @field_validator("tipo")
+    @classmethod
+    def validar_tipo(cls, v: str) -> str:
+        if v not in TIPOS_MISSAO:
+            raise ValueError(f"tipo deve ser um de: {', '.join(sorted(TIPOS_MISSAO))}")
+        return v
+
 
 class MissaoCreate(MissaoBase):
     pass
@@ -98,6 +108,13 @@ class MissaoUpdate(BaseModel):
     data_inicio: date | None = None
     data_fim: date | None = None
     ativa: bool | None = None
+
+    @field_validator("tipo")
+    @classmethod
+    def validar_tipo(cls, v: str | None) -> str | None:
+        if v is not None and v not in TIPOS_MISSAO:
+            raise ValueError(f"tipo deve ser um de: {', '.join(sorted(TIPOS_MISSAO))}")
+        return v
 
 
 class MissaoRead(MissaoBase):
