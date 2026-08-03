@@ -22,6 +22,7 @@ from app.schemas.usuario import (
 from app.services.auth import create_access_token, hash_password, verify_password
 from app.services.credenciamento import criar_solicitacao_credenciamento
 from app.services.email import send_reset_email
+from app.services.gamificacao import atualizar_streak
 
 router = APIRouter(prefix="/auth", tags=["Autenticacao"])
 
@@ -80,6 +81,8 @@ async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depe
         raise HTTPException(status_code=403, detail="Usuario desativado")
 
     user.ultimo_acesso = datetime.now(timezone.utc)
+
+    await atualizar_streak(db, user.id)
     await db.commit()
 
     perfis = [up.perfil.nome for up in user.perfis] if user.perfis else []

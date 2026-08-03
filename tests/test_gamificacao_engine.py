@@ -5,6 +5,8 @@ with shared pools across fixtures.
 """
 
 import uuid
+from datetime import date, timedelta
+from unittest import mock
 
 import pytest
 from sqlalchemy import func, select, text
@@ -12,10 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.models.curso import Curso, Inscricao
-from app.models.gamificacao import Badge, Nivel, PontosXP, Streak, UsuarioBadge
+from app.models.gamificacao import Badge, Missao, Nivel, PontosXP, Streak, UsuarioBadge, UsuarioMissao
 from app.models.usuario import Usuario, UsuarioPerfil
 from app.services.auth import hash_password
-from app.services.gamificacao import calcular_nivel, atribuir_xp
+from app.services.gamificacao import calcular_nivel, atribuir_xp, atualizar_progresso_missoes, atualizar_streak
 
 pytestmark = pytest.mark.db
 
@@ -32,7 +34,7 @@ class TestEngine:
         eng = create_async_engine(db_url)
         maker = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
         async with maker.begin() as session:
-            for tbl in ["lms.pontos_xp", "lms.usuario_badge", "lms.badges", "lms.inscricoes", "lms.cursos", "lms.usuario_perfil", "lms.streaks", "lms.niveis", "lms.usuarios"]:
+            for tbl in ["lms.pontos_xp", "lms.usuario_badge", "lms.badges", "lms.usuario_missao", "lms.missoes", "lms.inscricoes", "lms.cursos", "lms.usuario_perfil", "lms.streaks", "lms.niveis", "lms.usuarios"]:
                 await session.execute(text(f"TRUNCATE {tbl} CASCADE"))
             niveis_exist = await session.scalar(text("SELECT COUNT(*) FROM lms.niveis"))
             if not niveis_exist:
@@ -155,4 +157,178 @@ class TestEngine:
                 select(func.count(UsuarioBadge.badge_id)).where(UsuarioBadge.usuario_id == uid)
             )
             assert badge_qtd2 == 1
+        await self._run_with_session(db_url, check)
+
+    async def test_missao_progresso_automatico(self, db_url):
+        async def check(session, uid):
+            missao = Missao(
+                titulo="Conclua 1 curso",
+                descricao="Ganhe progresso ao concluir cursos",
+                tipo="diaria",
+                xp_recompensa=300,
+                criterio={"criterio_tipo": "cursos_concluidos", "valor": 1},
+                ativa=True,
+            )
+            session.add(missao)
+            await session.flush()
+
+            session.add(UsuarioMissao(usuario_id=uid, missao_id=missao.id))
+            await session.flush()
+
+            curso = Curso(titulo="Curso Missao")
+            session.add(curso)
+            await session.flush()
+            session.add(Inscricao(usuario_id=uid, curso_id=curso.id, status="concluido"))
+            await session.flush()
+
+            concluidas = await atualizar_progresso_missoes(session, uid)
+            assert len(concluidas) == 1
+            assert concluidas[0].status == "concluida"
+
+            xp_recompensa = await session.scalar(
+                select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(
+                    PontosXP.usuario_id == uid, PontosXP.origem == "missao_concluida"
+                )
+            )
+            assert xp_recompensa == 300
+        await self._run_with_session(db_url, check)
+
+    async def test_missao_sem_progresso_nao_conclui(self, db_url):
+        async def check(session, uid):
+            missao = Missao(
+                titulo="Conclua 5 cursos",
+                descricao="Missao ainda nao atingida",
+                tipo="semanal",
+                xp_recompensa=1000,
+                criterio={"criterio_tipo": "cursos_concluidos", "valor": 5},
+                ativa=True,
+            )
+            session.add(missao)
+            await session.flush()
+
+            um = UsuarioMissao(usuario_id=uid, missao_id=missao.id)
+            session.add(um)
+            await session.flush()
+
+            concluidas = await atualizar_progresso_missoes(session, uid)
+            assert concluidas == []
+            assert um.status == "em_andamento"
+
+            xp_recompensa = await session.scalar(
+                select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(
+                    PontosXP.usuario_id == uid, PontosXP.origem == "missao_concluida"
+                )
+            )
+            assert xp_recompensa == 0
+        await self._run_with_session(db_url, check)
+
+    async def test_missao_xp_nao_duplica(self, db_url):
+        async def check(session, uid):
+            missao = Missao(
+                titulo="Conclua 1 curso",
+                tipo="especial",
+                xp_recompensa=500,
+                criterio={"criterio_tipo": "cursos_concluidos", "valor": 1},
+                ativa=True,
+            )
+            session.add(missao)
+            await session.flush()
+
+            session.add(UsuarioMissao(usuario_id=uid, missao_id=missao.id))
+            await session.flush()
+
+            curso = Curso(titulo="Curso Missao Unico")
+            session.add(curso)
+            await session.flush()
+            session.add(Inscricao(usuario_id=uid, curso_id=curso.id, status="concluido"))
+            await session.flush()
+
+            concluidas1 = await atualizar_progresso_missoes(session, uid)
+            assert len(concluidas1) == 1
+
+            concluidas2 = await atualizar_progresso_missoes(session, uid)
+            assert concluidas2 == []
+
+            xp_recompensa = await session.scalar(
+                select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(
+                    PontosXP.usuario_id == uid, PontosXP.origem == "missao_concluida"
+                )
+            )
+            assert xp_recompensa == 500
+        await self._run_with_session(db_url, check)
+
+    async def test_streak_primeiro_acesso(self, db_url):
+        async def check(session, uid):
+            streak = await atualizar_streak(session, uid)
+            assert streak.dias_consecutivos == 1
+            assert streak.maior_streak == 1
+            assert streak.ultimo_acesso_dia == date.today()
+
+            xp_streak = await session.scalar(
+                select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(
+                    PontosXP.usuario_id == uid, PontosXP.origem == "login_streak"
+                )
+            )
+            assert xp_streak == 10
+        await self._run_with_session(db_url, check)
+
+    async def test_streak_idempotente_mesmo_dia(self, db_url):
+        async def check(session, uid):
+            s1 = await atualizar_streak(session, uid)
+            s2 = await atualizar_streak(session, uid)
+            assert s1.dias_consecutivos == 1
+            assert s2.dias_consecutivos == 1
+
+            xp_streak = await session.scalar(
+                select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(
+                    PontosXP.usuario_id == uid, PontosXP.origem == "login_streak"
+                )
+            )
+            assert xp_streak == 10
+        await self._run_with_session(db_url, check)
+
+    async def test_streak_incrementa_no_dia_seguinte(self, db_url):
+        async def check(session, uid):
+            dia1 = date(2026, 1, 1)
+            dia2 = date(2026, 1, 2)
+            with mock.patch("app.services.gamificacao.date") as mock_date:
+                mock_date.today.return_value = dia1
+                await atualizar_streak(session, uid)
+
+                mock_date.today.return_value = dia2
+                await atualizar_streak(session, uid)
+
+            s = await session.scalar(select(Streak).where(Streak.usuario_id == uid))
+            assert s.dias_consecutivos == 2
+            assert s.maior_streak == 2
+
+            xp_streak = await session.scalar(
+                select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(
+                    PontosXP.usuario_id == uid, PontosXP.origem == "login_streak"
+                )
+            )
+            assert xp_streak == 10 + 20
+        await self._run_with_session(db_url, check)
+
+    async def test_streak_reseta_apos_falha(self, db_url):
+        async def check(session, uid):
+            dia1 = date(2026, 1, 1)
+            dia4 = date(2026, 1, 4)
+            with mock.patch("app.services.gamificacao.date") as mock_date:
+                mock_date.today.return_value = dia1
+                await atualizar_streak(session, uid)
+
+                mock_date.today.return_value = dia4
+                await atualizar_streak(session, uid)
+
+            s = await session.scalar(select(Streak).where(Streak.usuario_id == uid))
+            assert s.dias_consecutivos == 1
+            assert s.maior_streak == 1
+
+            xp_streak = await session.scalar(
+                select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(
+                    PontosXP.usuario_id == uid, PontosXP.origem == "login_streak"
+                )
+            )
+            assert xp_streak == 10 + 10
         await self._run_with_session(db_url, check)

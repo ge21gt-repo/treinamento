@@ -1,10 +1,12 @@
 import uuid
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.curso import Curso, Inscricao, InscricaoTrilha, ProgressoUnidade
-from app.models.gamificacao import Badge, Nivel, PontosXP, Streak, UsuarioBadge
+from app.models.gamificacao import Badge, Missao, Nivel, PontosXP, Streak, UsuarioBadge, UsuarioMissao
 
 
 EVENTOS_XP: dict[str, int] = {
@@ -22,15 +24,18 @@ async def atribuir_xp(
     evento: str,
     descricao: str | None = None,
     referencia_id: int | None = None,
+    quantidade: int | None = None,
 ) -> PontosXP | None:
-    if evento == "login_streak":
+    if quantidade is not None:
+        quantidade_xp = quantidade
+    elif evento == "login_streak":
         streak = await db.execute(select(Streak).where(Streak.usuario_id == usuario_id))
         s = streak.scalar_one_or_none()
         days = s.dias_consecutivos if s else 0
-        quantidade = 10 * days
+        quantidade_xp = 10 * days
     else:
-        quantidade = EVENTOS_XP.get(evento)
-        if quantidade is None:
+        quantidade_xp = EVENTOS_XP.get(evento)
+        if quantidade_xp is None:
             raise ValueError(f"Evento desconhecido: {evento}")
 
     if referencia_id is not None:
@@ -44,12 +49,12 @@ async def atribuir_xp(
         if existente.scalar_one_or_none():
             return None
 
-    if quantidade <= 0:
+    if quantidade_xp <= 0:
         return None
 
     pontos = PontosXP(
         usuario_id=usuario_id,
-        quantidade=quantidade,
+        quantidade=quantidade_xp,
         origem=evento,
         referencia_id=referencia_id,
         descricao=descricao,
@@ -59,6 +64,7 @@ async def atribuir_xp(
 
     await calcular_nivel(db, usuario_id)
     await verificar_badges(db, usuario_id)
+    await atualizar_progresso_missoes(db, usuario_id)
 
     return pontos
 
@@ -155,3 +161,83 @@ async def _calcular_progresso_criterio(db: AsyncSession, usuario_id: uuid.UUID, 
             ) or 0
         case _:
             return 0
+
+
+async def atualizar_progresso_missoes(db: AsyncSession, usuario_id: uuid.UUID) -> list[UsuarioMissao]:
+    registros = await db.execute(
+        select(UsuarioMissao).where(
+            UsuarioMissao.usuario_id == usuario_id,
+            UsuarioMissao.status == "em_andamento",
+        )
+    )
+    ums = registros.scalars().all()
+    concluidas: list[UsuarioMissao] = []
+
+    for um in ums:
+        missao = await db.get(Missao, um.missao_id)
+        if not missao or not missao.ativa:
+            continue
+
+        criterio = missao.criterio or {}
+        criterio_tipo = criterio.get("criterio_tipo") or criterio.get("tipo")
+        valor_alvo = criterio.get("valor") or criterio.get("criterio_valor")
+        if criterio_tipo is None or valor_alvo is None or valor_alvo <= 0:
+            continue
+
+        progresso_atual = await _calcular_progresso_criterio(db, usuario_id, criterio_tipo)
+        pct = min(100, round(progresso_atual / valor_alvo * 100, 2))
+        um.progresso_pct = Decimal(str(pct))
+
+        if pct >= 100 and um.status == "em_andamento":
+            um.status = "concluida"
+            um.concluido_em = datetime.now()
+            await db.flush()
+            await atribuir_xp(
+                db,
+                usuario_id=usuario_id,
+                evento="missao_concluida",
+                descricao=f"Missão concluída: {missao.titulo}",
+                referencia_id=missao.id,
+                quantidade=missao.xp_recompensa,
+            )
+            concluidas.append(um)
+
+    if concluidas:
+        await db.flush()
+
+    return concluidas
+
+
+async def atualizar_streak(db: AsyncSession, usuario_id: uuid.UUID) -> Streak:
+    hoje = date.today()
+    ref = hoje.toordinal()
+    result = await db.execute(select(Streak).where(Streak.usuario_id == usuario_id))
+    streak = result.scalar_one_or_none()
+
+    if not streak:
+        streak = Streak(
+            usuario_id=usuario_id,
+            dias_consecutivos=1,
+            maior_streak=1,
+            ultimo_acesso_dia=hoje,
+        )
+        db.add(streak)
+        await db.flush()
+        await atribuir_xp(db, usuario_id=usuario_id, evento="login_streak", referencia_id=ref)
+        return streak
+
+    if streak.ultimo_acesso_dia == hoje:
+        return streak
+
+    if streak.ultimo_acesso_dia == hoje - timedelta(days=1):
+        streak.dias_consecutivos += 1
+    else:
+        streak.dias_consecutivos = 1
+
+    streak.ultimo_acesso_dia = hoje
+    if streak.dias_consecutivos > streak.maior_streak:
+        streak.maior_streak = streak.dias_consecutivos
+
+    await db.flush()
+    await atribuir_xp(db, usuario_id=usuario_id, evento="login_streak", referencia_id=ref)
+    return streak
