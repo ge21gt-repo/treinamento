@@ -124,6 +124,12 @@ class MissaoRead(MissaoBase):
     model_config = {"from_attributes": True}
 
 
+class MissaoComProgressoRead(MissaoRead):
+    usuario_status: str | None = None
+    usuario_progresso_pct: Decimal | None = None
+    usuario_concluido_em: datetime | None = None
+
+
 class UsuarioMissaoCreate(BaseModel):
     usuario_id: uuid.UUID
     missao_id: int

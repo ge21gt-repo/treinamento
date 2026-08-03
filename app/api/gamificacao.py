@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -18,6 +18,7 @@ from app.schemas.gamificacao import (
     HistoricoXPRead,
     LeaderboardEntry,
     MissaoCreate,
+    MissaoComProgressoRead,
     MissaoRead,
     MissaoUpdate,
     NivelCreate,
@@ -306,6 +307,65 @@ async def listar_missoes(
 ):
     result = await db.execute(select(Missao).where(Missao.ativa))
     return result.scalars().all()
+
+
+async def _com_progresso_usuario(db: AsyncSession, usuario_id: uuid.UUID, missao: Missao) -> MissaoComProgressoRead:
+    usr_missao = (
+        await db.execute(select(UsuarioMissao).where(UsuarioMissao.missao_id == missao.id, UsuarioMissao.usuario_id == usuario_id))
+    ).scalar_one_or_none()
+    return MissaoComProgressoRead(
+        **MissaoRead.model_validate(missao).model_dump(),
+        usuario_status=usr_missao.status if usr_missao else None,
+        usuario_progresso_pct=usr_missao.progresso_pct if usr_missao else None,
+        usuario_concluido_em=usr_missao.concluido_em if usr_missao else None,
+    )
+
+
+@router.get("/missoes/ativas", response_model=list[MissaoComProgressoRead])
+async def listar_missoes_ativas(
+    db: AsyncSession = Depends(get_db),
+    usuario: Usuario = Depends(get_current_user),
+):
+    hoje = date.today()
+    missaos = (
+        await db.execute(
+            select(Missao).where(
+                Missao.ativa,
+                (Missao.data_inicio.is_(None)) | (Missao.data_inicio <= hoje),
+                (Missao.data_fim.is_(None)) | (Missao.data_fim >= hoje),
+            )
+        )
+    ).scalars().all()
+    return [await _com_progresso_usuario(db, usuario.id, m) for m in missaos]
+
+
+@router.get("/missoes/usuario/{usuario_id}", response_model=list[MissaoComProgressoRead])
+async def listar_missoes_usuario(
+    usuario_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_LISTAR)),
+):
+    ums = (
+        await db.execute(
+            select(UsuarioMissao)
+            .where(UsuarioMissao.usuario_id == usuario_id)
+            .order_by(UsuarioMissao.criado_em.desc())
+        )
+    ).scalars().all()
+    result = []
+    for um in ums:
+        missao = await db.get(Missao, um.missao_id)
+        if not missao:
+            continue
+        result.append(
+            MissaoComProgressoRead(
+                **MissaoRead.model_validate(missao).model_dump(),
+                usuario_status=um.status,
+                usuario_progresso_pct=um.progresso_pct,
+                usuario_concluido_em=um.concluido_em,
+            )
+        )
+    return result
 
 
 @router.post("/missoes", response_model=MissaoRead, status_code=status.HTTP_201_CREATED)

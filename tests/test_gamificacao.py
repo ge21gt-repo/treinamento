@@ -180,6 +180,41 @@ class TestMissoes:
         assert r.status_code == status.HTTP_200_OK
         assert r.json()["status"] == "concluido"
 
+    async def test_missoes_ativas_retorna_com_status(self, client, admin_user):
+        uid = str(admin_user.id)
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Missao Ativa", "tipo": "diaria", "xp_recompensa": 100, "criterio": {"cursos": 1}},
+        )
+        missao_id = r.json()["id"]
+
+        await client.post("/api/v1/gamificacao/missoes/participar", json={"usuario_id": uid, "missao_id": missao_id})
+
+        r = await client.get("/api/v1/gamificacao/missoes/ativas")
+        assert r.status_code == status.HTTP_200_OK
+        ativas = r.json()
+        assert isinstance(ativas, list)
+        assert any(m["id"] == missao_id and m["usuario_status"] == "em_andamento" for m in ativas)
+
+    async def test_missoes_usuario_lista_com_progresso(self, client, admin_user):
+        uid = str(admin_user.id)
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Missao Usuario", "tipo": "semanal", "xp_recompensa": 200, "criterio": {"xp": 500}},
+        )
+        missao_id = r.json()["id"]
+
+        await client.post("/api/v1/gamificacao/missoes/participar", json={"usuario_id": uid, "missao_id": missao_id})
+
+        r = await client.get(f"/api/v1/gamificacao/missoes/usuario/{uid}")
+        assert r.status_code == status.HTTP_200_OK
+        lista = r.json()
+        assert isinstance(lista, list)
+        assert any(
+            m["id"] == missao_id and m["usuario_status"] == "em_andamento" and "usuario_progresso_pct" in m
+            for m in lista
+        )
+
 
 class TestStreaks:
     async def test_get_streak_inexistente(self, client):
