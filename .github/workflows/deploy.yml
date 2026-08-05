@@ -38,6 +38,7 @@ jobs:
 
       - name: Gera o script de deploy remoto
         run: |
+          SCRIPT_PATH="/tmp/remote-deploy-${ENV_NAME}.sh"
           cat > /tmp/remote-deploy.sh << EOF
           set -e
           SRC_DIR=/opt/treinamento-idesp/app-src-${ENV_NAME}
@@ -51,6 +52,7 @@ jobs:
           docker compose up -d backend-${ENV_NAME}
           EOF
           base64 -w0 /tmp/remote-deploy.sh > /tmp/remote-deploy.b64
+          echo "SCRIPT_PATH=$SCRIPT_PATH" >> "$GITHUB_ENV"
 
       - name: Envia e executa o script via SSM
         run: |
@@ -58,7 +60,9 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids i-03226a7435365244a \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[\"echo '$B64' | base64 -d > /tmp/remote-deploy.sh\", \"bash /tmp/remote-deploy.sh\"]" \
+            --parameters "commands=[\"echo '$B64' | base64 -d > $SCRIPT_PATH\", \"bash $SCRIPT_PATH\"]" \
+            --output-s3-bucket-name ge21gt-treinamento-idesp \
+            --output-s3-key-prefix "_build/ssm-logs/${ENV_NAME}" \
             --query 'Command.CommandId' --output text)
           echo "Command ID: $COMMAND_ID"
           echo "COMMAND_ID=$COMMAND_ID" >> "$GITHUB_ENV"
