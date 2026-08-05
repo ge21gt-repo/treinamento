@@ -9,9 +9,16 @@ from sqlalchemy import text
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-tests-only")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "480")
-os.environ["STORAGE_BACKEND"] = "local"
 
 from app.config import settings
+
+# Testes usam TEST_STORAGE_BACKEND quando definido (ex: s3); padrao local
+if settings.TEST_STORAGE_BACKEND:
+    os.environ["STORAGE_BACKEND"] = settings.TEST_STORAGE_BACKEND
+    settings.STORAGE_BACKEND = settings.TEST_STORAGE_BACKEND
+else:
+    os.environ["STORAGE_BACKEND"] = "local"
+    settings.STORAGE_BACKEND = "local"
 
 # Tests usam TEST_DATABASE_URL se definido, senao DATABASE_URL
 _TEST_DB_URL = settings.TEST_DATABASE_URL or settings.DATABASE_URL
