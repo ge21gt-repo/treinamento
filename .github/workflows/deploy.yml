@@ -1,19 +1,95 @@
-name: Deploy to Fly.io
+name: Deploy Backend (dev/hom)
 
 on:
   push:
-    branches: [main]
+    branches: [development, homologacao]
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    concurrency: deploy-group
     steps:
       - uses: actions/checkout@v4
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Define variaveis do ambiente
+        run: |
+          if [ "${{ github.ref_name }}" == "development" ]; then
+            echo "ENV_NAME=dev" >> "$GITHUB_ENV"
+            echo "HEALTH_URL=https://api-treinamento-dev.ge21gt.cloud/health" >> "$GITHUB_ENV"
+          else
+            echo "ENV_NAME=hom" >> "$GITHUB_ENV"
+            echo "HEALTH_URL=https://api-treinamento-hom.ge21gt.cloud/health" >> "$GITHUB_ENV"
+          fi
 
-      - name: Deploy to Fly.io
-        run: flyctl deploy --remote-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Empacota o source
+        run: tar czf /tmp/treinamento-backend.tar.gz --exclude=.git .
+
+      - name: Configura credenciais AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::111292427077:role/treinamento-idesp-gha-deploy
+          aws-region: us-east-1
+
+      - name: Upload do tarball pro S3
+        run: aws s3 cp /tmp/treinamento-backend.tar.gz "s3://ge21gt-treinamento-idesp/_build/treinamento-backend-${ENV_NAME}.tar.gz"
+
+      - name: Gera o script de deploy remoto
+        run: |
+          cat > /tmp/remote-deploy.sh << EOF
+          set -e
+          SRC_DIR=/opt/treinamento-idesp/app-src-${ENV_NAME}
+          rm -rf "\$SRC_DIR"
+          mkdir -p "\$SRC_DIR"
+          aws s3 cp s3://ge21gt-treinamento-idesp/_build/treinamento-backend-${ENV_NAME}.tar.gz /tmp/deploy-${ENV_NAME}.tar.gz --region us-east-1
+          tar xzf /tmp/deploy-${ENV_NAME}.tar.gz -C "\$SRC_DIR"
+          cd "\$SRC_DIR"
+          docker build -t treinamento-backend:${ENV_NAME} .
+          cd /opt/treinamento-idesp
+          docker compose up -d backend-${ENV_NAME}
+          EOF
+          base64 -w0 /tmp/remote-deploy.sh > /tmp/remote-deploy.b64
+
+      - name: Envia e executa o script via SSM
+        run: |
+          B64=$(cat /tmp/remote-deploy.b64)
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids i-03226a7435365244a \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"echo '$B64' | base64 -d > /tmp/remote-deploy.sh\", \"bash /tmp/remote-deploy.sh\"]" \
+            --query 'Command.CommandId' --output text)
+          echo "Command ID: $COMMAND_ID"
+          echo "COMMAND_ID=$COMMAND_ID" >> "$GITHUB_ENV"
+
+          for i in $(seq 1 40); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id i-03226a7435365244a --query 'Status' --output text 2>/dev/null || echo "Pending")
+            echo "tentativa $i: $STATUS"
+            if [[ "$STATUS" != "InProgress" && "$STATUS" != "Pending" ]]; then break; fi
+            sleep 15
+          done
+
+      - name: Mostra o log do SSM
+        if: always()
+        run: |
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id i-03226a7435365244a --output json
+
+      - name: Confirma que o deploy foi sucesso
+        run: |
+          STATUS=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id i-03226a7435365244a --query 'Status' --output text)
+          if [ "$STATUS" != "Success" ]; then
+            echo "Deploy falhou (status: $STATUS)"
+            exit 1
+          fi
+
+      - name: Valida health check
+        run: |
+          for i in $(seq 1 12); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL")
+            echo "tentativa $i: HTTP $CODE"
+            if [ "$CODE" == "200" ]; then exit 0; fi
+            sleep 5
+          done
+          echo "timeout esperando o backend ficar saudavel"
+          exit 1
