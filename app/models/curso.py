@@ -27,7 +27,7 @@ class TrilhaAprendizagem(Base):
     )
 
     cursos: Mapped[list["Curso"]] = relationship(back_populates="trilha")
-    inscricoes: Mapped[list["InscricaoTrilha"]] = relationship(back_populates="trilha")
+    inscricoes: Mapped[list["InscricaoTrilha"]] = relationship(back_populates="trilha", cascade="all, delete-orphan")
 
 
 class Curso(Base):
@@ -51,7 +51,7 @@ class Curso(Base):
 
     trilha: Mapped["TrilhaAprendizagem | None"] = relationship(back_populates="cursos")
     modulos: Mapped[list["Modulo"]] = relationship(back_populates="curso", cascade="all, delete-orphan")
-    inscricoes: Mapped[list["Inscricao"]] = relationship(back_populates="curso")
+    inscricoes: Mapped[list["Inscricao"]] = relationship(back_populates="curso", cascade="all, delete-orphan")
 
 
 class Modulo(Base):
@@ -84,7 +84,7 @@ class Unidade(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     modulo: Mapped["Modulo"] = relationship(back_populates="unidades")
-    progresso: Mapped[list["ProgressoUnidade"]] = relationship(back_populates="unidade")
+    progresso: Mapped[list["ProgressoUnidade"]] = relationship(back_populates="unidade", cascade="all, delete-orphan")
 
 
 class Inscricao(Base):
@@ -93,7 +93,7 @@ class Inscricao(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
-    curso_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.cursos.id"), nullable=False)
+    curso_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.cursos.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="inscrito")
     progresso_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"))
     data_inscricao: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -109,7 +109,7 @@ class ProgressoUnidade(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
-    unidade_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.unidades.id"), nullable=False)
+    unidade_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.unidades.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="nao_iniciado")
     tempo_gasto: Mapped[int] = mapped_column(Integer, default=0)
     concluido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -152,7 +152,7 @@ class InscricaoTrilha(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
-    trilha_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.trilhas_aprendizagem.id"), nullable=False)
+    trilha_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.trilhas_aprendizagem.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="inscrito")
     progresso_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"))
     data_inscricao: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
