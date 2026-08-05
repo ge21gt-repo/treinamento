@@ -139,8 +139,9 @@ class TestPermissoesAdmin:
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
         from app.models.usuario import Usuario, UsuarioPerfil
         from app.services.auth import hash_password
+        from app.config import settings
 
-        url = "postgresql+asyncpg://postgres:efyqqsTRfI7HoGlKlvXL@database-2.ch9pz6al6hii.us-east-2.rds.amazonaws.com:5432/postgres"
+        url = settings.TEST_DATABASE_URL or settings.DATABASE_URL
         _eng = create_async_engine(url)
         session = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)()
         user = Usuario(
