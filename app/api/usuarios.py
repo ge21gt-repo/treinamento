@@ -45,7 +45,11 @@ async def listar_usuarios(
     query = select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil))
 
     if perfil_nome:
-        query = query.join(UsuarioPerfil).join(Perfil).where(Perfil.nome == perfil_nome)
+        query = (
+            query.join(UsuarioPerfil, Usuario.id == UsuarioPerfil.usuario_id)
+            .join(Perfil)
+            .where(Perfil.nome == perfil_nome)
+        )
 
     query = apply_search(query, [Usuario.nome_completo, Usuario.email], q)
     total = await count_query(db, query)
