@@ -35,6 +35,7 @@ from app.services.rbac import PERFIL_PERMISSOES
 
 TEST_ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 TEST_PARTICIPANTE_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
+TEST_GESTOR_ID = uuid.UUID("00000000-0000-0000-0000-000000000003")
 
 
 @pytest.fixture(scope="session")
@@ -147,6 +148,23 @@ async def participante_user(db_clean):
             session, TEST_PARTICIPANTE_ID, "participante@test.com", "Participante", "participante"
         )
         await _assign_perfil(session, user.id, "participante")
+        await session.commit()
+        yield user
+    finally:
+        await session.close()
+        await _eng.dispose()
+
+
+@pytest_asyncio.fixture
+async def gestor_user(db_clean):
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    _eng = create_async_engine(_TEST_DB_URL)
+    _session_maker = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
+    session = _session_maker()
+    try:
+        user = await _create_user(session, TEST_GESTOR_ID, "gestor@test.com", "Gestor", "gestor")
+        await _assign_perfil(session, user.id, "gestor")
         await session.commit()
         yield user
     finally:
