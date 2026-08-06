@@ -220,6 +220,62 @@ class TestProgressoTrilhaDetalhado:
             assert "cursos" in data
 
 
+class TestProgressoUsuarioCurso:
+    """Feature nova: GET /cursos/{curso_id}/progresso/{usuario_id} — auditoria de progresso por modulo"""
+
+    async def test_gestor_ve_progresso_de_outro_usuario(self, client, gestor_user, participante_user):
+        from app.services.auth import create_access_token
+
+        create_resp = await criar_curso(client, "Curso Progresso Gestor")
+        curso_id = create_resp.json()["id"]
+        mod_resp = await criar_modulo(client, curso_id, "Modulo P")
+        modulo_id = mod_resp.json()["id"]
+        await criar_unidade(client, curso_id, modulo_id, "Unidade P1")
+
+        saved_overrides = dict(app.dependency_overrides)
+        app.dependency_overrides.clear()
+        try:
+            token = create_access_token(data={"sub": str(gestor_user.id), "email": gestor_user.email})
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as gc:
+                gc.headers.update({"Authorization": f"Bearer {token}"})
+                r = await gc.get(f"/api/v1/cursos/{curso_id}/progresso/{participante_user.id}")
+        finally:
+            app.dependency_overrides.update(saved_overrides)
+
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        assert data["curso_id"] == curso_id
+        assert isinstance(data["modulos"], list)
+        if data["modulos"]:
+            assert {"id", "titulo", "total_unidades", "unidades_concluidas", "progresso_pct"} <= set(
+                data["modulos"][0].keys()
+            )
+
+    async def test_participante_nao_pode_ver_progresso_de_outro(self, client, participante_user, admin_user):
+        from app.services.auth import create_access_token
+
+        create_resp = await criar_curso(client, "Curso Progresso Negado")
+        curso_id = create_resp.json()["id"]
+
+        saved_overrides = dict(app.dependency_overrides)
+        app.dependency_overrides.clear()
+        try:
+            token = create_access_token(data={"sub": str(participante_user.id), "email": participante_user.email})
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as pc:
+                pc.headers.update({"Authorization": f"Bearer {token}"})
+                r = await pc.get(f"/api/v1/cursos/{curso_id}/progresso/{admin_user.id}")
+        finally:
+            app.dependency_overrides.update(saved_overrides)
+
+        assert r.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_progresso_usuario_curso_inexistente_404(self, client, participante_user):
+        r = await client.get(f"/api/v1/cursos/99999/progresso/{participante_user.id}")
+        assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
 class TestPermissionsRBAC:
     """Verificacao de permissoes RBAC para inscricao"""
 

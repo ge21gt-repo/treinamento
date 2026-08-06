@@ -748,6 +748,19 @@ async def consumo_curso(
     }
 
 
+@router.get("/{curso_id}/progresso/{usuario_id}")
+async def progresso_usuario_curso(
+    curso_id: int,
+    usuario_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_VER_INSCRICOES)),
+):
+    curso = await db.execute(select(Curso).where(Curso.id == curso_id))
+    if not curso.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Curso nao encontrado")
+    return await progresso_service.progresso_curso_detalhado(db, usuario_id=usuario_id, curso_id=curso_id)
+
+
 @router.post("/aulas/{aula_id}/processar-gravacao", response_model=ProcessarGravacaoResponse)
 async def processar_gravacao_aula(
     aula_id: int,
