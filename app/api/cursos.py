@@ -781,6 +781,32 @@ async def progresso_usuario_curso(
     return await progresso_service.progresso_curso_detalhado(db, usuario_id=usuario_id, curso_id=curso_id)
 
 
+async def _processar_gravacao_lazy(db: AsyncSession, aula: AulaSincrona) -> dict | None:
+    """Dispara a gravacao automaticamente se a aula ja terminou e ainda nao gravou.
+
+    Idempotente: nao faz nada se ja existir gravacao, se nao houver reuniao Teams
+    vinculada, ou se a aula ainda nao terminou. Falhas sao silenciosas (retry
+    natural no proximo acesso).
+    """
+    if aula.gravacao_conteudo_id is not None:
+        return None
+    if not aula.teams_meeting_id:
+        return None
+
+    if aula.data_hora_fim and aula.data_hora_fim > datetime.now(timezone.utc):
+        return None
+
+    resultado = await teams_service.processar_gravacao(
+        meeting_id=aula.teams_meeting_id,
+        titulo_aula=aula.titulo,
+        db_session=db,
+    )
+    if resultado.get("success"):
+        aula.gravacao_conteudo_id = resultado.get("conteudo_id")
+        await db.commit()
+    return resultado
+
+
 @router.post("/aulas/{aula_id}/processar-gravacao", response_model=ProcessarGravacaoResponse)
 async def processar_gravacao_aula(
     aula_id: int,
@@ -847,6 +873,8 @@ async def acessar_aula(
     )
     if not inscrito.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Usuario nao esta inscrito no curso")
+
+    await _processar_gravacao_lazy(db, aula)
 
     presenca = PresencaAula(
         aula_id=aula.id,

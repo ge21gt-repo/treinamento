@@ -1,4 +1,4 @@
-"""Testes US-11 — sessões ao vivo (código de acesso, acesso, presença)"""
+"""Testes US-11 — sessões ao vivo (código de acesso, acesso, presença, gravação)"""
 
 from datetime import datetime, timedelta, timezone
 
@@ -24,6 +24,27 @@ async def criar_aula(client, curso_id, **kwargs):
     payload.update(kwargs)
     r = await client.post(f"/api/v1/cursos/{curso_id}/aulas", json=payload)
     return r
+
+
+async def criar_conteudo(client):
+    curso_id = await criar_curso(client, titulo="Curso Conteudo US11")
+    r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "M", "descricao": "x", "ordem": 0})
+    modulo_id = r.json()["id"]
+    r = await client.post(
+        "/api/v1/cursos/unidades",
+        json={"modulo_id": modulo_id, "titulo": "U", "tipo": "conteudo", "descricao": "x", "ordem": 0},
+    )
+    unidade_id = r.json()["id"]
+    r = await client.post(
+        "/api/v1/conteudos",
+        json={
+            "unidade_id": unidade_id,
+            "tipo_midia": "link",
+            "titulo": "Gravacao",
+            "url_arquivo": "https://example.com/gravacao.mp4",
+        },
+    )
+    return r.json()["id"], curso_id
 
 
 class TestCodigoAcesso:
@@ -121,3 +142,94 @@ class TestPresenca:
         assert r.json()["id"] == presenca_id
         assert r.json()["hora_saida"] is not None
         assert r.json()["tempo_permanencia_seg"] >= 0
+
+
+class TestGravacaoAutomatica:
+    """T-11.4 — gravação automática (disparo lazy ao acessar aula já encerrada)"""
+
+    async def test_acessar_aula_passada_dispara_gravacao(self, client, monkeypatch):
+        conteudo_id, curso_id = await criar_conteudo(client)
+        chamadas = []
+
+        async def fake_processar_gravacao(**kwargs):
+            chamadas.append(kwargs)
+            return {"success": True, "conteudo_id": conteudo_id, "url": "https://s3/gravacao.mp4"}
+
+        monkeypatch.setattr("app.api.cursos.teams_service.processar_gravacao", fake_processar_gravacao)
+
+        r = await criar_aula(
+            client,
+            curso_id,
+            data_hora="2026-07-01T14:00:00Z",
+            teams_meeting_id="meeting-123",
+            link_externo=None,
+        )
+        aula_id = r.json()["id"]
+        assert r.json()["gravacao_conteudo_id"] is None
+        await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+
+        r = await client.post(
+            f"/api/v1/cursos/aulas/{aula_id}/acessar",
+            json={"codigo_acesso": r.json()["codigo_acesso"]},
+        )
+        assert r.status_code == status.HTTP_200_OK
+        assert len(chamadas) == 1
+        assert chamadas[0]["meeting_id"] == "meeting-123"
+
+        r = await client.get(f"/api/v1/cursos/{curso_id}/aulas")
+        aulas = r.json()
+        aula_gravada = next(a for a in aulas if a["id"] == aula_id)
+        assert aula_gravada["gravacao_conteudo_id"] == conteudo_id
+
+    async def test_acessar_aula_futura_nao_dispara_gravacao(self, client, monkeypatch):
+        chamadas = []
+
+        async def fake_processar_gravacao(**kwargs):
+            chamadas.append(kwargs)
+            return {"success": True, "conteudo_id": 9999, "url": "x"}
+
+        monkeypatch.setattr("app.api.cursos.teams_service.processar_gravacao", fake_processar_gravacao)
+
+        curso_id = await criar_curso(client)
+        r = await criar_aula(
+            client,
+            curso_id,
+            data_hora="2026-12-01T14:00:00Z",
+            teams_meeting_id="meeting-futura",
+        )
+        aula_id = r.json()["id"]
+        await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+
+        r = await client.post(
+            f"/api/v1/cursos/aulas/{aula_id}/acessar",
+            json={"codigo_acesso": r.json()["codigo_acesso"]},
+        )
+        assert r.status_code == status.HTTP_200_OK
+        assert chamadas == []
+
+    async def test_gravacao_ja_existente_nao_redispare(self, client, monkeypatch):
+        conteudo_id, curso_id = await criar_conteudo(client)
+        chamadas = []
+
+        async def fake_processar_gravacao(**kwargs):
+            chamadas.append(kwargs)
+            return {"success": True, "conteudo_id": 8888, "url": "x"}
+
+        monkeypatch.setattr("app.api.cursos.teams_service.processar_gravacao", fake_processar_gravacao)
+
+        r = await criar_aula(
+            client,
+            curso_id,
+            data_hora="2026-07-01T14:00:00Z",
+            teams_meeting_id="meeting-456",
+            gravacao_conteudo_id=conteudo_id,
+        )
+        aula_id = r.json()["id"]
+        await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+
+        r = await client.post(
+            f"/api/v1/cursos/aulas/{aula_id}/acessar",
+            json={"codigo_acesso": r.json()["codigo_acesso"]},
+        )
+        assert r.status_code == status.HTTP_200_OK
+        assert chamadas == []
