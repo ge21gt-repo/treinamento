@@ -248,39 +248,14 @@ class ResultadoFeedbackQuestao(BaseModel):
     tipo: str
     pontuacao: Decimal = Decimal("1.00")
     pontuacao_obtida: Decimal = Decimal("0")
+    resposta_texto: str | None = None
+    pontuacao_atribuida: Decimal | None = None
     alternativas: list[ResultadoFeedbackAlternativa] = []
     explicacao: str | None = None
 
-
-class ResultadoFeedbackRead(BaseModel):
-    resultado_id: int
-    avaliacao_id: int
-    nota: Decimal
-    aprovado: bool
-    tentativa_num: int
-    tempo_gasto_seg: int | None = None
-    realizado_em: datetime
-    questoes: list[ResultadoFeedbackQuestao] = []
-
-
-class ResultadoFeedbackAlternativa(BaseModel):
-    id: int
-    texto: str
-    correta: bool
-    escolhida: bool
-    ordem: int = 0
-
-    model_config = {"from_attributes": True}
-
-
-class ResultadoFeedbackQuestao(BaseModel):
-    id: int
-    enunciado: str
-    tipo: str
-    pontuacao: Decimal = Decimal("1.00")
-    pontuacao_obtida: Decimal = Decimal("0")
-    alternativas: list[ResultadoFeedbackAlternativa] = []
-    explicacao: str | None = None
+    @field_serializer("pontuacao", "pontuacao_obtida", "pontuacao_atribuida")
+    def _serializar_pontos(self, v: Decimal | None) -> float | None:
+        return float(v) if v is not None else None
 
 
 class ResultadoFeedbackRead(BaseModel):

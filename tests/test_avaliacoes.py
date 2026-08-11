@@ -414,3 +414,85 @@ class TestFeedbackResultados:
         assert stats["total_tentativas"] >= 1
         assert stats["total_aprovados"] >= 1
         assert stats["taxa_aprovacao"] > 0
+
+
+class TestFeedbackDissertativa:
+    async def test_feedback_dissertativa_inclui_resposta_e_nota(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Diss", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod Diss", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid Diss", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval Diss", "tipo": "prova", "nota_minima": 50})
+        av_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Disserte", "tipo": "dissertativa", "pontuacao": 10}
+        )
+        q_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+
+        r = await client.post(
+            f"/api/v1/avaliacoes/{av_id}/submeter",
+            json={"respostas": [{"questao_id": q_id, "resposta_texto": "Minha resposta dissertativa"}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.get(f"/api/v1/avaliacoes/{av_id}/correcoes-pendentes")
+        assert r.status_code == status.HTTP_200_OK
+        pendentes = r.json()
+        assert len(pendentes) >= 1
+        resp_id = pendentes[0]["resposta_id"]
+
+        r = await client.patch(f"/api/v1/avaliacoes/respostas/{resp_id}/corrigir", json={"pontuacao_atribuida": 8})
+        assert r.status_code == status.HTTP_200_OK
+
+        r = await client.get(f"/api/v1/avaliacoes/{av_id}/resultado/1")
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        questao = data["questoes"][0]
+        assert questao["tipo"] == "dissertativa"
+        assert questao["resposta_texto"] == "Minha resposta dissertativa"
+        assert questao["pontuacao_atribuida"] == 8.0
+        assert questao["pontuacao_obtida"] == 8.0
+
+    async def test_feedback_dissertativa_sem_correcao(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Diss2", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod Diss2", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid Diss2", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval Diss2", "tipo": "prova"})
+        av_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Disserte", "tipo": "dissertativa", "pontuacao": 10}
+        )
+        q_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+
+        r = await client.post(
+            f"/api/v1/avaliacoes/{av_id}/submeter",
+            json={"respostas": [{"questao_id": q_id, "resposta_texto": "Sem correcao ainda"}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.get(f"/api/v1/avaliacoes/{av_id}/resultado/1")
+        assert r.status_code == status.HTTP_200_OK
+        questao = r.json()["questoes"][0]
+        assert questao["resposta_texto"] == "Sem correcao ainda"
+        assert questao["pontuacao_atribuida"] is None
+        assert questao["pontuacao_obtida"] == 0.0
+
+
+class TestCORS:
+    async def test_erro_500_inclui_headers_cors(self, client):
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/api/v1/avaliacoes",
+                json={"titulo": "Forca-500", "tipo": "prova", "unidade_id": 999999999},
+                headers={"Origin": "http://localhost:3000"},
+            )
+        assert r.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"

@@ -590,6 +590,9 @@ async def obter_resultado_com_feedback(
             if escolhida and a.correta:
                 pontuacao_obtida += q.pontuacao
 
+        if q.tipo == "dissertativa" and resp is not None and resp.pontuacao_atribuida is not None:
+            pontuacao_obtida = resp.pontuacao_atribuida
+
         from app.schemas.avaliacao import ResultadoFeedbackQuestao
 
         questoes_read.append(
@@ -599,6 +602,8 @@ async def obter_resultado_com_feedback(
                 tipo=q.tipo,
                 pontuacao=q.pontuacao,
                 pontuacao_obtida=pontuacao_obtida,
+                resposta_texto=resp.resposta_texto if resp is not None else None,
+                pontuacao_atribuida=resp.pontuacao_atribuida if resp is not None else None,
                 alternativas=alternativas_read,
                 explicacao=q.explicacao,
             )
