@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.api.rate_limit import limiter
 from app.config import settings
 from app.database import get_db
+from app.models.log import LogAcesso
 from app.models.token_reset import TokenResetSenha
 from app.models.usuario import Usuario, UsuarioPerfil
 from app.schemas.usuario import (
@@ -25,6 +26,18 @@ from app.services.email import send_reset_email
 from app.services.gamificacao import atualizar_streak
 
 router = APIRouter(prefix="/auth", tags=["Autenticacao"])
+
+
+def _detectar_dispositivo(user_agent: str) -> str | None:
+    """Identifica o tipo de dispositivo a partir do user-agent do navegador."""
+    ua = user_agent.lower()
+    if "mobile" in ua or "android" in ua or "iphone" in ua or "ipad" in ua:
+        return "mobile"
+    if "tablet" in ua or "ipad" in ua:
+        return "tablet"
+    if not ua:
+        return None
+    return "desktop"
 
 
 async def check_unique_fields(db: AsyncSession, email: str, cpf: str | None, telefone: str | None):
@@ -83,6 +96,18 @@ async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depe
     user.ultimo_acesso = datetime.now(timezone.utc)
 
     await atualizar_streak(db, user.id)
+
+    user_agent = request.headers.get("user-agent", "")
+    db.add(
+        LogAcesso(
+            usuario_id=user.id,
+            acao="login",
+            ip_address=request.client.host if request.client else None,
+            user_agent=user_agent[:1000] or None,
+            dispositivo=_detectar_dispositivo(user_agent),
+        )
+    )
+
     await db.commit()
 
     perfis = [up.perfil.nome for up in user.perfis] if user.perfis else []
