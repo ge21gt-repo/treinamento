@@ -950,12 +950,46 @@ async def sair_aula(
     return presenca
 
 
+async def _fechar_presencas_lazy(db: AsyncSession, aula: AulaSincrona) -> None:
+    """Fecha automaticamente presencas abertas de uma aula ja encerrada.
+
+    Quando a aula ja terminou (data_hora_fim no passado), presencas sem
+    hora_saida sao fechadas com hora_saida = data_hora_fim e tempo de
+    permanencia calculado. Idempotente: presencas ja fechadas nao sao
+    alteradas. Lazy: dispara apenas ao consultar/relatar (sem cron).
+    """
+    if not aula.data_hora_fim or aula.data_hora_fim > datetime.now(timezone.utc):
+        return
+
+    result = await db.execute(
+        select(PresencaAula).where(
+            PresencaAula.aula_id == aula.id,
+            PresencaAula.hora_saida.is_(None),
+        )
+    )
+    presencas = result.scalars().all()
+    for presenca in presencas:
+        presenca.hora_saida = aula.data_hora_fim
+        presenca.tempo_permanencia_seg = max(
+            0, int((aula.data_hora_fim - presenca.hora_entrada).total_seconds())
+        )
+    if presencas:
+        await db.commit()
+
+
 @router.get("/aulas/{aula_id}/presencas", response_model=list[PresencaAulaRead])
 async def listar_presencas_aula(
     aula_id: int,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.AULA_VER_PRESENCA)),
 ):
+    result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
+    aula = result.scalar_one_or_none()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    await _fechar_presencas_lazy(db, aula)
+
     result = await db.execute(
         select(PresencaAula).where(PresencaAula.aula_id == aula_id).order_by(PresencaAula.hora_entrada)
     )
