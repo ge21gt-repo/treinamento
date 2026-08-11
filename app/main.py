@@ -3,8 +3,9 @@ import logging.config
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
@@ -152,6 +153,26 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Total-Count"],
 )
+
+
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled exception in %s %s: %s", request.method, request.url.path, exc)
+    headers = {}
+    origin = request.headers.get("origin")
+    if settings.CORS_ORIGINS and origin in settings.CORS_ORIGINS:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Access-Control-Allow-Methods"] = "*"
+        headers["Access-Control-Allow-Headers"] = "*"
+        headers["Access-Control-Expose-Headers"] = "X-Total-Count"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Erro interno do servidor"},
+        headers=headers,
+    )
+
+
+app.add_exception_handler(Exception, _unhandled_exception_handler)
 
 
 # Request logging middleware (raw ASGI, no BaseHTTPMiddleware)
