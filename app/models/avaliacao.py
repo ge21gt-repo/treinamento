@@ -21,7 +21,6 @@ class Avaliacao(Base):
     nota_minima: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("60.00"))
     tentativas_max: Mapped[int] = mapped_column(Integer, default=3)
     tempo_limite_min: Mapped[int | None] = mapped_column(Integer)
-    peso: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("1.00"))
     ativa: Mapped[bool] = mapped_column(Boolean, default=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -70,6 +69,9 @@ class RespostaParticipante(Base):
     alternativa_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("lms.alternativas.id"))
     resposta_texto: Mapped[str | None] = mapped_column(Text)
     correta: Mapped[bool | None] = mapped_column(Boolean)
+    pontuacao_atribuida: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    corrigida_por: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"))
+    corrigida_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     tentativa_num: Mapped[int] = mapped_column(Integer, default=1)
     respondido_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

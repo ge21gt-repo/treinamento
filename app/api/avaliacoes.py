@@ -22,6 +22,8 @@ from app.schemas.avaliacao import (
     AvaliacaoRead,
     AvaliacaoResponderRead,
     AvaliacaoUpdate,
+    CorrecaoPendenteRead,
+    CorrigirRespostaRequest,
     EstatisticasAvaliacaoRead,
     QuestaoCreate,
     QuestaoRead,
@@ -414,7 +416,14 @@ async def submeter_avaliacao(
 
     from app.services.avaliacao import calcular_nota
 
-    nota, aprovado = await calcular_nota(db, avaliacao, questoes_ids, respostas_alternativas)
+    nota, aprovado = await calcular_nota(
+        db,
+        avaliacao,
+        questoes_ids,
+        respostas_alternativas,
+        usuario_id=current_user.id,
+        tentativa_num=tentativa_num,
+    )
 
     tempo_gasto = None
     if payload.iniciado_em:
@@ -581,6 +590,9 @@ async def obter_resultado_com_feedback(
             if escolhida and a.correta:
                 pontuacao_obtida += q.pontuacao
 
+        if q.tipo == "dissertativa" and resp is not None and resp.pontuacao_atribuida is not None:
+            pontuacao_obtida = resp.pontuacao_atribuida
+
         from app.schemas.avaliacao import ResultadoFeedbackQuestao
 
         questoes_read.append(
@@ -590,6 +602,8 @@ async def obter_resultado_com_feedback(
                 tipo=q.tipo,
                 pontuacao=q.pontuacao,
                 pontuacao_obtida=pontuacao_obtida,
+                resposta_texto=resp.resposta_texto if resp is not None else None,
+                pontuacao_atribuida=resp.pontuacao_atribuida if resp is not None else None,
                 alternativas=alternativas_read,
                 explicacao=q.explicacao,
             )
@@ -650,6 +664,134 @@ async def estatisticas_avaliacao(
         media_nota=round(media, 2),
         taxa_aprovacao=round(taxa, 2),
     )
+
+
+# --- Correção manual de dissertativas ---
+
+
+@router.get("/{avaliacao_id}/correcoes-pendentes", response_model=list[CorrecaoPendenteRead])
+async def listar_correcoes_pendentes(
+    avaliacao_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_AVALIAR)),
+):
+    avaliacao = await db.get(Avaliacao, avaliacao_id)
+    if not avaliacao:
+        raise HTTPException(status_code=404, detail="Avaliacao nao encontrada")
+
+    questoes = (
+        await db.execute(select(Questao).where(Questao.avaliacao_id == avaliacao_id))
+    ).scalars().all()
+    dissertativas = {q.id: q for q in questoes if q.tipo == "dissertativa"}
+    if not dissertativas:
+        return []
+
+    respostas = (
+        await db.execute(
+            select(RespostaParticipante)
+            .where(
+                RespostaParticipante.questao_id.in_(dissertativas.keys()),
+                RespostaParticipante.pontuacao_atribuida.is_(None),
+            )
+            .order_by(RespostaParticipante.respondido_em.desc())
+        )
+    ).scalars().all()
+
+    usuarios_ids = {r.usuario_id for r in respostas}
+    usuarios = {}
+    if usuarios_ids:
+        rows = await db.execute(select(Usuario).where(Usuario.id.in_(usuarios_ids)))
+        usuarios = {u.id: u.nome_completo for u in rows.scalars().all()}
+
+    return [
+        CorrecaoPendenteRead(
+            resposta_id=r.id,
+            usuario_id=r.usuario_id,
+            usuario_nome=usuarios.get(r.usuario_id),
+            questao_id=r.questao_id,
+            enunciado=dissertativas[r.questao_id].enunciado,
+            resposta_texto=r.resposta_texto,
+            pontuacao=dissertativas[r.questao_id].pontuacao,
+            tentativa_num=r.tentativa_num,
+            respondido_em=r.respondido_em,
+        )
+        for r in respostas
+    ]
+
+
+@router.patch("/respostas/{resposta_id}/corrigir", response_model=RespostaParticipanteRead)
+async def corrigir_resposta_dissertativa(
+    resposta_id: int,
+    payload: CorrigirRespostaRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_AVALIAR)),
+):
+    resposta = await db.get(RespostaParticipante, resposta_id)
+    if not resposta:
+        raise HTTPException(status_code=404, detail="Resposta nao encontrada")
+
+    questao = await db.get(Questao, resposta.questao_id)
+    if not questao or questao.tipo != "dissertativa":
+        raise HTTPException(status_code=400, detail="Correcao manual so e permitida para questoes dissertativas")
+
+    if payload.pontuacao_atribuida < 0 or payload.pontuacao_atribuida > questao.pontuacao:
+        raise HTTPException(
+            status_code=400,
+            detail=f"pontuacao_atribuida deve estar entre 0 e {questao.pontuacao}",
+        )
+
+    resposta.pontuacao_atribuida = payload.pontuacao_atribuida
+    resposta.correta = payload.pontuacao_atribuida > 0
+    resposta.corrigida_por = current_user.id
+    resposta.corrigida_em = datetime.now(timezone.utc)
+
+    avaliacao = await db.get(Avaliacao, questao.avaliacao_id)
+    resultado = (
+        await db.execute(
+            select(ResultadoAvaliacao).where(
+                ResultadoAvaliacao.avaliacao_id == questao.avaliacao_id,
+                ResultadoAvaliacao.usuario_id == resposta.usuario_id,
+                ResultadoAvaliacao.tentativa_num == resposta.tentativa_num,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if resultado is not None:
+        from app.services.avaliacao import calcular_nota
+
+        questoes_db = (
+            await db.execute(select(Questao).where(Questao.avaliacao_id == questao.avaliacao_id))
+        ).scalars().all()
+        questoes_ids = {q.id for q in questoes_db}
+
+        respostas_usuario = (
+            await db.execute(
+                select(RespostaParticipante).where(
+                    RespostaParticipante.usuario_id == resposta.usuario_id,
+                    RespostaParticipante.tentativa_num == resposta.tentativa_num,
+                )
+            )
+        ).scalars().all()
+
+        respostas_alternativas = {}
+        for r in respostas_usuario:
+            if r.alternativa_id is not None:
+                respostas_alternativas[r.questao_id] = r.alternativa_id
+
+        nota, aprovado = await calcular_nota(
+            db,
+            avaliacao,
+            questoes_ids,
+            respostas_alternativas,
+            usuario_id=resposta.usuario_id,
+            tentativa_num=resposta.tentativa_num,
+        )
+        resultado.nota = nota
+        resultado.aprovado = aprovado
+
+    await db.commit()
+    await db.refresh(resposta)
+    return resposta
 
 
 @router.get("/resultados/{usuario_id}", response_model=list[ResultadoAvaliacaoRead])

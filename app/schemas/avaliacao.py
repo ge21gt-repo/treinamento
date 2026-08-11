@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_serializer, field_validator
 
 TIPOS_QUESTAO = {"multipla_escolha", "verdadeiro_falso", "dissertativa"}
 
@@ -15,7 +15,6 @@ class AvaliacaoBase(BaseModel):
     nota_minima: Decimal = Decimal("60.00")
     tentativas_max: int = 3
     tempo_limite_min: int | None = None
-    peso: Decimal = Decimal("1.00")
     ativa: bool = True
 
 
@@ -30,7 +29,6 @@ class AvaliacaoUpdate(BaseModel):
     nota_minima: Decimal | None = None
     tentativas_max: int | None = None
     tempo_limite_min: int | None = None
-    peso: Decimal | None = None
     ativa: bool | None = None
 
 
@@ -173,9 +171,34 @@ class RespostaParticipanteCreate(RespostaParticipanteBase):
 class RespostaParticipanteRead(RespostaParticipanteBase):
     id: int
     correta: bool | None = None
+    pontuacao_atribuida: Decimal | None = None
+    corrigida_por: uuid.UUID | None = None
+    corrigida_em: datetime | None = None
     respondido_em: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("pontuacao_atribuida")
+    def _serializar_pontuacao(self, v: Decimal | None) -> float | None:
+        return float(v) if v is not None else None
+
+
+class CorrecaoPendenteRead(BaseModel):
+    resposta_id: int
+    usuario_id: uuid.UUID
+    usuario_nome: str | None = None
+    questao_id: int
+    enunciado: str
+    resposta_texto: str | None = None
+    pontuacao: Decimal
+    tentativa_num: int
+    respondido_em: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CorrigirRespostaRequest(BaseModel):
+    pontuacao_atribuida: Decimal
 
 
 class ResultadoAvaliacaoBase(BaseModel):
@@ -196,6 +219,10 @@ class ResultadoAvaliacaoRead(ResultadoAvaliacaoBase):
     realizado_em: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("nota")
+    def _serializar_nota(self, v: Decimal) -> float:
+        return float(v)
 
 
 class EstatisticasAvaliacaoRead(BaseModel):
@@ -221,39 +248,14 @@ class ResultadoFeedbackQuestao(BaseModel):
     tipo: str
     pontuacao: Decimal = Decimal("1.00")
     pontuacao_obtida: Decimal = Decimal("0")
+    resposta_texto: str | None = None
+    pontuacao_atribuida: Decimal | None = None
     alternativas: list[ResultadoFeedbackAlternativa] = []
     explicacao: str | None = None
 
-
-class ResultadoFeedbackRead(BaseModel):
-    resultado_id: int
-    avaliacao_id: int
-    nota: Decimal
-    aprovado: bool
-    tentativa_num: int
-    tempo_gasto_seg: int | None = None
-    realizado_em: datetime
-    questoes: list[ResultadoFeedbackQuestao] = []
-
-
-class ResultadoFeedbackAlternativa(BaseModel):
-    id: int
-    texto: str
-    correta: bool
-    escolhida: bool
-    ordem: int = 0
-
-    model_config = {"from_attributes": True}
-
-
-class ResultadoFeedbackQuestao(BaseModel):
-    id: int
-    enunciado: str
-    tipo: str
-    pontuacao: Decimal = Decimal("1.00")
-    pontuacao_obtida: Decimal = Decimal("0")
-    alternativas: list[ResultadoFeedbackAlternativa] = []
-    explicacao: str | None = None
+    @field_serializer("pontuacao", "pontuacao_obtida", "pontuacao_atribuida")
+    def _serializar_pontos(self, v: Decimal | None) -> float | None:
+        return float(v) if v is not None else None
 
 
 class ResultadoFeedbackRead(BaseModel):
