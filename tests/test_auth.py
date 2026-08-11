@@ -1,8 +1,10 @@
 """Testes reais de autenticação — usam PostgreSQL e HTTP"""
 
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select, text
 
 from app.main import app
+from app.models.log import LogAcesso
 from app.services.auth import create_access_token, decode_token
 
 
@@ -122,6 +124,69 @@ class TestRegistroComPerfil:
                 },
             )
         assert r.status_code == 400
+
+
+class TestLogAcesso:
+    """Issue #44 — login deve gravar LogAcesso para popular as telas de log/acessos"""
+
+    async def _buscar_logs(self):
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        from app.config import settings
+
+        url = settings.TEST_DATABASE_URL or settings.DATABASE_URL
+        _eng = create_async_engine(url)
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        _maker = async_sessionmaker(_eng, class_=AsyncSession, expire_on_commit=False)
+        session = _maker()
+        try:
+            result = await session.execute(select(LogAcesso).order_by(LogAcesso.criado_em.desc()))
+            return result.scalars().all()
+        finally:
+            await session.close()
+            await _eng.dispose()
+
+    async def test_login_grava_log_de_acesso(self, db_clean, admin_user):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/api/v1/auth/login",
+                json={"email": "admin@test.com", "senha": "test123"},
+            )
+        assert r.status_code == 200
+
+        logs = await self._buscar_logs()
+        assert len(logs) == 1
+        assert logs[0].usuario_id == admin_user.id
+        assert logs[0].acao == "login"
+
+    async def test_login_falho_nao_grava_log(self, db_clean, admin_user):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.post(
+                "/api/v1/auth/login",
+                json={"email": "admin@test.com", "senha": "senha_errada"},
+            )
+        assert r.status_code == 401
+
+        logs = await self._buscar_logs()
+        assert len(logs) == 0
+
+    async def test_login_grava_ip_e_dispositivo(self, db_clean, admin_user):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            ac.headers.update({"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0"})
+            r = await ac.post(
+                "/api/v1/auth/login",
+                json={"email": "admin@test.com", "senha": "test123"},
+            )
+        assert r.status_code == 200
+
+        logs = await self._buscar_logs()
+        assert len(logs) == 1
+        assert logs[0].ip_address is not None
+        assert logs[0].dispositivo == "desktop"
 
 
 class TestTokenJWT:
