@@ -166,3 +166,31 @@ class TestConsultaAdminPresencas:
         assert r.status_code == status.HTTP_200_OK
         data = r.json()
         assert "itens" in data and "resumo" in data
+
+
+class TestRastreamentoFluxo:
+    async def test_entrar_sair_calcula_tempo_permanencia(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Fluxo", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post(
+            f"/api/v1/cursos/{curso_id}/aulas",
+            json={
+                "curso_id": curso_id,
+                "titulo": "Aula Fluxo",
+                "descricao": "x",
+                "data_hora": "2099-01-01T14:00:00Z",
+            },
+        )
+        aula_id = r.json()["id"]
+
+        r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/entrar")
+        assert r.status_code == status.HTTP_201_CREATED
+        entrada = r.json()
+        assert entrada["hora_entrada"] is not None
+        assert entrada["hora_saida"] is None
+
+        r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/sair")
+        assert r.status_code == status.HTTP_200_OK
+        saida = r.json()
+        assert saida["hora_saida"] is not None
+        assert saida["tempo_permanencia_seg"] >= 0
