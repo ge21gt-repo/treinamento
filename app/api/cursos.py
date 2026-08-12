@@ -530,7 +530,7 @@ async def inscrever(
             Inscricao.curso_id == payload.curso_id,
         )
     )
-    if existente.scalar_one_or_none():
+    if existente.scalars().first():
         raise HTTPException(status_code=409, detail="Usuario ja inscrito neste curso")
 
     if curso.pre_requisito_curso_id:
@@ -541,7 +541,7 @@ async def inscrever(
                 Inscricao.status == "concluido",
             )
         )
-        if not prereq.scalar_one_or_none():
+        if not prereq.scalars().first():
             raise HTTPException(status_code=403, detail="Pre-requisito nao concluido")
 
     inscricao = Inscricao(usuario_id=usuario_id, curso_id=payload.curso_id)
