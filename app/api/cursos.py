@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
@@ -9,11 +10,13 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.conteudo import Conteudo, EntregaAtividade
-from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemCurso, Modulo, ProgressoUnidade, Unidade
+from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemCurso, Modulo, PresencaAula, ProgressoUnidade, Unidade
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
 from app.services.storage import resolve_file_url
 from app.schemas.curso import (
+    AcessarAulaRequest,
+    AcessarAulaResponse,
     AulaSincronaCreate,
     AulaSincronaRead,
     AulaSincronaUpdate,
@@ -28,6 +31,7 @@ from app.schemas.curso import (
     ModuloCreate,
     ModuloRead,
     ModuloUpdate,
+    PresencaAulaRead,
     PresencaRegistroRead,
     ProcessarGravacaoResponse,
     ProgressoUnidadeCreate,
@@ -44,6 +48,14 @@ from app.services.gamificacao import atribuir_xp as gamificacao_xp
 from app.services.rbac import Permissoes
 
 router = APIRouter(prefix="/cursos", tags=["Cursos"])
+
+
+def _gerar_codigo_acesso() -> str:
+    import secrets
+    import string
+
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
 # --- Cursos ---
@@ -335,6 +347,10 @@ async def criar_aula(
     current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_AULA_CRIAR)),
 ):
     data = payload.model_dump(exclude={"criar_reuniao_teams"})
+    if not data.get("codigo_acesso"):
+        data["codigo_acesso"] = _gerar_codigo_acesso()
+    if not data.get("data_hora_fim") and data.get("duracao_minutos"):
+        data["data_hora_fim"] = data["data_hora"] + timedelta(minutes=data["duracao_minutos"])
     aula = AulaSincrona(**data, criado_por=current_user.id)
     if payload.criar_reuniao_teams:
         reuniao = await teams_service.criar_reuniao(
@@ -378,7 +394,11 @@ async def atualizar_aula(
     aula = result.scalar_one_or_none()
     if not aula:
         raise HTTPException(status_code=404, detail="Aula nao encontrada")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    if "duracao_minutos" in data and "data_hora_fim" not in data:
+        inicio = data.get("data_hora") or aula.data_hora
+        data["data_hora_fim"] = inicio + timedelta(minutes=data["duracao_minutos"])
+    for field, value in data.items():
         setattr(aula, field, value)
     await db.commit()
     await db.refresh(aula)
@@ -530,7 +550,7 @@ async def inscrever(
             Inscricao.curso_id == payload.curso_id,
         )
     )
-    if existente.scalar_one_or_none():
+    if existente.scalars().first():
         raise HTTPException(status_code=409, detail="Usuario ja inscrito neste curso")
 
     if curso.pre_requisito_curso_id:
@@ -541,7 +561,7 @@ async def inscrever(
                 Inscricao.status == "concluido",
             )
         )
-        if not prereq.scalar_one_or_none():
+        if not prereq.scalars().first():
             raise HTTPException(status_code=403, detail="Pre-requisito nao concluido")
 
     inscricao = Inscricao(usuario_id=usuario_id, curso_id=payload.curso_id)
@@ -761,6 +781,32 @@ async def progresso_usuario_curso(
     return await progresso_service.progresso_curso_detalhado(db, usuario_id=usuario_id, curso_id=curso_id)
 
 
+async def _processar_gravacao_lazy(db: AsyncSession, aula: AulaSincrona) -> dict | None:
+    """Dispara a gravacao automaticamente se a aula ja terminou e ainda nao gravou.
+
+    Idempotente: nao faz nada se ja existir gravacao, se nao houver reuniao Teams
+    vinculada, ou se a aula ainda nao terminou. Falhas sao silenciosas (retry
+    natural no proximo acesso).
+    """
+    if aula.gravacao_conteudo_id is not None:
+        return None
+    if not aula.teams_meeting_id:
+        return None
+
+    if aula.data_hora_fim and aula.data_hora_fim > datetime.now(timezone.utc):
+        return None
+
+    resultado = await teams_service.processar_gravacao(
+        meeting_id=aula.teams_meeting_id,
+        titulo_aula=aula.titulo,
+        db_session=db,
+    )
+    if resultado.get("success"):
+        aula.gravacao_conteudo_id = resultado.get("conteudo_id")
+        await db.commit()
+    return resultado
+
+
 @router.post("/aulas/{aula_id}/processar-gravacao", response_model=ProcessarGravacaoResponse)
 async def processar_gravacao_aula(
     aula_id: int,
@@ -804,3 +850,113 @@ async def listar_presenca_aula(
         meeting_id=aula.teams_meeting_id,
         aula_id=aula.id,
     )
+
+
+@router.post("/aulas/{aula_id}/acessar", response_model=AcessarAulaResponse)
+async def acessar_aula(
+    aula_id: int,
+    payload: AcessarAulaRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
+    aula = result.scalar_one_or_none()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    if aula.codigo_acesso and payload.codigo_acesso != aula.codigo_acesso:
+        raise HTTPException(status_code=403, detail="Codigo de acesso invalido")
+
+    inscrito = await db.execute(
+        select(Inscricao).where(Inscricao.curso_id == aula.curso_id, Inscricao.usuario_id == current_user.id)
+    )
+    if not inscrito.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Usuario nao esta inscrito no curso")
+
+    await _processar_gravacao_lazy(db, aula)
+
+    presenca = PresencaAula(
+        aula_id=aula.id,
+        usuario_id=current_user.id,
+        hora_entrada=datetime.now(timezone.utc),
+        ip_acesso=request.client.host if request.client else None,
+    )
+    db.add(presenca)
+    await db.commit()
+
+    return AcessarAulaResponse(
+        aula_id=aula.id,
+        titulo=aula.titulo,
+        link_externo=aula.link_externo,
+        data_hora=aula.data_hora,
+        data_hora_fim=aula.data_hora_fim,
+    )
+
+
+@router.post("/aulas/{aula_id}/entrar", response_model=PresencaAulaRead, status_code=status.HTTP_201_CREATED)
+async def entrar_aula(
+    aula_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
+    aula = result.scalar_one_or_none()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    presenca = PresencaAula(
+        aula_id=aula.id,
+        usuario_id=current_user.id,
+        hora_entrada=datetime.now(timezone.utc),
+        ip_acesso=request.client.host if request.client else None,
+    )
+    db.add(presenca)
+    await db.commit()
+    await db.refresh(presenca)
+    return presenca
+
+
+@router.post("/aulas/{aula_id}/sair", response_model=PresencaAulaRead)
+async def sair_aula(
+    aula_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
+    aula = result.scalar_one_or_none()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    presenca_result = await db.execute(
+        select(PresencaAula)
+        .where(
+            PresencaAula.aula_id == aula_id,
+            PresencaAula.usuario_id == current_user.id,
+            PresencaAula.hora_saida.is_(None),
+        )
+        .order_by(PresencaAula.hora_entrada.desc())
+    )
+    presenca = presenca_result.scalars().first()
+    if not presenca:
+        raise HTTPException(status_code=404, detail="Entrada nao encontrada para esta aula")
+
+    agora = datetime.now(timezone.utc)
+    presenca.hora_saida = agora
+    presenca.tempo_permanencia_seg = max(0, int((agora - presenca.hora_entrada).total_seconds()))
+    await db.commit()
+    await db.refresh(presenca)
+    return presenca
+
+
+@router.get("/aulas/{aula_id}/presencas", response_model=list[PresencaAulaRead])
+async def listar_presencas_aula(
+    aula_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AULA_VER_PRESENCA)),
+):
+    result = await db.execute(
+        select(PresencaAula).where(PresencaAula.aula_id == aula_id).order_by(PresencaAula.hora_entrada)
+    )
+    return result.scalars().all()

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, computed_field, field_validator, model_validator
 
 from app.services.storage import resolve_file_url
 
@@ -180,11 +180,22 @@ class AulaSincronaBase(BaseModel):
     titulo: str
     descricao: str | None = None
     data_hora: datetime
+    data_hora_fim: datetime | None = None
+    codigo_acesso: str | None = None
     link_externo: str | None = None
     duracao_minutos: int | None = None
     status: str = "agendada"
     teams_meeting_id: str | None = None
     gravacao_conteudo_id: int | None = None
+
+    @field_validator("data_hora_fim")
+    @classmethod
+    def validar_data_fim(cls, v: datetime | None, info) -> datetime | None:
+        if v is not None:
+            inicio = info.data.get("data_hora")
+            if inicio is not None and v <= inicio:
+                raise ValueError("data_hora_fim deve ser posterior a data_hora")
+        return v
 
 
 class AulaSincronaCreate(AulaSincronaBase):
@@ -195,10 +206,18 @@ class AulaSincronaUpdate(BaseModel):
     titulo: str | None = None
     descricao: str | None = None
     data_hora: datetime | None = None
+    data_hora_fim: datetime | None = None
+    codigo_acesso: str | None = None
     link_externo: str | None = None
     duracao_minutos: int | None = None
     status: str | None = None
     gravacao_conteudo_id: int | None = None
+
+    @model_validator(mode="after")
+    def validar_datas(self) -> "AulaSincronaUpdate":
+        if self.data_hora_fim is not None and self.data_hora is not None and self.data_hora_fim <= self.data_hora:
+            raise ValueError("data_hora_fim deve ser posterior a data_hora")
+        return self
 
 
 class AulaSincronaRead(AulaSincronaBase):
@@ -300,3 +319,27 @@ class ProcessarGravacaoResponse(BaseModel):
     error: str | None = None
     conteudo_id: int | None = None
     url: str | None = None
+
+
+class AcessarAulaRequest(BaseModel):
+    codigo_acesso: str
+
+
+class AcessarAulaResponse(BaseModel):
+    aula_id: int
+    titulo: str
+    link_externo: str | None = None
+    data_hora: datetime
+    data_hora_fim: datetime | None = None
+
+
+class PresencaAulaRead(BaseModel):
+    id: int
+    aula_id: int
+    usuario_id: uuid.UUID
+    hora_entrada: datetime
+    hora_saida: datetime | None = None
+    tempo_permanencia_seg: int | None = None
+    presente: bool
+
+    model_config = {"from_attributes": True}

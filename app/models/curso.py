@@ -137,6 +137,8 @@ class AulaSincrona(Base):
     titulo: Mapped[str] = mapped_column(String(200), nullable=False)
     descricao: Mapped[str | None] = mapped_column(Text)
     data_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    data_hora_fim: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    codigo_acesso: Mapped[str | None] = mapped_column(String(20), index=True)
     link_externo: Mapped[str | None] = mapped_column(Text)
     duracao_minutos: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="agendada")
@@ -144,6 +146,20 @@ class AulaSincrona(Base):
     gravacao_conteudo_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("lms.conteudos.id"))
     criado_por: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PresencaAula(Base):
+    __tablename__ = "presenca_aula"
+    __table_args__ = {"schema": "lms"}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    aula_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.aulas_sincronas.id", ondelete="CASCADE"), nullable=False)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
+    hora_entrada: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    hora_saida: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    tempo_permanencia_seg: Mapped[int | None] = mapped_column(Integer)
+    presente: Mapped[bool] = mapped_column(Boolean, default=True)
+    ip_acesso: Mapped[str | None] = mapped_column(String(64))
 
 
 class InscricaoTrilha(Base):
