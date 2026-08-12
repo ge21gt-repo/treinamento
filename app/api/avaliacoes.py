@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -478,6 +478,18 @@ async def submeter_avaliacao(
             status_code=400,
             detail=f"Limite de {avaliacao.tentativas_max} tentativas atingido",
         )
+
+    if avaliacao.tempo_limite_min:
+        if payload.iniciado_em is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Campo iniciado_em obrigatorio quando a avaliacao tem tempo_limite_min",
+            )
+        agora = datetime.now(timezone.utc)
+        if payload.iniciado_em > agora + timedelta(minutes=5):
+            raise HTTPException(status_code=400, detail="iniciado_em nao pode estar no futuro")
+        if (agora - payload.iniciado_em).total_seconds() > 24 * 3600:
+            raise HTTPException(status_code=400, detail="iniciado_em muito antigo (mais de 24h)")
 
     if avaliacao.tempo_limite_min and payload.iniciado_em:
         elapsed = (datetime.now(timezone.utc) - payload.iniciado_em).total_seconds()
