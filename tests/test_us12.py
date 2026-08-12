@@ -69,3 +69,49 @@ class TestFechamentoLazy:
     async def test_presencas_aula_inexistente_404(self, client):
         r = await client.get("/api/v1/cursos/aulas/999999999/presencas")
         assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestRelatorioPresencas:
+    async def _setup_aula_com_presencas(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Rel", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post(
+            f"/api/v1/cursos/{curso_id}/aulas",
+            json={
+                "curso_id": curso_id,
+                "titulo": "Aula Rel",
+                "descricao": "x",
+                "data_hora": "2026-08-10T14:00:00Z",
+                "data_hora_fim": "2026-08-10T15:00:00Z",
+            },
+        )
+        aula_id = r.json()["id"]
+        r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/entrar")
+        assert r.status_code == status.HTTP_201_CREATED
+        return aula_id
+
+    async def test_relatorio_csv_retorna_arquivo(self, client):
+        aula_id = await self._setup_aula_com_presencas(client)
+        r = await client.get(f"/api/v1/cursos/aulas/{aula_id}/presencas/relatorio?formato=csv")
+        assert r.status_code == status.HTTP_200_OK
+        assert "text/csv" in r.headers["content-type"]
+        assert "attachment" in r.headers["content-disposition"]
+        body = r.content.decode("utf-8-sig")
+        assert "Relatorio de presenca" in body
+        assert "Participante" in body
+
+    async def test_relatorio_aula_inexistente_404(self, client):
+        r = await client.get("/api/v1/cursos/aulas/999999999/presencas/relatorio?formato=csv")
+        assert r.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_relatorio_formato_invalido_422(self, client):
+        r = await client.get("/api/v1/cursos/aulas/1/presencas/relatorio?formato=xls")
+        assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    async def test_relatorio_pdf_retorna_arquivo(self, client):
+        aula_id = await self._setup_aula_com_presencas(client)
+        r = await client.get(f"/api/v1/cursos/aulas/{aula_id}/presencas/relatorio?formato=pdf")
+        assert r.status_code == status.HTTP_200_OK
+        assert "application/pdf" in r.headers["content-type"]
+        assert "attachment" in r.headers["content-disposition"]
+        assert r.content[:4] == b"%PDF"

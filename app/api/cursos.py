@@ -994,3 +994,146 @@ async def listar_presencas_aula(
         select(PresencaAula).where(PresencaAula.aula_id == aula_id).order_by(PresencaAula.hora_entrada)
     )
     return result.scalars().all()
+
+
+@router.get("/aulas/{aula_id}/presencas/relatorio")
+async def relatorio_presencas_aula(
+    aula_id: int,
+    formato: str = Query("csv", pattern="^(csv|pdf)$"),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AULA_VER_PRESENCA)),
+):
+    """Relatorio de presencas da aula em CSV (TI2-93).
+
+    Fecha presencas em aberto (lazy) antes de gerar, para o relatorio refletir
+    a situacao final da aula.
+    """
+    result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
+    aula = result.scalar_one_or_none()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    await _fechar_presencas_lazy(db, aula)
+
+    presencas = (
+        await db.execute(
+            select(PresencaAula).where(PresencaAula.aula_id == aula_id).order_by(PresencaAula.hora_entrada)
+        )
+    ).scalars().all()
+
+    usuarios_ids = {p.usuario_id for p in presencas}
+    usuarios = {}
+    if usuarios_ids:
+        rows = await db.execute(select(Usuario).where(Usuario.id.in_(usuarios_ids)))
+        usuarios = {u.id: u for u in rows.scalars().all()}
+
+    if formato == "pdf":
+        return await _relatorio_presencas_pdf(aula, presencas, usuarios)
+
+    return _relatorio_presencas_csv(aula, presencas, usuarios)
+
+
+def _relatorio_presencas_csv(
+    aula: AulaSincrona,
+    presencas: list[PresencaAula],
+    usuarios: dict,
+) -> Response:
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=";")
+    writer.writerow(["Relatorio de presenca - Aula", aula.titulo])
+    writer.writerow(["Data", aula.data_hora.strftime("%d/%m/%Y %H:%M")])
+    writer.writerow([])
+    writer.writerow(["Participante", "Email", "Entrada", "Saida", "Tempo (min)", "Presente"])
+
+    for p in presencas:
+        usuario = usuarios.get(p.usuario_id)
+        nome = usuario.nome_completo if usuario else "Desconhecido"
+        email = usuario.email if usuario else ""
+        tempo = (p.tempo_permanencia_seg or 0) // 60
+        writer.writerow(
+            [
+                nome,
+                email,
+                p.hora_entrada.strftime("%d/%m/%Y %H:%M"),
+                p.hora_saida.strftime("%d/%m/%Y %H:%M") if p.hora_saida else "em aberto",
+                tempo,
+                "Sim" if p.presente else "Nao",
+            ]
+        )
+
+    filename = f"presencas_aula_{aula.id}.csv"
+    return Response(
+        content=b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _relatorio_presencas_pdf(
+    aula: AulaSincrona,
+    presencas: list[PresencaAula],
+    usuarios: dict,
+) -> Response:
+    """Relatorio PDF de presenca (TI2-93, parte 2) via reportlab."""
+    import io
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, title=f"Presencas - {aula.titulo}")
+    styles = getSampleStyleSheet()
+
+    elementos = [
+        Paragraph(f"Relatorio de presenca - Aula: {aula.titulo}", styles["Title"]),
+        Spacer(1, 12),
+        Paragraph(f"Data: {aula.data_hora.strftime('%d/%m/%Y %H:%M')}", styles["Normal"]),
+        Spacer(1, 12),
+    ]
+
+    cabecalho = ["Participante", "Email", "Entrada", "Saida", "Tempo (min)", "Presente"]
+    linhas = [cabecalho]
+    for p in presencas:
+        usuario = usuarios.get(p.usuario_id)
+        nome = usuario.nome_completo if usuario else "Desconhecido"
+        email = usuario.email if usuario else ""
+        tempo = (p.tempo_permanencia_seg or 0) // 60
+        linhas.append(
+            [
+                nome,
+                email,
+                p.hora_entrada.strftime("%d/%m/%Y %H:%M"),
+                p.hora_saida.strftime("%d/%m/%Y %H:%M") if p.hora_saida else "em aberto",
+                tempo,
+                "Sim" if p.presente else "Nao",
+            ]
+        )
+
+    tabela = Table(linhas)
+    tabela.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#EAF1F8")]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    elementos.append(tabela)
+
+    doc.build(elementos)
+    buffer.seek(0)
+    filename = f"presencas_aula_{aula.id}.pdf"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
