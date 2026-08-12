@@ -267,7 +267,7 @@ async def progresso_trilha_detalhado(
                 Inscricao.curso_id == c.id,
             )
         )
-        ci = curso_insc.scalar_one_or_none()
+        ci = curso_insc.scalars().first()
         cursos_data.append(
             {
                 "curso_id": c.id,
