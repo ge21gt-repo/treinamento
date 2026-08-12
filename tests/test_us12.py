@@ -115,3 +115,54 @@ class TestRelatorioPresencas:
         assert "application/pdf" in r.headers["content-type"]
         assert "attachment" in r.headers["content-disposition"]
         assert r.content[:4] == b"%PDF"
+
+
+class TestConsultaAdminPresencas:
+    async def _setup(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Cons", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post(
+            f"/api/v1/cursos/{curso_id}/aulas",
+            json={
+                "curso_id": curso_id,
+                "titulo": "Aula Cons",
+                "descricao": "x",
+                "data_hora": "2026-08-10T14:00:00Z",
+                "data_hora_fim": "2026-08-10T15:00:00Z",
+            },
+        )
+        aula_id = r.json()["id"]
+        r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/entrar")
+        assert r.status_code == status.HTTP_201_CREATED
+        return {"curso_id": curso_id, "aula_id": aula_id}
+
+    async def test_consulta_retorna_itens_e_resumo(self, client):
+        s = await self._setup(client)
+        r = await client.get(f"/api/v1/cursos/aulas/presencas?curso_id={s['curso_id']}")
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        assert "itens" in data and "resumo" in data
+        assert len(data["itens"]) >= 1
+        item = data["itens"][0]
+        assert item["curso_id"] == s["curso_id"]
+        assert item["aula_titulo"] == "Aula Cons"
+        assert data["resumo"]["total_presencas"] >= 1
+        assert "X-Total-Count" in r.headers
+
+    async def test_consulta_filtro_usuario(self, client):
+        s = await self._setup(client)
+        r = await client.get("/api/v1/cursos/aulas/presencas")
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        assert len(data["itens"]) >= 1
+        usuario_id = data["itens"][0]["usuario_id"]
+        r = await client.get(f"/api/v1/cursos/aulas/presencas?usuario_id={usuario_id}")
+        assert r.status_code == status.HTTP_200_OK
+        assert all(i["usuario_id"] == usuario_id for i in r.json()["itens"])
+
+    async def test_consulta_sem_filtros_retorna_todos(self, client):
+        await self._setup(client)
+        r = await client.get("/api/v1/cursos/aulas/presencas")
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        assert "itens" in data and "resumo" in data

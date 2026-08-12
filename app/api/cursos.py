@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -32,7 +32,9 @@ from app.schemas.curso import (
     ModuloRead,
     ModuloUpdate,
     PresencaAulaRead,
+    PresencaConsultaItem,
     PresencaRegistroRead,
+    PresencaResumoRead,
     ProcessarGravacaoResponse,
     ProgressoUnidadeCreate,
     ProgressoUnidadeRead,
@@ -994,6 +996,88 @@ async def listar_presencas_aula(
         select(PresencaAula).where(PresencaAula.aula_id == aula_id).order_by(PresencaAula.hora_entrada)
     )
     return result.scalars().all()
+
+
+@router.get("/aulas/presencas", response_model=dict)
+async def consultar_presencas_admin(
+    curso_id: int | None = Query(None, description="Filtra por curso"),
+    usuario_id: uuid.UUID | None = Query(None, description="Filtra por participante"),
+    de: datetime | None = Query(None, description="Inicio do periodo (ISO)"),
+    ate: datetime | None = Query(None, description="Fim do periodo (ISO)"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    response: Response = None,
+    _: Usuario = Depends(require_permissao(Permissoes.AULA_VER_PRESENCA)),
+):
+    """Consulta administrativa de presencas (TI2-94).
+
+    Filtros: curso, participante e periodo (de/ate). Retorna itens paginados
+    (X-Total-Count) + resumo agregado do resultado filtrado.
+    """
+    query = select(PresencaAula)
+    if curso_id is not None:
+        query = query.join(AulaSincrona, AulaSincrona.id == PresencaAula.aula_id).where(
+            AulaSincrona.curso_id == curso_id
+        )
+    if usuario_id is not None:
+        query = query.where(PresencaAula.usuario_id == usuario_id)
+    if de is not None:
+        query = query.where(PresencaAula.hora_entrada >= de)
+    if ate is not None:
+        query = query.where(PresencaAula.hora_entrada <= ate)
+
+    total = await count_query(db, query)
+    rows = (await db.execute(query.order_by(PresencaAula.hora_entrada.desc()).offset(skip).limit(limit))).scalars().all()
+
+    aula_ids = {p.aula_id for p in rows}
+    aulas = {}
+    if aula_ids:
+        aulas_res = await db.execute(select(AulaSincrona).where(AulaSincrona.id.in_(aula_ids)))
+        aulas = {a.id: a for a in aulas_res.scalars().all()}
+
+    curso_ids = {a.curso_id for a in aulas.values()}
+    cursos = {}
+    if curso_ids:
+        cursos_res = await db.execute(select(Curso).where(Curso.id.in_(curso_ids)))
+        cursos = {c.id: c for c in cursos_res.scalars().all()}
+
+    user_ids = {p.usuario_id for p in rows}
+    usuarios = {}
+    if user_ids:
+        us_res = await db.execute(select(Usuario).where(Usuario.id.in_(user_ids)))
+        usuarios = {u.id: u for u in us_res.scalars().all()}
+
+    itens = [
+        PresencaConsultaItem(
+            id=p.id,
+            aula_id=p.aula_id,
+            aula_titulo=aulas[p.aula_id].titulo if p.aula_id in aulas else "",
+            curso_id=aulas[p.aula_id].curso_id if p.aula_id in aulas else None,
+            curso_titulo=cursos[aulas[p.aula_id].curso_id].titulo
+            if p.aula_id in aulas and aulas[p.aula_id].curso_id in cursos
+            else "",
+            usuario_id=p.usuario_id,
+            usuario_nome=usuarios[p.usuario_id].nome_completo if p.usuario_id in usuarios else "",
+            email=usuarios[p.usuario_id].email if p.usuario_id in usuarios else "",
+            hora_entrada=p.hora_entrada,
+            hora_saida=p.hora_saida,
+            tempo_permanencia_seg=p.tempo_permanencia_seg,
+            presente=p.presente,
+        )
+        for p in rows
+    ]
+
+    tempos = [p.tempo_permanencia_seg or 0 for p in rows]
+    resumo = PresencaResumoRead(
+        total_presencas=len(rows),
+        total_presentes=sum(1 for p in rows if p.presente),
+        media_tempo_seg=round(sum(tempos) / len(tempos), 2) if tempos else 0.0,
+        tempo_total_seg=sum(tempos),
+    )
+
+    response.headers["X-Total-Count"] = str(total)
+    return {"itens": itens, "resumo": resumo}
 
 
 @router.get("/aulas/{aula_id}/presencas/relatorio")

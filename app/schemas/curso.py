@@ -343,3 +343,25 @@ class PresencaAulaRead(BaseModel):
     presente: bool
 
     model_config = {"from_attributes": True}
+
+
+class PresencaResumoRead(BaseModel):
+    total_presencas: int
+    total_presentes: int
+    media_tempo_seg: float = 0.0
+    tempo_total_seg: int = 0
+
+
+class PresencaConsultaItem(BaseModel):
+    id: int
+    aula_id: int
+    aula_titulo: str = ""
+    curso_id: int | None = None
+    curso_titulo: str = ""
+    usuario_id: uuid.UUID
+    usuario_nome: str = ""
+    email: str = ""
+    hora_entrada: datetime
+    hora_saida: datetime | None = None
+    tempo_permanencia_seg: int | None = None
+    presente: bool
