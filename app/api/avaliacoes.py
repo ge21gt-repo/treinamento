@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaParticipante, ResultadoAvaliacao
-from app.models.curso import Inscricao, Unidade, Modulo, ProgressoUnidade
+from app.models.curso import Curso, Inscricao, Unidade, Modulo, ProgressoUnidade
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.paginacao import apply_search, count_query
 from app.services.gamificacao import atribuir_xp as gamificacao_xp
@@ -22,8 +22,10 @@ from app.schemas.avaliacao import (
     AvaliacaoRead,
     AvaliacaoResponderRead,
     AvaliacaoUpdate,
+    CorrecaoPendenteInboxRead,
     CorrecaoPendenteRead,
     CorrigirRespostaRequest,
+    EstatisticaQuestaoRead,
     EstatisticasAvaliacaoRead,
     QuestaoCreate,
     QuestaoRead,
@@ -84,6 +86,107 @@ async def meus_resultados(
         .order_by(ResultadoAvaliacao.realizado_em.desc())
     )
     return result.scalars().all()
+
+
+@router.get("/correcoes-pendentes", response_model=list[CorrecaoPendenteInboxRead])
+async def listar_correcoes_pendentes_agregado(
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_AVALIAR)),
+):
+    """Inbox global de correcoes pendentes do instrutor (todas as avaliacoes).
+
+    Respostas dissertativas sem pontuacao_atribuida, com contexto de
+    curso/unidade/avaliacao. Se o usuario for instrutor de cursos especificos,
+    filtra pelos cursos dele; caso contrario (administrador/gestor), retorna todas.
+    """
+    questoes_dissertativas = (
+        await db.execute(select(Questao).where(Questao.tipo == "dissertativa"))
+    ).scalars().all()
+    questoes_por_id = {q.id: q for q in questoes_dissertativas}
+    if not questoes_por_id:
+        return []
+
+    respostas = (
+        await db.execute(
+            select(RespostaParticipante)
+            .where(
+                RespostaParticipante.questao_id.in_(questoes_por_id.keys()),
+                RespostaParticipante.pontuacao_atribuida.is_(None),
+            )
+            .order_by(RespostaParticipante.respondido_em.desc())
+        )
+    ).scalars().all()
+    if not respostas:
+        return []
+
+    usuarios_ids = {r.usuario_id for r in respostas}
+    usuarios = {}
+    if usuarios_ids:
+        rows = await db.execute(select(Usuario).where(Usuario.id.in_(usuarios_ids)))
+        usuarios = {u.id: u.nome_completo for u in rows.scalars().all()}
+
+    avaliacoes_ids = {questoes_por_id[r.questao_id].avaliacao_id for r in respostas}
+    avaliacoes = {}
+    if avaliacoes_ids:
+        rows = await db.execute(select(Avaliacao).where(Avaliacao.id.in_(avaliacoes_ids)))
+        avaliacoes = {a.id: a for a in rows.scalars().all()}
+
+    unidades_ids = {a.unidade_id for a in avaliacoes.values() if a.unidade_id}
+    unidades = {}
+    if unidades_ids:
+        rows = await db.execute(select(Unidade).where(Unidade.id.in_(unidades_ids)))
+        unidades = {u.id: u for u in rows.scalars().all()}
+
+    modulos_ids = {u.modulo_id for u in unidades.values()}
+    modulos = {}
+    if modulos_ids:
+        rows = await db.execute(select(Modulo).where(Modulo.id.in_(modulos_ids)))
+        modulos = {m.id: m for m in rows.scalars().all()}
+
+    cursos_ids = {m.curso_id for m in modulos.values()}
+    cursos = {}
+    if cursos_ids:
+        rows = await db.execute(select(Curso).where(Curso.id.in_(cursos_ids)))
+        cursos = {c.id: c for c in rows.scalars().all()}
+
+    if all(p.nome != "administrador_geral" for p in await _perfis_do_usuario(db, current_user.id)):
+        cursos_do_instrutor = {c.id for c in cursos.values() if c.instrutor_id == current_user.id}
+        if not cursos_do_instrutor:
+            return []
+
+    itens = []
+    for r in respostas:
+        questao = questoes_por_id[r.questao_id]
+        avaliacao = avaliacoes.get(questao.avaliacao_id)
+        unidade = unidades.get(avaliacao.unidade_id) if avaliacao and avaliacao.unidade_id else None
+        modulo = modulos.get(unidade.modulo_id) if unidade else None
+        curso = cursos.get(modulo.curso_id) if modulo else None
+        itens.append(
+            CorrecaoPendenteInboxRead(
+                resposta_id=r.id,
+                usuario_id=r.usuario_id,
+                usuario_nome=usuarios.get(r.usuario_id),
+                questao_id=r.questao_id,
+                enunciado=questao.enunciado,
+                resposta_texto=r.resposta_texto,
+                pontuacao=questao.pontuacao,
+                tentativa_num=r.tentativa_num,
+                respondido_em=r.respondido_em,
+                avaliacao_id=questao.avaliacao_id,
+                avaliacao_titulo=avaliacao.titulo if avaliacao else "",
+                curso_id=curso.id if curso else None,
+                curso_titulo=curso.titulo if curso else None,
+                unidade_titulo=unidade.titulo if unidade else None,
+            )
+        )
+    return itens
+
+
+async def _perfis_do_usuario(db: AsyncSession, usuario_id: uuid.UUID) -> list[Perfil]:
+    result = await db.execute(
+        select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == usuario_id)
+    )
+    return list(result.scalars().all())
 
 
 @router.get("/{avaliacao_id}", response_model=AvaliacaoRead)
@@ -288,7 +391,7 @@ async def responder_avaliacao(
                         Inscricao.usuario_id == current_user.id,
                     )
                 )
-                if not insc.scalar_one_or_none():
+                if not insc.scalars().first():
                     raise HTTPException(
                         status_code=403, detail="Usuario nao esta inscrito no curso desta avaliacao"
                     )
@@ -359,7 +462,7 @@ async def submeter_avaliacao(
                         Inscricao.usuario_id == current_user.id,
                     )
                 )
-                if not insc.scalar_one_or_none():
+                if not insc.scalars().first():
                     raise HTTPException(
                         status_code=403, detail="Usuario nao esta inscrito no curso desta avaliacao"
                     )
@@ -375,6 +478,18 @@ async def submeter_avaliacao(
             status_code=400,
             detail=f"Limite de {avaliacao.tentativas_max} tentativas atingido",
         )
+
+    if avaliacao.tempo_limite_min:
+        if payload.iniciado_em is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Campo iniciado_em obrigatorio quando a avaliacao tem tempo_limite_min",
+            )
+        agora = datetime.now(timezone.utc)
+        if payload.iniciado_em > agora + timedelta(minutes=5):
+            raise HTTPException(status_code=400, detail="iniciado_em nao pode estar no futuro")
+        if (agora - payload.iniciado_em).total_seconds() > 24 * 3600:
+            raise HTTPException(status_code=400, detail="iniciado_em muito antigo (mais de 24h)")
 
     if avaliacao.tempo_limite_min and payload.iniciado_em:
         elapsed = (datetime.now(timezone.utc) - payload.iniciado_em).total_seconds()
@@ -664,6 +779,64 @@ async def estatisticas_avaliacao(
         media_nota=round(media, 2),
         taxa_aprovacao=round(taxa, 2),
     )
+
+
+@router.get("/{avaliacao_id}/estatisticas/questoes", response_model=list[EstatisticaQuestaoRead])
+async def estatisticas_questoes(
+    avaliacao_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_VISUALIZAR)),
+):
+    """Estatisticas por questao: quantos responderam, acertaram e taxa de acerto.
+
+    - multipla_escolha/verdadeiro_falso: 'correta' vem da correcao automatica.
+    - dissertativa: 'correta' e preenchido na correcao manual; respostas sem
+      pontuacao_atribuida contam em 'aguardando_correcao' e nao entram na taxa.
+    """
+    questoes = (
+        await db.execute(select(Questao).where(Questao.avaliacao_id == avaliacao_id).order_by(Questao.ordem))
+    ).scalars().all()
+    if not questoes:
+        return []
+
+    respostas = (
+        await db.execute(
+            select(RespostaParticipante)
+            .join(Questao, Questao.id == RespostaParticipante.questao_id)
+            .where(Questao.avaliacao_id == avaliacao_id)
+        )
+    ).scalars().all()
+
+    stats: dict[int, dict] = {}
+    for q in questoes:
+        stats[q.id] = {
+            "questao_id": q.id,
+            "enunciado": q.enunciado,
+            "tipo": q.tipo,
+            "pontuacao": q.pontuacao,
+            "respondida": 0,
+            "acertos": 0,
+            "aguardando_correcao": 0,
+        }
+
+    for r in respostas:
+        if r.questao_id not in stats:
+            continue
+        st = stats[r.questao_id]
+        st["respondida"] += 1
+        if r.pontuacao_atribuida is None and r.alternativa_id is None:
+            st["aguardando_correcao"] += 1
+        elif r.correta:
+            st["acertos"] += 1
+
+    resultado = []
+    for q in questoes:
+        st = stats[q.id]
+        corrigidas = st["respondida"] - st["aguardando_correcao"]
+        taxa = (st["acertos"] / corrigidas * 100) if corrigidas > 0 else 0.0
+        st["taxa_acerto"] = round(taxa, 2)
+        resultado.append(EstatisticaQuestaoRead(**st))
+    return resultado
 
 
 # --- Correção manual de dissertativas ---
