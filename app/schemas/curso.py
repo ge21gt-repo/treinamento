@@ -365,3 +365,19 @@ class PresencaConsultaItem(BaseModel):
     hora_saida: datetime | None = None
     tempo_permanencia_seg: int | None = None
     presente: bool
+
+
+class MensagemAulaCreate(BaseModel):
+    texto: str
+
+
+class MensagemAulaRead(BaseModel):
+    id: int
+    aula_id: int
+    usuario_id: str
+    usuario_nome: str = ""
+    texto: str
+    excluida: bool = False
+    criado_em: datetime
+
+    model_config = {"from_attributes": True}

@@ -128,6 +128,18 @@ class MensagemCurso(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MensagemAula(Base):
+    __tablename__ = "mensagens_aula"
+    __table_args__ = {"schema": "lms"}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    aula_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.aulas_sincronas.id", ondelete="CASCADE"), nullable=False)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
+    texto: Mapped[str] = mapped_column(String(2000), nullable=False)
+    excluida: Mapped[bool] = mapped_column(Boolean, default=False)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AulaSincrona(Base):
     __tablename__ = "aulas_sincronas"
     __table_args__ = {"schema": "lms", "extend_existing": True}

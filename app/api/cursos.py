@@ -2,15 +2,15 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_permissao
-from app.database import get_db
+from app.database import async_session, get_db
 from app.models.conteudo import Conteudo, EntregaAtividade
-from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemCurso, Modulo, PresencaAula, ProgressoUnidade, Unidade
+from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemAula, MensagemCurso, Modulo, PresencaAula, ProgressoUnidade, Unidade
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
 from app.services.storage import resolve_file_url
@@ -27,6 +27,8 @@ from app.schemas.curso import (
     CursoUpdate,
     InscricaoCreate,
     InscricaoRead,
+    MensagemAulaCreate,
+    MensagemAulaRead,
     ModuloArvoreRead,
     ModuloCreate,
     ModuloRead,
@@ -1220,4 +1222,153 @@ async def _relatorio_presencas_pdf(
         content=buffer.getvalue(),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# --- Chat em tempo real da aula (US-13) ---
+
+_ws_connections: dict[int, set[WebSocket]] = {}
+
+
+@router.websocket("/aulas/{aula_id}/chat/ws")
+async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
+    """WebSocket de chat em tempo real da aula (US-13, T-13.1).
+
+    Autentica via token JWT na query string (?token=...), valida que a aula
+    existe e faz broadcast das mensagens para todos os conectados na aula.
+    """
+    token = websocket.query_params.get("token")
+    from app.services.auth import decode_token
+
+    payload = decode_token(token or "")
+    if not payload or not payload.get("sub"):
+        await websocket.close(code=4401)
+        return
+
+    try:
+        async with async_session() as db:
+            aula = await db.get(AulaSincrona, aula_id)
+            if not aula:
+                await websocket.close(code=4404)
+                return
+            usuario_id = uuid.UUID(payload["sub"])
+            usuario = await db.get(Usuario, usuario_id)
+            if not usuario:
+                await websocket.close(code=4401)
+                return
+
+            await websocket.accept()
+            connections = _ws_connections.setdefault(aula_id, set())
+            connections.add(websocket)
+            try:
+                while True:
+                    data = await websocket.receive_json()
+                    texto = (data.get("texto") or "").strip()
+                    if not texto or len(texto) > 2000:
+                        await websocket.send_json({"type": "erro", "detail": "Texto invalido (max 2000)"})
+                        continue
+                    msg = MensagemAula(
+                        aula_id=aula_id,
+                        usuario_id=usuario.id,
+                        texto=texto,
+                    )
+                    db.add(msg)
+                    await db.commit()
+                    await db.refresh(msg)
+                    payload_out = {
+                        "type": "mensagem",
+                        "id": msg.id,
+                        "aula_id": msg.aula_id,
+                        "usuario_id": str(msg.usuario_id),
+                        "usuario_nome": usuario.nome_completo,
+                        "texto": msg.texto,
+                        "criado_em": msg.criado_em.isoformat(),
+                    }
+                    for conn in list(connections):
+                        try:
+                            await conn.send_json(payload_out)
+                        except Exception:
+                            connections.discard(conn)
+            except WebSocketDisconnect:
+                pass
+            finally:
+                connections.discard(websocket)
+    except Exception:
+        try:
+            await websocket.close(code=4500)
+        except Exception:
+            pass
+
+
+@router.get("/aulas/{aula_id}/chat", response_model=list[MensagemAulaRead])
+async def listar_chat_aula(
+    aula_id: int,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CHAT_VISUALIZAR)),
+):
+    aula = await db.get(AulaSincrona, aula_id)
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    result = await db.execute(
+        select(MensagemAula)
+        .where(MensagemAula.aula_id == aula_id, MensagemAula.excluida.is_(False))
+        .order_by(MensagemAula.criado_em.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    msgs = result.scalars().all()
+    msgs.reverse()
+
+    usuarios_ids = {m.usuario_id for m in msgs}
+    usuarios = {}
+    if usuarios_ids:
+        rows = await db.execute(select(Usuario).where(Usuario.id.in_(usuarios_ids)))
+        usuarios = {u.id: u.nome_completo for u in rows.scalars().all()}
+
+    return [
+        MensagemAulaRead(
+            id=m.id,
+            aula_id=m.aula_id,
+            usuario_id=str(m.usuario_id),
+            usuario_nome=usuarios.get(m.usuario_id, ""),
+            texto=m.texto,
+            excluida=m.excluida,
+            criado_em=m.criado_em,
+        )
+        for m in msgs
+    ]
+
+
+@router.post("/aulas/{aula_id}/chat", response_model=MensagemAulaRead, status_code=status.HTTP_201_CREATED)
+async def enviar_mensagem_aula(
+    aula_id: int,
+    payload: MensagemAulaCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CHAT_ENVIAR)),
+):
+    aula = await db.get(AulaSincrona, aula_id)
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    texto = payload.texto.strip()
+    if not texto:
+        raise HTTPException(status_code=422, detail="Texto nao pode ser vazio")
+    if len(texto) > 2000:
+        raise HTTPException(status_code=422, detail="Texto muito longo (max 2000)")
+
+    msg = MensagemAula(aula_id=aula_id, usuario_id=current_user.id, texto=texto)
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return MensagemAulaRead(
+        id=msg.id,
+        aula_id=msg.aula_id,
+        usuario_id=str(msg.usuario_id),
+        usuario_nome=current_user.nome_completo,
+        texto=msg.texto,
+        excluida=msg.excluida,
+        criado_em=msg.criado_em,
     )
