@@ -1,7 +1,7 @@
 from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaParticipante, ResultadoAvaliacao
 from app.models.base import Base
 from app.models.certificado import Certificado, ModeloCertificado
-from app.models.comunicacao import ForumResposta, ForumTopico, MensagemChat
+from app.models.comunicacao import ForumResposta, ForumTermoBloqueado, ForumTopico, MensagemChat
 from app.models.conteudo import Conteudo, EntregaAtividade, MaterialComplementar
 from app.models.credenciamento import AprovacaoHierarquica, SolicitacaoCredenciamento
 from app.models.curso import (
@@ -63,6 +63,7 @@ __all__ = [
     "MensagemChat",
     "ForumTopico",
     "ForumResposta",
+    "ForumTermoBloqueado",
     "ModeloCertificado",
     "Certificado",
     "LogAcesso",

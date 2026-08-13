@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.comunicacao import ForumResposta, ForumTopico, MensagemChat
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
+from app.services.moderacao import checar_conteudo
 from app.services.rbac import Permissoes
 from app.schemas.comunicacao import (
     ForumRespostaCreate,
@@ -89,6 +90,12 @@ async def criar_topico(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_CRIAR)),
 ):
+    termo = await checar_conteudo(db, f"{payload.titulo} {payload.conteudo}")
+    if termo:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Conteudo bloqueado: contem o termo '{termo}'",
+        )
     topico = ForumTopico(**payload.model_dump(), autor_id=current_user.id)
     db.add(topico)
     await db.commit()
@@ -162,6 +169,12 @@ async def criar_resposta_forum(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_CRIAR)),
 ):
+    termo = await checar_conteudo(db, payload.conteudo)
+    if termo:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Conteudo bloqueado: contem o termo '{termo}'",
+        )
     resposta = ForumResposta(**payload.model_dump(), autor_id=current_user.id)
     db.add(resposta)
     await db.commit()
