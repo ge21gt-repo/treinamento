@@ -212,6 +212,40 @@ async def atualizar_topico(
     return await _topico_com_autor(db, topico)
 
 
+@router.patch("/forum/topico/{topico_id}/fixar", response_model=ForumTopicoRead)
+async def fixar_topico(
+    topico_id: int,
+    fixado: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_MODERAR)),
+):
+    result = await db.execute(select(ForumTopico).where(ForumTopico.id == topico_id))
+    topico = result.scalar_one_or_none()
+    if not topico:
+        raise HTTPException(status_code=404, detail="Topico nao encontrado")
+    topico.fixado = fixado
+    await db.commit()
+    await db.refresh(topico)
+    return await _topico_com_autor(db, topico)
+
+
+@router.patch("/forum/topico/{topico_id}/fechar", response_model=ForumTopicoRead)
+async def fechar_topico(
+    topico_id: int,
+    fechado: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_MODERAR)),
+):
+    result = await db.execute(select(ForumTopico).where(ForumTopico.id == topico_id))
+    topico = result.scalar_one_or_none()
+    if not topico:
+        raise HTTPException(status_code=404, detail="Topico nao encontrado")
+    topico.fechado = fechado
+    await db.commit()
+    await db.refresh(topico)
+    return await _topico_com_autor(db, topico)
+
+
 @router.delete("/forum/topico/{topico_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def excluir_topico(
     topico_id: int,
@@ -272,6 +306,8 @@ async def criar_resposta_forum(
     topico = await db.get(ForumTopico, payload.topico_id)
     if not topico:
         raise HTTPException(status_code=404, detail="Topico nao encontrado")
+    if topico.fechado:
+        raise HTTPException(status_code=403, detail="Topico fechado: novas respostas nao sao permitidas")
     if payload.resposta_pai_id is not None:
         pai = await db.get(ForumResposta, payload.resposta_pai_id)
         if not pai or pai.topico_id != topico.id:

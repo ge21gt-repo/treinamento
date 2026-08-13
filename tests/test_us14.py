@@ -228,3 +228,40 @@ class TestThreadingRespostas:
             json={"topico_id": r.json()["id"], "conteudo": "resposta", "resposta_pai_id": 999999999},
         )
         assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestFixarFecharTopico:
+    async def test_fixar_topico(self, client):
+        curso_id = await _criar_curso(client)
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "topico fixar", "conteudo": "conteudo"},
+        )
+        topico_id = r.json()["id"]
+        r = await client.patch(f"/api/v1/comunicacao/forum/topico/{topico_id}/fixar?fixado=true")
+        assert r.status_code == status.HTTP_200_OK
+        assert r.json()["fixado"] is True
+
+        r = await client.get(f"/api/v1/comunicacao/forum/{curso_id}")
+        assert r.json()[0]["id"] == topico_id  # fixado vem primeiro
+
+    async def test_fechar_topico_bloqueia_respostas(self, client):
+        curso_id = await _criar_curso(client)
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "topico fechar", "conteudo": "conteudo"},
+        )
+        topico_id = r.json()["id"]
+        r = await client.patch(f"/api/v1/comunicacao/forum/topico/{topico_id}/fechar?fechado=true")
+        assert r.status_code == status.HTTP_200_OK
+        assert r.json()["fechado"] is True
+
+        r = await client.post(
+            "/api/v1/comunicacao/forum/respostas",
+            json={"topico_id": topico_id, "conteudo": "resposta em topico fechado"},
+        )
+        assert r.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_fixar_topico_inexistente_404(self, client):
+        r = await client.patch("/api/v1/comunicacao/forum/topico/999999999/fixar")
+        assert r.status_code == status.HTTP_404_NOT_FOUND
