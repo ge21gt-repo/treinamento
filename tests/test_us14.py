@@ -1,3 +1,6 @@
+import uuid
+from uuid import uuid4
+
 import pytest
 from fastapi import status
 
@@ -68,3 +71,51 @@ class TestModeracaoService:
         finally:
             await session.close()
             await engine.dispose()
+
+
+class TestTermosBloqueadosCRUD:
+    async def test_listar_termos_seed(self, client):
+        r = await client.get("/api/v1/comunicacao/forum/termos-bloqueados")
+        assert r.status_code == status.HTTP_200_OK
+        termos = r.json()
+        assert len(termos) >= 1
+        assert any(t["termo"] == "eleicao" for t in termos)
+
+    async def test_criar_termo_novo(self, client):
+        termo_unico = f"guerra-{uuid4()}"
+        r = await client.post(
+            "/api/v1/comunicacao/forum/termos-bloqueados",
+            json={"termo": termo_unico, "categoria": "improprio"},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        assert r.json()["termo"] == termo_unico
+
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": 1, "titulo": f"topico sobre {termo_unico}", "conteudo": "x"},
+        )
+        assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    async def test_criar_termo_duplicado_409(self, client):
+        termo_unico = f"dup-{uuid4()}"
+        r = await client.post(
+            "/api/v1/comunicacao/forum/termos-bloqueados",
+            json={"termo": termo_unico},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        r = await client.post(
+            "/api/v1/comunicacao/forum/termos-bloqueados",
+            json={"termo": termo_unico},
+        )
+        assert r.status_code == status.HTTP_409_CONFLICT
+
+    async def test_excluir_termo(self, client):
+        r = await client.post(
+            "/api/v1/comunicacao/forum/termos-bloqueados",
+            json={"termo": f"excluir-{uuid4()}"},
+        )
+        termo_id = r.json()["id"]
+        r = await client.delete(f"/api/v1/comunicacao/forum/termos-bloqueados/{termo_id}")
+        assert r.status_code == status.HTTP_204_NO_CONTENT
+        r = await client.get("/api/v1/comunicacao/forum/termos-bloqueados")
+        assert all(t["id"] != termo_id for t in r.json())

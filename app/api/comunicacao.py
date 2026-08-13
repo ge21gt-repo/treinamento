@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
-from app.models.comunicacao import ForumResposta, ForumTopico, MensagemChat
+from app.models.comunicacao import ForumResposta, ForumTermoBloqueado, ForumTopico, MensagemChat
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
 from app.services.moderacao import checar_conteudo
@@ -12,6 +12,8 @@ from app.services.rbac import Permissoes
 from app.schemas.comunicacao import (
     ForumRespostaCreate,
     ForumRespostaRead,
+    ForumTermoBloqueadoCreate,
+    ForumTermoBloqueadoRead,
     ForumTopicoCreate,
     ForumTopicoRead,
     ForumTopicoUpdate,
@@ -61,6 +63,51 @@ async def listar_mensagens(
 
 
 # --- Forum ---
+
+
+# --- Termos bloqueados (moderacao US-14) ---
+
+
+@router.get("/forum/termos-bloqueados", response_model=list[ForumTermoBloqueadoRead])
+async def listar_termos_bloqueados(
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_MODERAR)),
+):
+    result = await db.execute(select(ForumTermoBloqueado).order_by(ForumTermoBloqueado.categoria, ForumTermoBloqueado.termo))
+    return result.scalars().all()
+
+
+@router.post("/forum/termos-bloqueados", response_model=ForumTermoBloqueadoRead, status_code=status.HTTP_201_CREATED)
+async def criar_termo_bloqueado(
+    payload: ForumTermoBloqueadoCreate,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_MODERAR)),
+):
+    termo = payload.termo.strip().lower()
+    if not termo:
+        raise HTTPException(status_code=422, detail="Termo nao pode ser vazio")
+    existente = await db.execute(select(ForumTermoBloqueado).where(ForumTermoBloqueado.termo == termo))
+    if existente.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Termo ja cadastrado")
+    novo = ForumTermoBloqueado(termo=termo, categoria=payload.categoria)
+    db.add(novo)
+    await db.commit()
+    await db.refresh(novo)
+    return novo
+
+
+@router.delete("/forum/termos-bloqueados/{termo_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def excluir_termo_bloqueado(
+    termo_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.FORUM_MODERAR)),
+):
+    result = await db.execute(select(ForumTermoBloqueado).where(ForumTermoBloqueado.id == termo_id))
+    termo = result.scalar_one_or_none()
+    if not termo:
+        raise HTTPException(status_code=404, detail="Termo nao encontrado")
+    await db.delete(termo)
+    await db.commit()
 
 
 @router.get("/forum/{curso_id}", response_model=list[ForumTopicoRead])

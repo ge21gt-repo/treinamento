@@ -103,6 +103,7 @@ class Permissoes:
     FORUM_EDITAR = "forum:editar"
     FORUM_EXCLUIR = "forum:excluir"
     FORUM_VISUALIZAR = "forum:visualizar"
+    FORUM_MODERAR = "forum:moderar"
 
     CHAT_ENVIAR = "chat:enviar"
     CHAT_VISUALIZAR = "chat:visualizar"
@@ -192,6 +193,7 @@ PERFIL_PERMISSOES = {
         Permissoes.FORUM_EDITAR,
         Permissoes.FORUM_EXCLUIR,
         Permissoes.FORUM_VISUALIZAR,
+        Permissoes.FORUM_MODERAR,
         Permissoes.CHAT_ENVIAR,
         Permissoes.CHAT_MODERAR,
         Permissoes.CHAT_VISUALIZAR,
@@ -277,6 +279,7 @@ PERFIL_PERMISSOES = {
         Permissoes.FORUM_EDITAR,
         Permissoes.FORUM_EXCLUIR,
         Permissoes.FORUM_VISUALIZAR,
+        Permissoes.FORUM_MODERAR,
         Permissoes.CHAT_ENVIAR,
         Permissoes.CHAT_MODERAR,
         Permissoes.CHAT_VISUALIZAR,
@@ -344,6 +347,7 @@ PERFIL_PERMISSOES = {
         Permissoes.FORUM_EDITAR,
         Permissoes.FORUM_EXCLUIR,
         Permissoes.FORUM_VISUALIZAR,
+        Permissoes.FORUM_MODERAR,
         Permissoes.CHAT_ENVIAR,
         Permissoes.CHAT_MODERAR,
         Permissoes.CHAT_VISUALIZAR,

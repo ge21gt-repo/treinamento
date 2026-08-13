@@ -65,3 +65,18 @@ class ForumRespostaRead(ForumRespostaBase):
     criado_em: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ForumTermoBloqueadoCreate(BaseModel):
+    termo: str
+    categoria: str | None = None
+
+
+class ForumTermoBloqueadoRead(BaseModel):
+    id: int
+    termo: str
+    categoria: str | None = None
+    ativo: bool
+    criado_em: datetime
+
+    model_config = {"from_attributes": True}
