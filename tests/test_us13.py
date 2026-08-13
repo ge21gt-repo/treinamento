@@ -121,3 +121,41 @@ class TestModeracaoChat:
 
         r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/chat", json={"texto": "depois de silenciar"})
         assert r.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestComunicacaoTempoReal:
+    async def test_broadcast_entre_duas_conexoes(self, client, admin_token):
+        aula_id = await _criar_aula(client)
+        from fastapi.testclient import TestClient
+
+        with TestClient(app) as tc:
+            with tc.websocket_connect(f"/api/v1/cursos/aulas/{aula_id}/chat/ws?token={admin_token}") as ws1:
+                with tc.websocket_connect(f"/api/v1/cursos/aulas/{aula_id}/chat/ws?token={admin_token}") as ws2:
+                    ws1.send_json({"texto": "broadcast para todos"})
+                    data1 = ws1.receive_json()
+                    data2 = ws2.receive_json()
+                    assert data1["texto"] == "broadcast para todos"
+                    assert data2["texto"] == "broadcast para todos"
+                    assert data1["id"] == data2["id"]
+
+    async def test_usuario_silenciado_bloqueado_no_websocket(self, client, admin_token):
+        aula_id = await _criar_aula(client)
+        from datetime import datetime, timedelta, timezone
+        from urllib.parse import quote
+
+        r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/chat", json={"texto": "inicial"})
+        usuario_id = r.json()["usuario_id"]
+        ate = datetime.now(timezone.utc) + timedelta(hours=1)
+        r = await client.patch(
+            f"/api/v1/cursos/aulas/{aula_id}/chat/silenciar/{usuario_id}?silenciado_ate={quote(ate.isoformat())}"
+        )
+        assert r.status_code == status.HTTP_200_OK
+
+        from fastapi.testclient import TestClient
+
+        with TestClient(app) as tc:
+            with tc.websocket_connect(f"/api/v1/cursos/aulas/{aula_id}/chat/ws?token={admin_token}") as ws:
+                ws.send_json({"texto": "silenciado nao pode enviar"})
+                data = ws.receive_json()
+                assert data["type"] == "erro"
+                assert "silenciado" in data["detail"].lower()
