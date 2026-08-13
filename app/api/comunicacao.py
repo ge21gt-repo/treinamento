@@ -239,18 +239,28 @@ async def listar_respostas(
         select(ForumResposta).where(ForumResposta.topico_id == topico_id).order_by(ForumResposta.criado_em)
     )
     respostas = result.scalars().all()
+
     autores_ids = {r.autor_id for r in respostas}
     autores = {}
     if autores_ids:
         rows = await db.execute(select(Usuario).where(Usuario.id.in_(autores_ids)))
         autores = {u.id: u.nome_completo for u in rows.scalars().all()}
-    return [
-        ForumRespostaRead(
-            **ForumRespostaRead.model_validate(r).model_dump(exclude={"autor_nome"}),
+
+    def _read(r: ForumResposta) -> ForumRespostaRead:
+        return ForumRespostaRead(
+            **ForumRespostaRead.model_validate(r).model_dump(exclude={"autor_nome", "respostas_filhas"}),
             autor_nome=autores.get(r.autor_id, ""),
         )
-        for r in respostas
-    ]
+
+    por_id = {r.id: _read(r) for r in respostas}
+    raizes: list[ForumRespostaRead] = []
+    for r in respostas:
+        item = por_id[r.id]
+        if r.resposta_pai_id and r.resposta_pai_id in por_id:
+            por_id[r.resposta_pai_id].respostas_filhas.append(item)
+        else:
+            raizes.append(item)
+    return raizes
 
 
 @router.post("/forum/respostas", response_model=ForumRespostaRead, status_code=status.HTTP_201_CREATED)
@@ -262,6 +272,10 @@ async def criar_resposta_forum(
     topico = await db.get(ForumTopico, payload.topico_id)
     if not topico:
         raise HTTPException(status_code=404, detail="Topico nao encontrado")
+    if payload.resposta_pai_id is not None:
+        pai = await db.get(ForumResposta, payload.resposta_pai_id)
+        if not pai or pai.topico_id != topico.id:
+            raise HTTPException(status_code=404, detail="Resposta pai nao encontrada neste topico")
     termo = await checar_conteudo(db, payload.conteudo)
     if termo:
         raise HTTPException(

@@ -167,3 +167,64 @@ class TestCRUDTopicoCompleto:
             json={"topico_id": 999999999, "conteudo": "resposta"},
         )
         assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestThreadingRespostas:
+    async def test_resposta_a_resposta_monta_arvore(self, client):
+        curso_id = await _criar_curso(client)
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "topico thread", "conteudo": "conteudo"},
+        )
+        topico_id = r.json()["id"]
+
+        r1 = await client.post(
+            "/api/v1/comunicacao/forum/respostas",
+            json={"topico_id": topico_id, "conteudo": "resposta raiz"},
+        )
+        raiz_id = r1.json()["id"]
+        r2 = await client.post(
+            "/api/v1/comunicacao/forum/respostas",
+            json={"topico_id": topico_id, "conteudo": "resposta filha", "resposta_pai_id": raiz_id},
+        )
+        assert r2.status_code == status.HTTP_201_CREATED
+
+        r = await client.get(f"/api/v1/comunicacao/forum/topico/{topico_id}/respostas")
+        assert r.status_code == status.HTTP_200_OK
+        respostas = r.json()
+        assert len(respostas) == 1  # so a raiz no topo
+        assert respostas[0]["id"] == raiz_id
+        assert len(respostas[0]["respostas_filhas"]) == 1
+        assert respostas[0]["respostas_filhas"][0]["conteudo"] == "resposta filha"
+
+    async def test_resposta_pai_de_outro_topico_404(self, client):
+        curso_id = await _criar_curso(client)
+        r1 = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "topico A", "conteudo": "conteudo"},
+        )
+        r2 = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "topico B", "conteudo": "conteudo"},
+        )
+        raiz = await client.post(
+            "/api/v1/comunicacao/forum/respostas",
+            json={"topico_id": r1.json()["id"], "conteudo": "raiz do topico A"},
+        )
+        r = await client.post(
+            "/api/v1/comunicacao/forum/respostas",
+            json={"topico_id": r2.json()["id"], "conteudo": "resposta", "resposta_pai_id": raiz.json()["id"]},
+        )
+        assert r.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_resposta_pai_inexistente_404(self, client):
+        curso_id = await _criar_curso(client)
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "topico pai", "conteudo": "conteudo"},
+        )
+        r = await client.post(
+            "/api/v1/comunicacao/forum/respostas",
+            json={"topico_id": r.json()["id"], "conteudo": "resposta", "resposta_pai_id": 999999999},
+        )
+        assert r.status_code == status.HTTP_404_NOT_FOUND

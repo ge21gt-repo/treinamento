@@ -65,6 +65,7 @@ class ForumRespostaRead(ForumRespostaBase):
     autor_id: uuid.UUID
     autor_nome: str = ""
     criado_em: datetime
+    respostas_filhas: list["ForumRespostaRead"] = []
 
     model_config = {"from_attributes": True}
 
