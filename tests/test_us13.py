@@ -83,3 +83,41 @@ class TestChatAulaWebSocket:
             with pytest.raises(WebSocketDisconnect):
                 with tc.websocket_connect("/api/v1/cursos/aulas/1/chat/ws?token=invalido"):
                     pass
+
+
+class TestModeracaoChat:
+    async def test_excluir_mensagem_remove_do_historico(self, client):
+        aula_id = await _criar_aula(client)
+        r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/chat", json={"texto": "msg para excluir"})
+        msg_id = r.json()["id"]
+
+        r = await client.delete(f"/api/v1/cursos/aulas/{aula_id}/chat/{msg_id}")
+        assert r.status_code == status.HTTP_204_NO_CONTENT
+
+        r = await client.get(f"/api/v1/cursos/aulas/{aula_id}/chat")
+        assert all(m["id"] != msg_id for m in r.json())
+
+    async def test_excluir_mensagem_inexistente_404(self, client):
+        aula_id = await _criar_aula(client)
+        r = await client.delete(f"/api/v1/cursos/aulas/{aula_id}/chat/999999999")
+        assert r.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_silenciar_usuario_bloqueia_envio(self, client):
+        aula_id = await _criar_aula(client)
+        r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/chat", json={"texto": "antes de silenciar"})
+        assert r.status_code == status.HTTP_201_CREATED
+
+        from datetime import datetime, timedelta, timezone
+        from urllib.parse import quote
+
+        r = await client.get(f"/api/v1/cursos/aulas/{aula_id}/chat")
+        usuario_id = r.json()[0]["usuario_id"]
+        ate = datetime.now(timezone.utc) + timedelta(hours=1)
+        r = await client.patch(
+            f"/api/v1/cursos/aulas/{aula_id}/chat/silenciar/{usuario_id}?silenciado_ate={quote(ate.isoformat())}"
+        )
+        assert r.status_code == status.HTTP_200_OK
+        assert r.json()["silenciado_ate"].startswith(ate.isoformat()[:19])
+
+        r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/chat", json={"texto": "depois de silenciar"})
+        assert r.status_code == status.HTTP_403_FORBIDDEN

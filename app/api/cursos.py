@@ -1256,13 +1256,22 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
             if not usuario:
                 await websocket.close(code=4401)
                 return
-
             await websocket.accept()
             connections = _ws_connections.setdefault(aula_id, set())
             connections.add(websocket)
             try:
                 while True:
                     data = await websocket.receive_json()
+                    agora = datetime.now(timezone.utc)
+                    if usuario.silenciado_ate and usuario.silenciado_ate > agora:
+                        await websocket.send_json(
+                            {
+                                "type": "erro",
+                                "detail": "Voce esta silenciado no chat ate "
+                                + usuario.silenciado_ate.isoformat(),
+                            }
+                        )
+                        continue
                     texto = (data.get("texto") or "").strip()
                     if not texto or len(texto) > 2000:
                         await websocket.send_json({"type": "erro", "detail": "Texto invalido (max 2000)"})
@@ -1353,6 +1362,14 @@ async def enviar_mensagem_aula(
     if not aula:
         raise HTTPException(status_code=404, detail="Aula nao encontrada")
 
+    agora = datetime.now(timezone.utc)
+    usuario_fresco = await db.get(Usuario, current_user.id)
+    if usuario_fresco and usuario_fresco.silenciado_ate and usuario_fresco.silenciado_ate > agora:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Usuario silenciado no chat ate {usuario_fresco.silenciado_ate.isoformat()}",
+        )
+
     texto = payload.texto.strip()
     if not texto:
         raise HTTPException(status_code=422, detail="Texto nao pode ser vazio")
@@ -1372,3 +1389,51 @@ async def enviar_mensagem_aula(
         excluida=msg.excluida,
         criado_em=msg.criado_em,
     )
+
+
+# --- Moderacao do chat da aula (US-13, T-13.4) ---
+
+
+@router.delete("/aulas/{aula_id}/chat/{mensagem_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def excluir_mensagem_aula(
+    aula_id: int,
+    mensagem_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CHAT_MODERAR)),
+):
+    """Exclui (logicamente) uma mensagem do chat da aula. Apenas moderadores."""
+    aula = await db.get(AulaSincrona, aula_id)
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    result = await db.execute(
+        select(MensagemAula).where(MensagemAula.id == mensagem_id, MensagemAula.aula_id == aula_id)
+    )
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Mensagem nao encontrada")
+
+    msg.excluida = True
+    await db.commit()
+
+
+@router.patch("/aulas/{aula_id}/chat/silenciar/{usuario_id}", response_model=dict)
+async def silenciar_usuario_chat(
+    aula_id: int,
+    usuario_id: uuid.UUID,
+    silenciado_ate: datetime | None = Query(None, description="ISO; null ou ausente = silenciar por 24h"),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CHAT_MODERAR)),
+):
+    """Silencia um usuario no chat. Sem silenciado_ate, silencia por 24h."""
+    aula = await db.get(AulaSincrona, aula_id)
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    usuario = await db.get(Usuario, usuario_id)
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    usuario.silenciado_ate = silenciado_ate or datetime.now(timezone.utc) + timedelta(hours=24)
+    await db.commit()
+    return {"usuario_id": str(usuario.id), "silenciado_ate": usuario.silenciado_ate.isoformat()}
