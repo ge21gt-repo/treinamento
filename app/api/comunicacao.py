@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.comunicacao import ForumResposta, ForumTermoBloqueado, ForumTopico, MensagemChat
+from app.models.curso import Curso
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
 from app.services.moderacao import checar_conteudo
@@ -120,6 +121,9 @@ async def listar_topicos(
     response: Response = None,
     _: Usuario = Depends(require_permissao(Permissoes.FORUM_VISUALIZAR)),
 ):
+    curso = await db.get(Curso, curso_id)
+    if not curso:
+        raise HTTPException(status_code=404, detail="Curso nao encontrado")
     query = select(ForumTopico).where(ForumTopico.curso_id == curso_id)
     query = apply_search(query, [ForumTopico.titulo, ForumTopico.conteudo], q)
     total = await count_query(db, query)
@@ -128,7 +132,20 @@ async def listar_topicos(
     )
     items = result.scalars().all()
     response.headers["X-Total-Count"] = str(total)
-    return items
+
+    autores_ids = {t.autor_id for t in items}
+    autores = {}
+    if autores_ids:
+        rows = await db.execute(select(Usuario).where(Usuario.id.in_(autores_ids)))
+        autores = {u.id: u.nome_completo for u in rows.scalars().all()}
+
+    return [
+        ForumTopicoRead(
+            **ForumTopicoRead.model_validate(t).model_dump(exclude={"autor_nome"}),
+            autor_nome=autores.get(t.autor_id, ""),
+        )
+        for t in items
+    ]
 
 
 @router.post("/forum", response_model=ForumTopicoRead, status_code=status.HTTP_201_CREATED)
@@ -137,6 +154,9 @@ async def criar_topico(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_CRIAR)),
 ):
+    curso = await db.get(Curso, payload.curso_id)
+    if not curso:
+        raise HTTPException(status_code=404, detail="Curso nao encontrado")
     termo = await checar_conteudo(db, f"{payload.titulo} {payload.conteudo}")
     if termo:
         raise HTTPException(
@@ -147,7 +167,10 @@ async def criar_topico(
     db.add(topico)
     await db.commit()
     await db.refresh(topico)
-    return topico
+    return ForumTopicoRead(
+        **ForumTopicoRead.model_validate(topico).model_dump(exclude={"autor_nome"}),
+        autor_nome=current_user.nome_completo,
+    )
 
 
 @router.get("/forum/topico/{topico_id}", response_model=ForumTopicoRead)
@@ -160,7 +183,15 @@ async def obter_topico(
     topico = result.scalar_one_or_none()
     if not topico:
         raise HTTPException(status_code=404, detail="Topico nao encontrado")
-    return topico
+    return await _topico_com_autor(db, topico)
+
+
+async def _topico_com_autor(db: AsyncSession, topico: ForumTopico) -> ForumTopicoRead:
+    autor = await db.get(Usuario, topico.autor_id)
+    return ForumTopicoRead(
+        **ForumTopicoRead.model_validate(topico).model_dump(exclude={"autor_nome"}),
+        autor_nome=autor.nome_completo if autor else "",
+    )
 
 
 @router.patch("/forum/topico/{topico_id}", response_model=ForumTopicoRead)
@@ -178,7 +209,7 @@ async def atualizar_topico(
         setattr(topico, field, value)
     await db.commit()
     await db.refresh(topico)
-    return topico
+    return await _topico_com_autor(db, topico)
 
 
 @router.delete("/forum/topico/{topico_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -207,7 +238,19 @@ async def listar_respostas(
     result = await db.execute(
         select(ForumResposta).where(ForumResposta.topico_id == topico_id).order_by(ForumResposta.criado_em)
     )
-    return result.scalars().all()
+    respostas = result.scalars().all()
+    autores_ids = {r.autor_id for r in respostas}
+    autores = {}
+    if autores_ids:
+        rows = await db.execute(select(Usuario).where(Usuario.id.in_(autores_ids)))
+        autores = {u.id: u.nome_completo for u in rows.scalars().all()}
+    return [
+        ForumRespostaRead(
+            **ForumRespostaRead.model_validate(r).model_dump(exclude={"autor_nome"}),
+            autor_nome=autores.get(r.autor_id, ""),
+        )
+        for r in respostas
+    ]
 
 
 @router.post("/forum/respostas", response_model=ForumRespostaRead, status_code=status.HTTP_201_CREATED)
@@ -216,6 +259,9 @@ async def criar_resposta_forum(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_CRIAR)),
 ):
+    topico = await db.get(ForumTopico, payload.topico_id)
+    if not topico:
+        raise HTTPException(status_code=404, detail="Topico nao encontrado")
     termo = await checar_conteudo(db, payload.conteudo)
     if termo:
         raise HTTPException(
@@ -226,4 +272,7 @@ async def criar_resposta_forum(
     db.add(resposta)
     await db.commit()
     await db.refresh(resposta)
-    return resposta
+    return ForumRespostaRead(
+        **ForumRespostaRead.model_validate(resposta).model_dump(exclude={"autor_nome"}),
+        autor_nome=current_user.nome_completo,
+    )

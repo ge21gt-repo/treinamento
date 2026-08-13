@@ -90,9 +90,10 @@ class TestTermosBloqueadosCRUD:
         assert r.status_code == status.HTTP_201_CREATED
         assert r.json()["termo"] == termo_unico
 
+        curso_id = await _criar_curso(client)
         r = await client.post(
             "/api/v1/comunicacao/forum",
-            json={"curso_id": 1, "titulo": f"topico sobre {termo_unico}", "conteudo": "x"},
+            json={"curso_id": curso_id, "titulo": f"topico sobre {termo_unico}", "conteudo": "x"},
         )
         assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
@@ -119,3 +120,50 @@ class TestTermosBloqueadosCRUD:
         assert r.status_code == status.HTTP_204_NO_CONTENT
         r = await client.get("/api/v1/comunicacao/forum/termos-bloqueados")
         assert all(t["id"] != termo_id for t in r.json())
+
+
+class TestCRUDTopicoCompleto:
+    async def test_criar_topico_curso_inexistente_404(self, client):
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": 999999999, "titulo": "topico", "conteudo": "conteudo"},
+        )
+        assert r.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_topico_tem_autor_nome(self, client):
+        curso_id = await _criar_curso(client)
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "topico autor", "conteudo": "conteudo"},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        assert r.json()["autor_nome"] != ""
+
+        r = await client.get(f"/api/v1/comunicacao/forum/{curso_id}")
+        assert r.status_code == status.HTTP_200_OK
+        assert r.json()[0]["autor_nome"] != ""
+
+    async def test_listar_topicos_curso_inexistente_404(self, client):
+        r = await client.get("/api/v1/comunicacao/forum/999999999")
+        assert r.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_resposta_tem_autor_nome(self, client):
+        curso_id = await _criar_curso(client)
+        r = await client.post(
+            "/api/v1/comunicacao/forum",
+            json={"curso_id": curso_id, "titulo": "topico resp", "conteudo": "conteudo"},
+        )
+        topico_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/comunicacao/forum/respostas",
+            json={"topico_id": topico_id, "conteudo": "minha resposta"},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        assert r.json()["autor_nome"] != ""
+
+    async def test_resposta_topico_inexistente_404(self, client):
+        r = await client.post(
+            "/api/v1/comunicacao/forum/respostas",
+            json={"topico_id": 999999999, "conteudo": "resposta"},
+        )
+        assert r.status_code == status.HTTP_404_NOT_FOUND
