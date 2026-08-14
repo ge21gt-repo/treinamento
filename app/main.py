@@ -133,13 +133,6 @@ async def lifespan(application: FastAPI):
         """)
         )
 
-        # Remove niveis de seed antigo (issue 13.2)
-        await conn.execute(
-            text("""
-            DELETE FROM lms.niveis WHERE nome IN ('Intermediario', 'Avancado', 'Especialista')
-        """)
-        )
-
         # Seed permissions for each profile (RBAC)
         for perfil_nome, permissoes in PERFIL_PERMISSOES.items():
             permissoes_json = "{" + ", ".join(f'"{p}": true' for p in permissoes) + "}"

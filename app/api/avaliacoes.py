@@ -327,17 +327,14 @@ async def criar_alternativa(
                 detail="Questao verdadeiro_falso ja possui 2 alternativas (verdadeiro/falso)",
             )
     alternativa = Alternativa(**payload.model_dump())
-    db.add(alternativa)
     if payload.correta:
-        await db.flush()
-        await db.execute(
-            update(Alternativa)
-            .where(
-                Alternativa.questao_id == payload.questao_id,
-                Alternativa.id != alternativa.id,
+        with db.no_autoflush:
+            await db.execute(
+                update(Alternativa)
+                .where(Alternativa.questao_id == payload.questao_id)
+                .values(correta=False)
             )
-            .values(correta=False)
-        )
+    db.add(alternativa)
     await db.commit()
     await db.refresh(alternativa)
     return alternativa
@@ -354,17 +351,19 @@ async def atualizar_alternativa(
     alternativa = result.scalar_one_or_none()
     if not alternativa:
         raise HTTPException(status_code=404, detail="Alternativa nao encontrada")
+
+    if payload.correta:
+        with db.no_autoflush:
+            await db.execute(
+                update(Alternativa)
+                .where(
+                    Alternativa.questao_id == alternativa.questao_id,
+                    Alternativa.id != alternativa.id,
+                )
+                .values(correta=False)
+            )
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(alternativa, field, value)
-    if payload.correta:
-        await db.execute(
-            update(Alternativa)
-            .where(
-                Alternativa.questao_id == alternativa.questao_id,
-                Alternativa.id != alternativa.id,
-            )
-            .values(correta=False)
-        )
     await db.commit()
     await db.refresh(alternativa)
     return alternativa

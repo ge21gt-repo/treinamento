@@ -87,10 +87,8 @@ async def calcular_nivel(db: AsyncSession, usuario_id: uuid.UUID) -> tuple[Nivel
             nivel_atual = n
             break
 
-    for n in niveis_list:
-        if n.xp_minimo > total:
-            proximo = n
-            break
+    acima = [n for n in niveis_list if n.xp_minimo > total]
+    proximo = min(acima, key=lambda n: n.xp_minimo) if acima else None
 
     return nivel_atual, proximo
 

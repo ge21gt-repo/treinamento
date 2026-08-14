@@ -579,3 +579,55 @@ class TestResultadoAguardandoCorrecao:
         resultados = r.json()
         assert len(resultados) >= 1
         assert resultados[0]["aguardando_correcao"] is True
+
+
+class TestTrocarAlternativaCorreta:
+    async def test_patch_troca_correta_entre_alternativas(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Troca", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod Troca", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid Troca", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval Troca", "tipo": "prova"})
+        av_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "VF?", "tipo": "verdadeiro_falso"})
+        q_id = r.json()["id"]
+
+        r1 = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "Verdadeiro", "correta": True, "ordem": 0})
+        id1 = r1.json()["id"]
+        r2 = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "Falso", "correta": False, "ordem": 1})
+        id2 = r2.json()["id"]
+
+        # trocar a correta de 1 para 2 (issue 16: antes dava 500 pelo indice unico)
+        r = await client.patch(f"/api/v1/avaliacoes/alternativas/{id2}", json={"correta": True})
+        assert r.status_code == status.HTTP_200_OK
+        assert r.json()["correta"] is True
+
+        r = await client.get(f"/api/v1/avaliacoes/questoes/{q_id}/alternativas")
+        alternativas = {a["id"]: a for a in r.json()}
+        assert alternativas[id1]["correta"] is False
+        assert alternativas[id2]["correta"] is True
+
+    async def test_criar_alternativa_correta_com_outra_existente(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Criar2", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod Criar2", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid Criar2", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval Criar2", "tipo": "prova"})
+        av_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Q?", "tipo": "multipla_escolha"})
+        q_id = r.json()["id"]
+
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "A", "correta": True, "ordem": 0})
+        assert r.status_code == status.HTTP_201_CREATED
+        # criar outra correta: deve desmarcar a primeira sem 500
+        r = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "B", "correta": True, "ordem": 1})
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.get(f"/api/v1/avaliacoes/questoes/{q_id}/alternativas")
+        alternativas = r.json()
+        corretas = [a for a in alternativas if a["correta"]]
+        assert len(corretas) == 1  # exatamente uma correta
