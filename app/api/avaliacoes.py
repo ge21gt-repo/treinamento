@@ -561,6 +561,14 @@ async def submeter_avaliacao(
         tempo_gasto_seg=tempo_gasto,
     )
     db.add(resultado)
+
+    await gamificacao_xp(
+        db,
+        usuario_id=current_user.id,
+        evento="avaliacao_respondida",
+        referencia_id=avaliacao.id,
+    )
+
     await db.commit()
     await db.refresh(resultado)
 

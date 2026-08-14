@@ -111,7 +111,46 @@ async def lifespan(application: FastAPI):
                 ('Platina', 6000, 5),
                 ('Diamante', 10000, 6),
                 ('Mestre', 20000, 7)
+            ON CONFLICT (nome) DO UPDATE SET xp_minimo = EXCLUDED.xp_minimo, ordem = EXCLUDED.ordem
+        """)
+        )
+        # Remove niveis do seed antigo (issue 13.2)
+        await conn.execute(
+            text("DELETE FROM lms.niveis WHERE nome IN ('Intermediario', 'Avancado', 'Especialista')")
+        )
+
+        # Seed badges (issue 13.3)
+        await conn.execute(
+            text("""
+            INSERT INTO lms.badges (nome, descricao, criterio_tipo, criterio_valor) VALUES
+                ('Primeiro passo', 'Conclua seu primeiro curso', 'cursos_concluidos', 1),
+                ('Maratonista', 'Conclua 5 cursos', 'cursos_concluidos', 5),
+                ('Constante', 'Mantenha uma sequencia de 7 dias', 'dias_streak', 7),
+                ('Dedicado', 'Conclua 10 unidades', 'unidades_concluidas', 10),
+                ('Veterano', 'Acumule 1000 XP', 'xp_acumulado', 1000),
+                ('Trilheiro', 'Conclua sua primeira trilha', 'trilhas_concluidas', 1)
             ON CONFLICT (nome) DO NOTHING
+        """)
+        )
+
+        # Seed badges (issue 13.3)
+        await conn.execute(
+            text("""
+            INSERT INTO lms.badges (nome, descricao, criterio_tipo, criterio_valor) VALUES
+                ('Primeiro passo', 'Conclua seu primeiro curso', 'cursos_concluidos', 1),
+                ('Maratonista', 'Conclua 5 cursos', 'cursos_concluidos', 5),
+                ('Constante', 'Mantenha uma sequencia de 7 dias', 'dias_streak', 7),
+                ('Dedicado', 'Conclua 10 unidades', 'unidades_concluidas', 10),
+                ('Veterano', 'Acumule 1000 XP', 'xp_acumulado', 1000),
+                ('Trilheiro', 'Conclua sua primeira trilha', 'trilhas_concluidas', 1)
+            ON CONFLICT (nome) DO NOTHING
+        """)
+        )
+
+        # Remove niveis de seed antigo (issue 13.2)
+        await conn.execute(
+            text("""
+            DELETE FROM lms.niveis WHERE nome IN ('Intermediario', 'Avancado', 'Especialista')
         """)
         )
 
