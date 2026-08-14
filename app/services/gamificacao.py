@@ -108,7 +108,7 @@ async def verificar_badges(db: AsyncSession, usuario_id: uuid.UUID) -> list[Usua
     concedidos: list[UsuarioBadge] = []
 
     for badge in badges_list:
-        progresso = await calcular_progresso_criterio(db, usuario_id, badge.criterio_tipo)
+        progresso = await _calcular_progresso_criterio(db, usuario_id, badge.criterio_tipo)
         if progresso >= badge.criterio_valor:
             ub = UsuarioBadge(usuario_id=usuario_id, badge_id=badge.id)
             db.add(ub)
@@ -120,7 +120,7 @@ async def verificar_badges(db: AsyncSession, usuario_id: uuid.UUID) -> list[Usua
     return concedidos
 
 
-async def calcular_progresso_criterio(db: AsyncSession, usuario_id: uuid.UUID, criterio_tipo: str) -> int:
+async def _calcular_progresso_criterio(db: AsyncSession, usuario_id: uuid.UUID, criterio_tipo: str) -> int:
     match criterio_tipo:
         case "cursos_concluidos":
             return await db.scalar(
@@ -149,7 +149,7 @@ async def calcular_progresso_criterio(db: AsyncSession, usuario_id: uuid.UUID, c
             return await db.scalar(
                 select(func.count(ResultadoAvaliacao.id)).where(
                     ResultadoAvaliacao.usuario_id == usuario_id,
-                    ResultadoAvaliacao.nota >= 100,
+                    ResultadoAvaliacao.nota >= 10,
                 )
             ) or 0
         case "trilhas_concluidas":
@@ -184,7 +184,7 @@ async def atualizar_progresso_missoes(db: AsyncSession, usuario_id: uuid.UUID) -
         if criterio_tipo is None or valor_alvo is None or valor_alvo <= 0:
             continue
 
-        progresso_atual = await calcular_progresso_criterio(db, usuario_id, criterio_tipo)
+        progresso_atual = await _calcular_progresso_criterio(db, usuario_id, criterio_tipo)
         pct = min(100, round(progresso_atual / valor_alvo * 100, 2))
         um.progresso_pct = Decimal(str(pct))
 

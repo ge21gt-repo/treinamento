@@ -41,7 +41,7 @@ async def concluir_unidade(
             Inscricao.curso_id == curso_id,
         )
     )
-    if not insc.scalars().first():
+    if not insc.scalar_one_or_none():
         raise ValueError("Usuario nao inscrito neste curso")
     result = await db.execute(
         select(ProgressoUnidade).where(
@@ -117,7 +117,7 @@ async def atualizar_progresso_curso(
             Inscricao.curso_id == curso_id,
         )
     )
-    inscricao = result.scalars().first()
+    inscricao = result.scalar_one_or_none()
     if inscricao:
         inscricao.progresso_pct = pct
         if pct >= 100:
@@ -162,7 +162,7 @@ async def atualizar_progresso_trilha(
             InscricaoTrilha.trilha_id == trilha_id,
         )
     )
-    trilha_insc = result.scalars().first()
+    trilha_insc = result.scalar_one_or_none()
     if trilha_insc:
         trilha_insc.progresso_pct = media
         if media >= 100:

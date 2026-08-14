@@ -202,7 +202,6 @@ class CorrecaoPendenteInboxRead(CorrecaoPendenteRead):
     avaliacao_titulo: str
     curso_id: int | None = None
     curso_titulo: str | None = None
-    unidade_id: int | None = None
     unidade_titulo: str | None = None
 
 
@@ -226,7 +225,6 @@ class ResultadoAvaliacaoCreate(ResultadoAvaliacaoBase):
 class ResultadoAvaliacaoRead(ResultadoAvaliacaoBase):
     id: int
     realizado_em: datetime
-    aguardando_correcao: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -240,6 +238,17 @@ class EstatisticasAvaliacaoRead(BaseModel):
     total_aprovados: int
     media_nota: float
     taxa_aprovacao: float
+
+
+class EstatisticaQuestaoRead(BaseModel):
+    questao_id: int
+    enunciado: str
+    tipo: str
+    pontuacao: Decimal = Decimal("1.00")
+    respondida: int
+    acertos: int
+    taxa_acerto: float
+    aguardando_correcao: int = 0
 
 
 class EstatisticaQuestaoRead(BaseModel):

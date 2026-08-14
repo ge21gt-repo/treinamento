@@ -9,14 +9,12 @@ from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.gamificacao import Badge, Missao, Nivel, PontosXP, Streak, UsuarioBadge, UsuarioMissao
 from app.models.usuario import Usuario
-from app.services.gamificacao import calcular_nivel, calcular_progresso_criterio
+from app.services.gamificacao import calcular_nivel
 from app.services.rbac import Permissoes
 from app.schemas.gamificacao import (
     BadgeCreate,
     BadgePerfilRead,
-    BadgeProgressoRead,
     BadgeRead,
-    BadgeUpdate,
     HistoricoXPRead,
     LeaderboardEntry,
     MissaoCreate,
@@ -263,40 +261,6 @@ async def listar_badges(
     return result.scalars().all()
 
 
-@router.get("/badges/progresso", response_model=list[BadgeProgressoRead])
-async def progresso_badges(
-    db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
-):
-    """Progresso do usuario logado em cada badge ativa (issue 13.5)."""
-    result = await db.execute(select(Badge).where(Badge.ativo))
-    badges = result.scalars().all()
-
-    concedidas = set()
-    if badges:
-        ub = await db.execute(
-            select(UsuarioBadge.badge_id).where(UsuarioBadge.usuario_id == current_user.id)
-        )
-        concedidas = set(ub.scalars().all())
-
-    itens = []
-    for b in badges:
-        progresso = await calcular_progresso_criterio(db, current_user.id, b.criterio_tipo)
-        itens.append(
-            BadgeProgressoRead(
-                badge_id=b.id,
-                nome=b.nome,
-                descricao=b.descricao,
-                icone_url=b.icone_url,
-                criterio_tipo=b.criterio_tipo,
-                criterio_valor=b.criterio_valor,
-                progresso_atual=progresso,
-                conquistada=b.id in concedidas,
-            )
-        )
-    return itens
-
-
 @router.post("/badges", response_model=BadgeRead, status_code=status.HTTP_201_CREATED)
 async def criar_badge(
     payload: BadgeCreate,
@@ -308,36 +272,6 @@ async def criar_badge(
     await db.commit()
     await db.refresh(badge)
     return badge
-
-
-@router.patch("/badges/{badge_id}", response_model=BadgeRead)
-async def atualizar_badge(
-    badge_id: int,
-    payload: BadgeUpdate,
-    db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_GERENCIAR)),
-):
-    badge = await db.get(Badge, badge_id)
-    if not badge:
-        raise HTTPException(status_code=404, detail="Badge nao encontrada")
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(badge, field, value)
-    await db.commit()
-    await db.refresh(badge)
-    return badge
-
-
-@router.delete("/badges/{badge_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def excluir_badge(
-    badge_id: int,
-    db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_GERENCIAR)),
-):
-    badge = await db.get(Badge, badge_id)
-    if not badge:
-        raise HTTPException(status_code=404, detail="Badge nao encontrada")
-    await db.delete(badge)
-    await db.commit()
 
 
 @router.post("/badges/atribuir", response_model=UsuarioBadgeRead, status_code=status.HTTP_201_CREATED)

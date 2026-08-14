@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -89,10 +89,7 @@ class Unidade(Base):
 
 class Inscricao(Base):
     __tablename__ = "inscricoes"
-    __table_args__ = (
-        UniqueConstraint("curso_id", "usuario_id", name="uq_inscricoes_curso_usuario"),
-        {"schema": "lms"},
-    )
+    __table_args__ = {"schema": "lms"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
