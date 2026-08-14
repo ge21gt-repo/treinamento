@@ -176,6 +176,7 @@ async def listar_correcoes_pendentes_agregado(
                 avaliacao_titulo=avaliacao.titulo if avaliacao else "",
                 curso_id=curso.id if curso else None,
                 curso_titulo=curso.titulo if curso else None,
+                unidade_id=unidade.id if unidade else None,
                 unidade_titulo=unidade.titulo if unidade else None,
             )
         )
@@ -832,7 +833,7 @@ async def estatisticas_questoes(
             continue
         st = stats[r.questao_id]
         st["respondida"] += 1
-        if r.pontuacao_atribuida is None and r.alternativa_id is None:
+        if st["tipo"] == "dissertativa" and r.pontuacao_atribuida is None:
             st["aguardando_correcao"] += 1
         elif r.correta:
             st["acertos"] += 1
