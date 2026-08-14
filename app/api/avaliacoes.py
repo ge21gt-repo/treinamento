@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
@@ -328,6 +328,16 @@ async def criar_alternativa(
             )
     alternativa = Alternativa(**payload.model_dump())
     db.add(alternativa)
+    if payload.correta:
+        await db.flush()
+        await db.execute(
+            update(Alternativa)
+            .where(
+                Alternativa.questao_id == payload.questao_id,
+                Alternativa.id != alternativa.id,
+            )
+            .values(correta=False)
+        )
     await db.commit()
     await db.refresh(alternativa)
     return alternativa
@@ -346,6 +356,15 @@ async def atualizar_alternativa(
         raise HTTPException(status_code=404, detail="Alternativa nao encontrada")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(alternativa, field, value)
+    if payload.correta:
+        await db.execute(
+            update(Alternativa)
+            .where(
+                Alternativa.questao_id == alternativa.questao_id,
+                Alternativa.id != alternativa.id,
+            )
+            .values(correta=False)
+        )
     await db.commit()
     await db.refresh(alternativa)
     return alternativa

@@ -496,3 +496,31 @@ class TestCORS:
             )
         assert r.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
+class TestAlternativaUnicaCorreta:
+    async def test_marcar_correta_desmarca_irma(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Alt", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod Alt", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid Alt", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval Alt", "tipo": "prova"})
+        av_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "VF?", "tipo": "verdadeiro_falso"})
+        q_id = r.json()["id"]
+
+        r1 = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "Verdadeiro", "correta": True, "ordem": 0})
+        id1 = r1.json()["id"]
+        r2 = await client.post("/api/v1/avaliacoes/alternativas", json={"questao_id": q_id, "texto": "Falso", "correta": False, "ordem": 1})
+        id2 = r2.json()["id"]
+
+        r = await client.patch(f"/api/v1/avaliacoes/alternativas/{id2}", json={"correta": True})
+        assert r.status_code == status.HTTP_200_OK
+        assert r.json()["correta"] is True
+
+        r = await client.get(f"/api/v1/avaliacoes/questoes/{q_id}/alternativas")
+        alternativas = {a["id"]: a for a in r.json()}
+        assert alternativas[id1]["correta"] is False
+        assert alternativas[id2]["correta"] is True
