@@ -97,7 +97,7 @@ async def meu_progresso(
         "total_certificados": total_certificados,
         "xp_total": total_xp,
         "nivel": nivel_atual,
-        "ultimos_acessos": [{"data": la.criado_em.isoformat(), "ip": la.ip_address} for la in ultimos_acessos.scalars().all()],
+        "ultimos_acessos": [{"data": la.criado_em.isoformat(), "ip": la.ip} for la in ultimos_acessos.scalars().all()],
     }
 
 

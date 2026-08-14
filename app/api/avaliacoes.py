@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
@@ -85,7 +85,7 @@ async def meus_resultados(
         .where(ResultadoAvaliacao.usuario_id == current_user.id)
         .order_by(ResultadoAvaliacao.realizado_em.desc())
     )
-    return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
+    return result.scalars().all()
 
 
 @router.get("/correcoes-pendentes", response_model=list[CorrecaoPendenteInboxRead])
@@ -176,7 +176,6 @@ async def listar_correcoes_pendentes_agregado(
                 avaliacao_titulo=avaliacao.titulo if avaliacao else "",
                 curso_id=curso.id if curso else None,
                 curso_titulo=curso.titulo if curso else None,
-                unidade_id=unidade.id if unidade else None,
                 unidade_titulo=unidade.titulo if unidade else None,
             )
         )
@@ -328,16 +327,6 @@ async def criar_alternativa(
             )
     alternativa = Alternativa(**payload.model_dump())
     db.add(alternativa)
-    if payload.correta:
-        await db.flush()
-        await db.execute(
-            update(Alternativa)
-            .where(
-                Alternativa.questao_id == payload.questao_id,
-                Alternativa.id != alternativa.id,
-            )
-            .values(correta=False)
-        )
     await db.commit()
     await db.refresh(alternativa)
     return alternativa
@@ -356,15 +345,6 @@ async def atualizar_alternativa(
         raise HTTPException(status_code=404, detail="Alternativa nao encontrada")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(alternativa, field, value)
-    if payload.correta:
-        await db.execute(
-            update(Alternativa)
-            .where(
-                Alternativa.questao_id == alternativa.questao_id,
-                Alternativa.id != alternativa.id,
-            )
-            .values(correta=False)
-        )
     await db.commit()
     await db.refresh(alternativa)
     return alternativa
@@ -581,14 +561,6 @@ async def submeter_avaliacao(
         tempo_gasto_seg=tempo_gasto,
     )
     db.add(resultado)
-
-    await gamificacao_xp(
-        db,
-        usuario_id=current_user.id,
-        evento="avaliacao_respondida",
-        referencia_id=avaliacao.id,
-    )
-
     await db.commit()
     await db.refresh(resultado)
 
@@ -784,7 +756,7 @@ async def listar_resultados_avaliacao(
         .where(*where_clause)
         .order_by(ResultadoAvaliacao.realizado_em.desc())
     )
-    return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
+    return result.scalars().all()
 
 
 @router.get("/{avaliacao_id}/estatisticas", response_model=EstatisticasAvaliacaoRead)
@@ -852,7 +824,7 @@ async def estatisticas_questoes(
             continue
         st = stats[r.questao_id]
         st["respondida"] += 1
-        if st["tipo"] == "dissertativa" and r.pontuacao_atribuida is None:
+        if r.pontuacao_atribuida is None and r.alternativa_id is None:
             st["aguardando_correcao"] += 1
         elif r.correta:
             st["acertos"] += 1
@@ -1014,24 +986,3 @@ async def listar_resultados_usuario(
 
     result = await db.execute(select(ResultadoAvaliacao).where(ResultadoAvaliacao.usuario_id == usuario_id))
     return result.scalars().all()
-
-
-async def _resultado_com_aguardando(
-    db: AsyncSession,
-    resultado: ResultadoAvaliacao,
-) -> ResultadoAvaliacaoRead:
-    """Preenche aguardando_correcao no ResultadoAvaliacaoRead (issue 11)."""
-    pendentes = await db.scalar(
-        select(func.count(RespostaParticipante.id)).join(
-            Questao, Questao.id == RespostaParticipante.questao_id
-        ).where(
-            RespostaParticipante.usuario_id == resultado.usuario_id,
-            RespostaParticipante.tentativa_num == resultado.tentativa_num,
-            Questao.tipo == "dissertativa",
-            RespostaParticipante.pontuacao_atribuida.is_(None),
-        )
-    )
-    return ResultadoAvaliacaoRead(
-        **ResultadoAvaliacaoRead.model_validate(resultado).model_dump(exclude={"aguardando_correcao"}),
-        aguardando_correcao=bool(pendentes),
-    )
