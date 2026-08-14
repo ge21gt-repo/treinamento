@@ -115,6 +115,8 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 
 ## Convictions
 
+- **Testar o boot da app localmente antes de qualquer merge é obrigatório** — rodar o `lifespan`/start (ex.: `async with lifespan(app)`) para validar create_all + seeds. Incidente 14/08: seed sem coluna NOT NULL crashava o start e derrubou hom/dev (502).
+- **Seed via SQL puro: TODAS as colunas NOT NULL explícitas** — o default do model SQLAlchemy não vale em `INSERT` via `text()`; sem isso o start crasha com `NotNullViolationError`.
 - Always add imports in `__init__.py` for new models/schemas.
 - Chain new migrations with `down_revision` pointing to latest migration (currently `'005_add_telefone_unique_constraint'`).
 - Use Pydantic v2 style (no `orm_mode`, use `model_config`).
