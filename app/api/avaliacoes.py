@@ -85,7 +85,7 @@ async def meus_resultados(
         .where(ResultadoAvaliacao.usuario_id == current_user.id)
         .order_by(ResultadoAvaliacao.realizado_em.desc())
     )
-    return result.scalars().all()
+    return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
 
 
 @router.get("/correcoes-pendentes", response_model=list[CorrecaoPendenteInboxRead])
@@ -784,7 +784,7 @@ async def listar_resultados_avaliacao(
         .where(*where_clause)
         .order_by(ResultadoAvaliacao.realizado_em.desc())
     )
-    return result.scalars().all()
+    return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
 
 
 @router.get("/{avaliacao_id}/estatisticas", response_model=EstatisticasAvaliacaoRead)
@@ -1014,3 +1014,24 @@ async def listar_resultados_usuario(
 
     result = await db.execute(select(ResultadoAvaliacao).where(ResultadoAvaliacao.usuario_id == usuario_id))
     return result.scalars().all()
+
+
+async def _resultado_com_aguardando(
+    db: AsyncSession,
+    resultado: ResultadoAvaliacao,
+) -> ResultadoAvaliacaoRead:
+    """Preenche aguardando_correcao no ResultadoAvaliacaoRead (issue 11)."""
+    pendentes = await db.scalar(
+        select(func.count(RespostaParticipante.id)).join(
+            Questao, Questao.id == RespostaParticipante.questao_id
+        ).where(
+            RespostaParticipante.usuario_id == resultado.usuario_id,
+            RespostaParticipante.tentativa_num == resultado.tentativa_num,
+            Questao.tipo == "dissertativa",
+            RespostaParticipante.pontuacao_atribuida.is_(None),
+        )
+    )
+    return ResultadoAvaliacaoRead(
+        **ResultadoAvaliacaoRead.model_validate(resultado).model_dump(exclude={"aguardando_correcao"}),
+        aguardando_correcao=bool(pendentes),
+    )

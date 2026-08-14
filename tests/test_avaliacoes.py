@@ -524,3 +524,58 @@ class TestAlternativaUnicaCorreta:
         alternativas = {a["id"]: a for a in r.json()}
         assert alternativas[id1]["correta"] is False
         assert alternativas[id2]["correta"] is True
+
+
+class TestQuestaoSemAlternativa:
+    async def test_questao_objetiva_sem_alternativa_nao_derruba_nota(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso QSA", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod QSA", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid QSA", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval QSA", "tipo": "prova", "nota_minima": 50})
+        av_id = r.json()["id"]
+
+        # questao objetiva SEM alternativa
+        r = await client.post("/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Sem alt", "tipo": "multipla_escolha", "pontuacao": 10})
+        q1_id = r.json()["id"]
+        # questao dissertativa
+        r = await client.post("/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Disserte", "tipo": "dissertativa", "pontuacao": 10})
+        q2_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+
+        r = await client.post(
+            f"/api/v1/avaliacoes/{av_id}/submeter",
+            json={"respostas": [{"questao_id": q2_id, "resposta_texto": "minha resposta"}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        data = r.json()
+        assert data["nota"] == 0.0  # dissertativa ainda nao corrigida; objetiva sem alt ignorada
+
+
+class TestResultadoAguardandoCorrecao:
+    async def test_meus_resultados_marca_aguardando(self, client):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso ARC", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/modulos", json={"curso_id": curso_id, "titulo": "Mod ARC", "descricao": "x", "ordem": 0})
+        mod_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/unidades", json={"modulo_id": mod_id, "titulo": "Unid ARC", "tipo": "conteudo", "ordem": 0})
+        uni_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes", json={"unidade_id": uni_id, "titulo": "Aval ARC", "tipo": "prova"})
+        av_id = r.json()["id"]
+        r = await client.post("/api/v1/avaliacoes/questoes", json={"avaliacao_id": av_id, "enunciado": "Disserte", "tipo": "dissertativa", "pontuacao": 10})
+        q_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+
+        r = await client.post(
+            f"/api/v1/avaliacoes/{av_id}/submeter",
+            json={"respostas": [{"questao_id": q_id, "resposta_texto": "resposta"}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.get("/api/v1/avaliacoes/meus-resultados")
+        assert r.status_code == status.HTTP_200_OK
+        resultados = r.json()
+        assert len(resultados) >= 1
+        assert resultados[0]["aguardando_correcao"] is True

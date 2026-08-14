@@ -226,6 +226,7 @@ class ResultadoAvaliacaoCreate(ResultadoAvaliacaoBase):
 class ResultadoAvaliacaoRead(ResultadoAvaliacaoBase):
     id: int
     realizado_em: datetime
+    aguardando_correcao: bool = False
 
     model_config = {"from_attributes": True}
 
