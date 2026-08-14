@@ -122,27 +122,13 @@ async def lifespan(application: FastAPI):
         # Seed badges (issue 13.3)
         await conn.execute(
             text("""
-            INSERT INTO lms.badges (nome, descricao, criterio_tipo, criterio_valor) VALUES
-                ('Primeiro passo', 'Conclua seu primeiro curso', 'cursos_concluidos', 1),
-                ('Maratonista', 'Conclua 5 cursos', 'cursos_concluidos', 5),
-                ('Constante', 'Mantenha uma sequencia de 7 dias', 'dias_streak', 7),
-                ('Dedicado', 'Conclua 10 unidades', 'unidades_concluidas', 10),
-                ('Veterano', 'Acumule 1000 XP', 'xp_acumulado', 1000),
-                ('Trilheiro', 'Conclua sua primeira trilha', 'trilhas_concluidas', 1)
-            ON CONFLICT (nome) DO NOTHING
-        """)
-        )
-
-        # Seed badges (issue 13.3)
-        await conn.execute(
-            text("""
-            INSERT INTO lms.badges (nome, descricao, criterio_tipo, criterio_valor) VALUES
-                ('Primeiro passo', 'Conclua seu primeiro curso', 'cursos_concluidos', 1),
-                ('Maratonista', 'Conclua 5 cursos', 'cursos_concluidos', 5),
-                ('Constante', 'Mantenha uma sequencia de 7 dias', 'dias_streak', 7),
-                ('Dedicado', 'Conclua 10 unidades', 'unidades_concluidas', 10),
-                ('Veterano', 'Acumule 1000 XP', 'xp_acumulado', 1000),
-                ('Trilheiro', 'Conclua sua primeira trilha', 'trilhas_concluidas', 1)
+            INSERT INTO lms.badges (nome, descricao, criterio_tipo, criterio_valor, ativo) VALUES
+                ('Primeiro passo', 'Conclua seu primeiro curso', 'cursos_concluidos', 1, true),
+                ('Maratonista', 'Conclua 5 cursos', 'cursos_concluidos', 5, true),
+                ('Constante', 'Mantenha uma sequencia de 7 dias', 'dias_streak', 7, true),
+                ('Dedicado', 'Conclua 10 unidades', 'unidades_concluidas', 10, true),
+                ('Veterano', 'Acumule 1000 XP', 'xp_acumulado', 1000, true),
+                ('Trilheiro', 'Conclua sua primeira trilha', 'trilhas_concluidas', 1, true)
             ON CONFLICT (nome) DO NOTHING
         """)
         )
