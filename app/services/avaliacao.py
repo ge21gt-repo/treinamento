@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaParticipante
@@ -45,13 +45,17 @@ async def calcular_nota(
             pontuacao_total += q.pontuacao
             pontuacao_obtida += corrigida.pontuacao_atribuida or Decimal("0")
             continue
+        tem_alternativas = await db.scalar(
+            select(func.count(Alternativa.id)).where(Alternativa.questao_id == q.id)
+        )
+        if not tem_alternativas:
+            continue
         pontuacao_total += q.pontuacao
         alt_id = respostas_alternativas.get(q.id)
         if alt_id is not None:
             alt = await db.get(Alternativa, alt_id)
             if alt and alt.questao_id == q.id and alt.correta:
                 pontuacao_obtida += q.pontuacao
-
     if pontuacao_total == 0:
         return (Decimal("0"), False)
 
