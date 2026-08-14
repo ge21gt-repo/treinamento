@@ -216,23 +216,3 @@ class PerfilGamificadoRead(BaseModel):
     badges: list[BadgePerfilRead]
     streak: StreakPerfilRead
     historico_recente: list[HistoricoXPRead]
-
-
-class BadgeUpdate(BaseModel):
-    nome: str | None = None
-    descricao: str | None = None
-    icone_url: str | None = None
-    criterio_tipo: str | None = None
-    criterio_valor: int | None = None
-    ativo: bool | None = None
-
-
-class BadgeProgressoRead(BaseModel):
-    badge_id: int
-    nome: str
-    descricao: str | None = None
-    icone_url: str | None = None
-    criterio_tipo: str
-    criterio_valor: int
-    progresso_atual: int
-    conquistada: bool

@@ -127,7 +127,7 @@ async def ver_progresso_trilha(
         )
         .options(selectinload(InscricaoTrilha.trilha).selectinload(TrilhaAprendizagem.cursos))
     )
-    inscricao = result.scalars().first()
+    inscricao = result.scalar_one_or_none()
     if not inscricao:
         raise HTTPException(status_code=404, detail="Inscricao nao encontrada nesta trilha")
 
@@ -192,7 +192,7 @@ async def inscrever_trilha(
             InscricaoTrilha.trilha_id == trilha_id,
         )
     )
-    if result.scalars().first():
+    if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Usuario ja inscrito nesta trilha")
 
     inscricao = InscricaoTrilha(usuario_id=current_user.id, trilha_id=trilha_id)
@@ -246,7 +246,7 @@ async def progresso_trilha_detalhado(
             InscricaoTrilha.trilha_id == trilha_id,
         )
     )
-    inscricao = result.scalars().first()
+    inscricao = result.scalar_one_or_none()
     if not inscricao:
         raise HTTPException(status_code=404, detail="Inscricao nao encontrada nesta trilha")
 
