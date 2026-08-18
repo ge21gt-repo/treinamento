@@ -35,6 +35,7 @@ class Usuario(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    silenciado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     perfis: Mapped[list["UsuarioPerfil"]] = relationship(
         back_populates="usuario",

@@ -50,3 +50,14 @@ class ForumResposta(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     topico: Mapped["ForumTopico"] = relationship(back_populates="respostas")
+
+
+class ForumTermoBloqueado(Base):
+    __tablename__ = "forum_termos_bloqueados"
+    __table_args__ = {"schema": "lms"}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    termo: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    categoria: Mapped[str | None] = mapped_column(String(50))
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

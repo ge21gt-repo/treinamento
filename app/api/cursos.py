@@ -2,15 +2,15 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_permissao
-from app.database import get_db
+from app.database import async_session, get_db
 from app.models.conteudo import Conteudo, EntregaAtividade
-from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemCurso, Modulo, PresencaAula, ProgressoUnidade, Unidade
+from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemAula, MensagemCurso, Modulo, PresencaAula, ProgressoUnidade, Unidade
 from app.models.usuario import Usuario
 from app.services.paginacao import apply_search, count_query
 from app.services.storage import resolve_file_url
@@ -27,12 +27,16 @@ from app.schemas.curso import (
     CursoUpdate,
     InscricaoCreate,
     InscricaoRead,
+    MensagemAulaCreate,
+    MensagemAulaRead,
     ModuloArvoreRead,
     ModuloCreate,
     ModuloRead,
     ModuloUpdate,
     PresencaAulaRead,
+    PresencaConsultaItem,
     PresencaRegistroRead,
+    PresencaResumoRead,
     ProcessarGravacaoResponse,
     ProgressoUnidadeCreate,
     ProgressoUnidadeRead,
@@ -950,13 +954,486 @@ async def sair_aula(
     return presenca
 
 
+async def _fechar_presencas_lazy(db: AsyncSession, aula: AulaSincrona) -> None:
+    """Fecha automaticamente presencas abertas de uma aula ja encerrada.
+
+    Quando a aula ja terminou (data_hora_fim no passado), presencas sem
+    hora_saida sao fechadas com hora_saida = data_hora_fim e tempo de
+    permanencia calculado. Idempotente: presencas ja fechadas nao sao
+    alteradas. Lazy: dispara apenas ao consultar/relatar (sem cron).
+    """
+    if not aula.data_hora_fim or aula.data_hora_fim > datetime.now(timezone.utc):
+        return
+
+    result = await db.execute(
+        select(PresencaAula).where(
+            PresencaAula.aula_id == aula.id,
+            PresencaAula.hora_saida.is_(None),
+        )
+    )
+    presencas = result.scalars().all()
+    for presenca in presencas:
+        presenca.hora_saida = aula.data_hora_fim
+        presenca.tempo_permanencia_seg = max(
+            0, int((aula.data_hora_fim - presenca.hora_entrada).total_seconds())
+        )
+    if presencas:
+        await db.commit()
+
+
 @router.get("/aulas/{aula_id}/presencas", response_model=list[PresencaAulaRead])
 async def listar_presencas_aula(
     aula_id: int,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.AULA_VER_PRESENCA)),
 ):
+    result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
+    aula = result.scalar_one_or_none()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    await _fechar_presencas_lazy(db, aula)
+
     result = await db.execute(
         select(PresencaAula).where(PresencaAula.aula_id == aula_id).order_by(PresencaAula.hora_entrada)
     )
     return result.scalars().all()
+
+
+@router.get("/aulas/presencas", response_model=dict)
+async def consultar_presencas_admin(
+    curso_id: int | None = Query(None, description="Filtra por curso"),
+    usuario_id: uuid.UUID | None = Query(None, description="Filtra por participante"),
+    de: datetime | None = Query(None, description="Inicio do periodo (ISO)"),
+    ate: datetime | None = Query(None, description="Fim do periodo (ISO)"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    response: Response = None,
+    _: Usuario = Depends(require_permissao(Permissoes.AULA_VER_PRESENCA)),
+):
+    """Consulta administrativa de presencas (TI2-94).
+
+    Filtros: curso, participante e periodo (de/ate). Retorna itens paginados
+    (X-Total-Count) + resumo agregado do resultado filtrado.
+    """
+    query = select(PresencaAula)
+    if curso_id is not None:
+        query = query.join(AulaSincrona, AulaSincrona.id == PresencaAula.aula_id).where(
+            AulaSincrona.curso_id == curso_id
+        )
+    if usuario_id is not None:
+        query = query.where(PresencaAula.usuario_id == usuario_id)
+    if de is not None:
+        query = query.where(PresencaAula.hora_entrada >= de)
+    if ate is not None:
+        query = query.where(PresencaAula.hora_entrada <= ate)
+
+    total = await count_query(db, query)
+    rows = (await db.execute(query.order_by(PresencaAula.hora_entrada.desc()).offset(skip).limit(limit))).scalars().all()
+
+    aula_ids = {p.aula_id for p in rows}
+    aulas = {}
+    if aula_ids:
+        aulas_res = await db.execute(select(AulaSincrona).where(AulaSincrona.id.in_(aula_ids)))
+        aulas = {a.id: a for a in aulas_res.scalars().all()}
+
+    curso_ids = {a.curso_id for a in aulas.values()}
+    cursos = {}
+    if curso_ids:
+        cursos_res = await db.execute(select(Curso).where(Curso.id.in_(curso_ids)))
+        cursos = {c.id: c for c in cursos_res.scalars().all()}
+
+    user_ids = {p.usuario_id for p in rows}
+    usuarios = {}
+    if user_ids:
+        us_res = await db.execute(select(Usuario).where(Usuario.id.in_(user_ids)))
+        usuarios = {u.id: u for u in us_res.scalars().all()}
+
+    itens = [
+        PresencaConsultaItem(
+            id=p.id,
+            aula_id=p.aula_id,
+            aula_titulo=aulas[p.aula_id].titulo if p.aula_id in aulas else "",
+            curso_id=aulas[p.aula_id].curso_id if p.aula_id in aulas else None,
+            curso_titulo=cursos[aulas[p.aula_id].curso_id].titulo
+            if p.aula_id in aulas and aulas[p.aula_id].curso_id in cursos
+            else "",
+            usuario_id=p.usuario_id,
+            usuario_nome=usuarios[p.usuario_id].nome_completo if p.usuario_id in usuarios else "",
+            email=usuarios[p.usuario_id].email if p.usuario_id in usuarios else "",
+            hora_entrada=p.hora_entrada,
+            hora_saida=p.hora_saida,
+            tempo_permanencia_seg=p.tempo_permanencia_seg,
+            presente=p.presente,
+        )
+        for p in rows
+    ]
+
+    tempos = [p.tempo_permanencia_seg or 0 for p in rows]
+    resumo = PresencaResumoRead(
+        total_presencas=len(rows),
+        total_presentes=sum(1 for p in rows if p.presente),
+        media_tempo_seg=round(sum(tempos) / len(tempos), 2) if tempos else 0.0,
+        tempo_total_seg=sum(tempos),
+    )
+
+    response.headers["X-Total-Count"] = str(total)
+    return {"itens": itens, "resumo": resumo}
+
+
+@router.get("/aulas/{aula_id}/presencas/relatorio")
+async def relatorio_presencas_aula(
+    aula_id: int,
+    formato: str = Query("csv", pattern="^(csv|pdf)$"),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AULA_VER_PRESENCA)),
+):
+    """Relatorio de presencas da aula em CSV (TI2-93).
+
+    Fecha presencas em aberto (lazy) antes de gerar, para o relatorio refletir
+    a situacao final da aula.
+    """
+    result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
+    aula = result.scalar_one_or_none()
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    await _fechar_presencas_lazy(db, aula)
+
+    presencas = (
+        await db.execute(
+            select(PresencaAula).where(PresencaAula.aula_id == aula_id).order_by(PresencaAula.hora_entrada)
+        )
+    ).scalars().all()
+
+    usuarios_ids = {p.usuario_id for p in presencas}
+    usuarios = {}
+    if usuarios_ids:
+        rows = await db.execute(select(Usuario).where(Usuario.id.in_(usuarios_ids)))
+        usuarios = {u.id: u for u in rows.scalars().all()}
+
+    if formato == "pdf":
+        return await _relatorio_presencas_pdf(aula, presencas, usuarios)
+
+    return _relatorio_presencas_csv(aula, presencas, usuarios)
+
+
+def _relatorio_presencas_csv(
+    aula: AulaSincrona,
+    presencas: list[PresencaAula],
+    usuarios: dict,
+) -> Response:
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=";")
+    writer.writerow(["Relatorio de presenca - Aula", aula.titulo])
+    writer.writerow(["Data", aula.data_hora.strftime("%d/%m/%Y %H:%M")])
+    writer.writerow([])
+    writer.writerow(["Participante", "Email", "Entrada", "Saida", "Tempo (min)", "Presente"])
+
+    for p in presencas:
+        usuario = usuarios.get(p.usuario_id)
+        nome = usuario.nome_completo if usuario else "Desconhecido"
+        email = usuario.email if usuario else ""
+        tempo = (p.tempo_permanencia_seg or 0) // 60
+        writer.writerow(
+            [
+                nome,
+                email,
+                p.hora_entrada.strftime("%d/%m/%Y %H:%M"),
+                p.hora_saida.strftime("%d/%m/%Y %H:%M") if p.hora_saida else "em aberto",
+                tempo,
+                "Sim" if p.presente else "Nao",
+            ]
+        )
+
+    filename = f"presencas_aula_{aula.id}.csv"
+    return Response(
+        content=b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _relatorio_presencas_pdf(
+    aula: AulaSincrona,
+    presencas: list[PresencaAula],
+    usuarios: dict,
+) -> Response:
+    """Relatorio PDF de presenca (TI2-93, parte 2) via reportlab."""
+    import io
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, title=f"Presencas - {aula.titulo}")
+    styles = getSampleStyleSheet()
+
+    elementos = [
+        Paragraph(f"Relatorio de presenca - Aula: {aula.titulo}", styles["Title"]),
+        Spacer(1, 12),
+        Paragraph(f"Data: {aula.data_hora.strftime('%d/%m/%Y %H:%M')}", styles["Normal"]),
+        Spacer(1, 12),
+    ]
+
+    cabecalho = ["Participante", "Email", "Entrada", "Saida", "Tempo (min)", "Presente"]
+    linhas = [cabecalho]
+    for p in presencas:
+        usuario = usuarios.get(p.usuario_id)
+        nome = usuario.nome_completo if usuario else "Desconhecido"
+        email = usuario.email if usuario else ""
+        tempo = (p.tempo_permanencia_seg or 0) // 60
+        linhas.append(
+            [
+                nome,
+                email,
+                p.hora_entrada.strftime("%d/%m/%Y %H:%M"),
+                p.hora_saida.strftime("%d/%m/%Y %H:%M") if p.hora_saida else "em aberto",
+                tempo,
+                "Sim" if p.presente else "Nao",
+            ]
+        )
+
+    tabela = Table(linhas)
+    tabela.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#EAF1F8")]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    elementos.append(tabela)
+
+    doc.build(elementos)
+    buffer.seek(0)
+    filename = f"presencas_aula_{aula.id}.pdf"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# --- Chat em tempo real da aula (US-13) ---
+
+_ws_connections: dict[int, set[WebSocket]] = {}
+
+
+@router.websocket("/aulas/{aula_id}/chat/ws")
+async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
+    """WebSocket de chat em tempo real da aula (US-13, T-13.1).
+
+    Autentica via token JWT na query string (?token=...), valida que a aula
+    existe e faz broadcast das mensagens para todos os conectados na aula.
+    """
+    token = websocket.query_params.get("token")
+    from app.services.auth import decode_token
+
+    payload = decode_token(token or "")
+    if not payload or not payload.get("sub"):
+        await websocket.close(code=4401)
+        return
+
+    try:
+        async with async_session() as db:
+            aula = await db.get(AulaSincrona, aula_id)
+            if not aula:
+                await websocket.close(code=4404)
+                return
+            usuario_id = uuid.UUID(payload["sub"])
+            usuario = await db.get(Usuario, usuario_id)
+            if not usuario:
+                await websocket.close(code=4401)
+                return
+            await websocket.accept()
+            connections = _ws_connections.setdefault(aula_id, set())
+            connections.add(websocket)
+            try:
+                while True:
+                    data = await websocket.receive_json()
+                    agora = datetime.now(timezone.utc)
+                    if usuario.silenciado_ate and usuario.silenciado_ate > agora:
+                        await websocket.send_json(
+                            {
+                                "type": "erro",
+                                "detail": "Voce esta silenciado no chat ate "
+                                + usuario.silenciado_ate.isoformat(),
+                            }
+                        )
+                        continue
+                    texto = (data.get("texto") or "").strip()
+                    if not texto or len(texto) > 2000:
+                        await websocket.send_json({"type": "erro", "detail": "Texto invalido (max 2000)"})
+                        continue
+                    msg = MensagemAula(
+                        aula_id=aula_id,
+                        usuario_id=usuario.id,
+                        texto=texto,
+                    )
+                    db.add(msg)
+                    await db.commit()
+                    await db.refresh(msg)
+                    payload_out = {
+                        "type": "mensagem",
+                        "id": msg.id,
+                        "aula_id": msg.aula_id,
+                        "usuario_id": str(msg.usuario_id),
+                        "usuario_nome": usuario.nome_completo,
+                        "texto": msg.texto,
+                        "criado_em": msg.criado_em.isoformat(),
+                    }
+                    for conn in list(connections):
+                        try:
+                            await conn.send_json(payload_out)
+                        except Exception:
+                            connections.discard(conn)
+            except WebSocketDisconnect:
+                pass
+            finally:
+                connections.discard(websocket)
+    except Exception:
+        try:
+            await websocket.close(code=4500)
+        except Exception:
+            pass
+
+
+@router.get("/aulas/{aula_id}/chat", response_model=list[MensagemAulaRead])
+async def listar_chat_aula(
+    aula_id: int,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CHAT_VISUALIZAR)),
+):
+    aula = await db.get(AulaSincrona, aula_id)
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    result = await db.execute(
+        select(MensagemAula)
+        .where(MensagemAula.aula_id == aula_id, MensagemAula.excluida.is_(False))
+        .order_by(MensagemAula.criado_em.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    msgs = result.scalars().all()
+    msgs.reverse()
+
+    usuarios_ids = {m.usuario_id for m in msgs}
+    usuarios = {}
+    if usuarios_ids:
+        rows = await db.execute(select(Usuario).where(Usuario.id.in_(usuarios_ids)))
+        usuarios = {u.id: u.nome_completo for u in rows.scalars().all()}
+
+    return [
+        MensagemAulaRead(
+            id=m.id,
+            aula_id=m.aula_id,
+            usuario_id=str(m.usuario_id),
+            usuario_nome=usuarios.get(m.usuario_id, ""),
+            texto=m.texto,
+            excluida=m.excluida,
+            criado_em=m.criado_em,
+        )
+        for m in msgs
+    ]
+
+
+@router.post("/aulas/{aula_id}/chat", response_model=MensagemAulaRead, status_code=status.HTTP_201_CREATED)
+async def enviar_mensagem_aula(
+    aula_id: int,
+    payload: MensagemAulaCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CHAT_ENVIAR)),
+):
+    aula = await db.get(AulaSincrona, aula_id)
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    agora = datetime.now(timezone.utc)
+    usuario_fresco = await db.get(Usuario, current_user.id)
+    if usuario_fresco and usuario_fresco.silenciado_ate and usuario_fresco.silenciado_ate > agora:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Usuario silenciado no chat ate {usuario_fresco.silenciado_ate.isoformat()}",
+        )
+
+    texto = payload.texto.strip()
+    if not texto:
+        raise HTTPException(status_code=422, detail="Texto nao pode ser vazio")
+    if len(texto) > 2000:
+        raise HTTPException(status_code=422, detail="Texto muito longo (max 2000)")
+
+    msg = MensagemAula(aula_id=aula_id, usuario_id=current_user.id, texto=texto)
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return MensagemAulaRead(
+        id=msg.id,
+        aula_id=msg.aula_id,
+        usuario_id=str(msg.usuario_id),
+        usuario_nome=current_user.nome_completo,
+        texto=msg.texto,
+        excluida=msg.excluida,
+        criado_em=msg.criado_em,
+    )
+
+
+# --- Moderacao do chat da aula (US-13, T-13.4) ---
+
+
+@router.delete("/aulas/{aula_id}/chat/{mensagem_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def excluir_mensagem_aula(
+    aula_id: int,
+    mensagem_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CHAT_MODERAR)),
+):
+    """Exclui (logicamente) uma mensagem do chat da aula. Apenas moderadores."""
+    aula = await db.get(AulaSincrona, aula_id)
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    result = await db.execute(
+        select(MensagemAula).where(MensagemAula.id == mensagem_id, MensagemAula.aula_id == aula_id)
+    )
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Mensagem nao encontrada")
+
+    msg.excluida = True
+    await db.commit()
+
+
+@router.patch("/aulas/{aula_id}/chat/silenciar/{usuario_id}", response_model=dict)
+async def silenciar_usuario_chat(
+    aula_id: int,
+    usuario_id: uuid.UUID,
+    silenciado_ate: datetime | None = Query(None, description="ISO; null ou ausente = silenciar por 24h"),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CHAT_MODERAR)),
+):
+    """Silencia um usuario no chat. Sem silenciado_ate, silencia por 24h."""
+    aula = await db.get(AulaSincrona, aula_id)
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+
+    usuario = await db.get(Usuario, usuario_id)
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    usuario.silenciado_ate = silenciado_ate or datetime.now(timezone.utc) + timedelta(hours=24)
+    await db.commit()
+    return {"usuario_id": str(usuario.id), "silenciado_ate": usuario.silenciado_ate.isoformat()}

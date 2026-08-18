@@ -103,9 +103,11 @@ class Permissoes:
     FORUM_EDITAR = "forum:editar"
     FORUM_EXCLUIR = "forum:excluir"
     FORUM_VISUALIZAR = "forum:visualizar"
+    FORUM_MODERAR = "forum:moderar"
 
     CHAT_ENVIAR = "chat:enviar"
     CHAT_VISUALIZAR = "chat:visualizar"
+    CHAT_MODERAR = "chat:moderar"
 
 
 # Mapeamento de perfil → permissões (baseado na lógica de produto)
@@ -191,7 +193,9 @@ PERFIL_PERMISSOES = {
         Permissoes.FORUM_EDITAR,
         Permissoes.FORUM_EXCLUIR,
         Permissoes.FORUM_VISUALIZAR,
+        Permissoes.FORUM_MODERAR,
         Permissoes.CHAT_ENVIAR,
+        Permissoes.CHAT_MODERAR,
         Permissoes.CHAT_VISUALIZAR,
     ],
     "administrador": [
@@ -275,7 +279,9 @@ PERFIL_PERMISSOES = {
         Permissoes.FORUM_EDITAR,
         Permissoes.FORUM_EXCLUIR,
         Permissoes.FORUM_VISUALIZAR,
+        Permissoes.FORUM_MODERAR,
         Permissoes.CHAT_ENVIAR,
+        Permissoes.CHAT_MODERAR,
         Permissoes.CHAT_VISUALIZAR,
     ],
     "instrutor": [
@@ -341,7 +347,9 @@ PERFIL_PERMISSOES = {
         Permissoes.FORUM_EDITAR,
         Permissoes.FORUM_EXCLUIR,
         Permissoes.FORUM_VISUALIZAR,
+        Permissoes.FORUM_MODERAR,
         Permissoes.CHAT_ENVIAR,
+        Permissoes.CHAT_MODERAR,
         Permissoes.CHAT_VISUALIZAR,
     ],
     "auditor": [
