@@ -99,3 +99,31 @@ class TestCursoStats:
         assert r.status_code == status.HTTP_200_OK
         data = r.json()
         assert data["total_inscritos"] == 0
+
+
+class TestMeuProgresso:
+    async def test_meu_progresso_com_log_de_acesso(self, client, admin_user):
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from app.config import settings
+        from app.models.log import LogAcesso
+
+        engine = create_async_engine(settings.TEST_DATABASE_URL)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        session = maker()
+        try:
+            log = LogAcesso(
+                usuario_id=admin_user.id,
+                acao="login",
+                ip_address="127.0.0.1",
+            )
+            session.add(log)
+            await session.commit()
+        finally:
+            await session.close()
+            await engine.dispose()
+
+        r = await client.get("/api/v1/dashboard/meu-progresso")
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        assert "ultimos_acessos" in data
