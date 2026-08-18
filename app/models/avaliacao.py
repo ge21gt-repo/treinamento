@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -48,7 +48,15 @@ class Questao(Base):
 
 class Alternativa(Base):
     __tablename__ = "alternativas"
-    __table_args__ = {"schema": "lms"}
+    __table_args__ = (
+        Index(
+            "uq_alternativa_correta_por_questao",
+            "questao_id",
+            unique=True,
+            postgresql_where=text("correta"),
+        ),
+        {"schema": "lms"},
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     questao_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.questoes.id", ondelete="CASCADE"), nullable=False)

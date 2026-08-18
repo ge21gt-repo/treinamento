@@ -332,3 +332,25 @@ class TestEngine:
             )
             assert xp_streak == 10 + 10
         await self._run_with_session(db_url, check)
+
+    async def test_proximo_nivel_aponta_para_o_proximo_nao_o_topo(self, db_url):
+        async def check(session, uid):
+            session.add(PontosXP(usuario_id=uid, quantidade=60, origem="teste", referencia_id=1))
+            await session.flush()
+
+            nivel, prox = await calcular_nivel(session, uid)
+            assert nivel.nome == "Iniciante"
+            assert prox is not None
+            assert prox.nome == "Bronze"
+            assert prox.xp_minimo == 500
+        await self._run_with_session(db_url, check)
+
+    async def test_proximo_nivel_none_no_topo(self, db_url):
+        async def check(session, uid):
+            session.add(PontosXP(usuario_id=uid, quantidade=25000, origem="teste", referencia_id=1))
+            await session.flush()
+
+            nivel, prox = await calcular_nivel(session, uid)
+            assert nivel.nome == "Mestre"
+            assert prox is None
+        await self._run_with_session(db_url, check)
