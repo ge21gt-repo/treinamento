@@ -1,7 +1,7 @@
 """add mensagens_aula table for US-13 chat
 
 Revision ID: b98e1d3fd3ed
-Revises: 008
+Revises: 013
 Create Date: 2026-08-13 09:18:21.334637
 """
 from typing import Sequence, Union
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'b98e1d3fd3ed'
-down_revision: Union[str, None] = '008'
+down_revision: Union[str, None] = '013'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
