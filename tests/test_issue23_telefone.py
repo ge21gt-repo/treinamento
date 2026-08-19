@@ -95,9 +95,13 @@ class TestTelefoneDuplicado:
 
         config = Config("alembic.ini")
         script = ScriptDirectory.from_config(config)
-        heads = script.get_heads()
-        assert "005_add_telefone_unique_constraint" in heads, (
-            f"Migration 005 deve estar entre os heads. Heads atuais: {heads}"
+        walk = list(script.walk_revisions())
+        revisions = {rev.revision: rev for rev in walk}
+        assert "005_add_telefone_unique_constraint" in revisions, (
+            f"Migration 005 deve existir na cadeia Alembic. Revisions: {sorted(revisions)}"
+        )
+        assert len(script.get_heads()) == 1, (
+            f"Deve haver exatamente 1 head. Heads atuais: {script.get_heads()}"
         )
 
     async def test_modelo_telefone_unique_true(self):

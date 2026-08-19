@@ -76,6 +76,18 @@ async def db_setup():
                 text(f"UPDATE lms.perfis SET permissoes = '{permissoes_json}'::jsonb WHERE nome = :nome"),
                 {"nome": perfil_nome},
             )
+
+        from app.services.moderacao import TERMOS_DEFAULT
+        from app.models.comunicacao import ForumTermoBloqueado
+
+        for item in TERMOS_DEFAULT:
+            await conn.execute(
+                text(
+                    "INSERT INTO lms.forum_termos_bloqueados (termo, categoria, ativo) "
+                    "VALUES (:termo, :categoria, true) ON CONFLICT (termo) DO NOTHING"
+                ),
+                {"termo": item["termo"], "categoria": item["categoria"]},
+            )
     await _engine.dispose()
     yield
 
@@ -87,7 +99,7 @@ async def db_clean(db_setup):
     _clean_engine = create_async_engine(_TEST_DB_URL)
     async with _clean_engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
-            if table.name != "perfis":
+            if table.name not in ("perfis", "forum_termos_bloqueados"):
                 await conn.execute(text(f"TRUNCATE TABLE lms.{table.name} CASCADE"))
     await _clean_engine.dispose()
     yield

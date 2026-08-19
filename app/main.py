@@ -30,6 +30,7 @@ from app.api import (
 )
 from app.api.rate_limit import limiter
 from app.config import settings
+from app.database import async_session as AsyncSessionLocal
 from app.database import engine
 from app.models import Base
 from app.services.rbac import PERFIL_PERMISSOES
@@ -143,6 +144,12 @@ async def lifespan(application: FastAPI):
                 WHERE nome = '{perfil_nome}'
             """)
             )
+
+        # Seed termos bloqueados do forum (US-14) — apenas se tabela vazia
+        from app.services.moderacao import seed_termos_default
+
+        async with AsyncSessionLocal() as seed_session:
+            await seed_termos_default(seed_session)
     logger.info("Database seeded successfully")
     yield
     logger.info("Shutting down - disposing database engine")

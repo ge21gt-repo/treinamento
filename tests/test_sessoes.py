@@ -133,3 +133,17 @@ class TestPresenca:
         r = await client.patch(f"/api/v1/sessoes/presenca/{presenca_id}", json={"presente": False})
         assert r.status_code == status.HTTP_200_OK
         assert r.json()["presente"] is False
+
+    async def test_registrar_presenca_sessao_inexistente_404(self, client, admin_user):
+        uid = str(admin_user.id)
+        r = await client.post(
+            "/api/v1/sessoes/presenca",
+            json={
+                "sessao_id": 999999999,
+                "usuario_id": uid,
+                "hora_entrada": "2026-07-14T10:00:00Z",
+            },
+        )
+        assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
