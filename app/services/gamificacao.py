@@ -177,10 +177,7 @@ async def atualizar_progresso_missoes(db: AsyncSession, usuario_id: uuid.UUID) -
     ]
 
     registros = await db.execute(
-        select(UsuarioMissao).where(
-            UsuarioMissao.usuario_id == usuario_id,
-            UsuarioMissao.status == "em_andamento",
-        )
+        select(UsuarioMissao).where(UsuarioMissao.usuario_id == usuario_id)
     )
     ums = {um.missao_id: um for um in registros.scalars().all()}
     concluidas: list[UsuarioMissao] = []

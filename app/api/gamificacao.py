@@ -7,9 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
+from app.models.curso import Inscricao
 from app.models.gamificacao import Badge, Missao, Nivel, PontosXP, Streak, UsuarioBadge, UsuarioMissao
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.gamificacao import (
+    EVENTOS_XP,
+    atribuir_xp,
     atualizar_progresso_missoes,
     calcular_nivel,
     calcular_progresso_criterio,
@@ -81,8 +84,21 @@ async def adicionar_xp(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
-    pontos = PontosXP(**payload.model_dump())
-    db.add(pontos)
+    if payload.origem not in EVENTOS_XP:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Origem de XP invalida. Valores aceitos: {', '.join(sorted(EVENTOS_XP))}",
+        )
+    pontos = await atribuir_xp(
+        db,
+        usuario_id=payload.usuario_id,
+        evento=payload.origem,
+        descricao=payload.descricao,
+        referencia_id=payload.referencia_id,
+        quantidade=payload.quantidade,
+    )
+    if pontos is None:
+        raise HTTPException(status_code=409, detail="XP ja concedido para este evento/referencia")
     await db.commit()
     await db.refresh(pontos)
     return pontos
@@ -118,13 +134,29 @@ async def xp_total_usuario(
 # --- Leaderboard ---
 
 
+PERFIS_DE_GESTAO = (
+    "administrador_geral",
+    "administrador",
+    "gestor",
+    "instrutor",
+    "auditor",
+)
+
+
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])
 async def leaderboard(
     limit: int = Query(10, ge=1, le=100),
     periodo: str = Query("geral", pattern="^(geral|semanal|mensal)$"),
+    curso_id: int | None = Query(None, description="Restringe ao ranking dos inscritos neste curso (turma)"),
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    de_gestao = (
+        select(UsuarioPerfil.usuario_id)
+        .join(Perfil, Perfil.id == UsuarioPerfil.perfil_id)
+        .where(Perfil.nome.in_(PERFIS_DE_GESTAO))
+    )
+
     stmt = (
         select(
             PontosXP.usuario_id,
@@ -133,8 +165,6 @@ async def leaderboard(
         )
         .join(Usuario, Usuario.id == PontosXP.usuario_id)
         .group_by(PontosXP.usuario_id, Usuario.nome_completo)
-        .order_by(func.sum(PontosXP.quantidade).desc())
-        .limit(limit)
     )
 
     if periodo == "semanal":
@@ -142,11 +172,35 @@ async def leaderboard(
     elif periodo == "mensal":
         stmt = stmt.where(PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=30))
 
+    if curso_id is not None:
+        inscritos = select(Inscricao.usuario_id).where(Inscricao.curso_id == curso_id)
+        stmt = stmt.where(PontosXP.usuario_id.in_(inscritos))
+
+    stmt = stmt.where(PontosXP.usuario_id.not_in(de_gestao))
+    stmt = stmt.order_by(func.sum(PontosXP.quantidade).desc()).limit(limit)
+
     result = await db.execute(stmt)
     rows = result.all()
 
     niveis = await db.execute(select(Nivel).order_by(Nivel.ordem.desc()))
     niveis_list = niveis.scalars().all()
+
+    xp_por_usuario = (
+        select(
+            PontosXP.usuario_id.label("uid"),
+            func.coalesce(func.sum(PontosXP.quantidade), 0).label("xp"),
+        )
+        .where(PontosXP.usuario_id.not_in(de_gestao))
+        .group_by(PontosXP.usuario_id)
+        .subquery()
+    )
+    minha_xp = await db.scalar(
+        select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == current_user.id)
+    ) or 0
+    total_na_frente = await db.scalar(
+        select(func.count(xp_por_usuario.c.uid)).where(xp_por_usuario.c.xp > minha_xp)
+    )
+    minha_posicao = (total_na_frente or 0) + 1
 
     entries = []
     for row in rows:
@@ -161,6 +215,7 @@ async def leaderboard(
                 nome_completo=row.nome_completo,
                 xp_total=row.xp_total,
                 nivel=nivel_nome,
+                minha_posicao=minha_posicao if row.usuario_id == current_user.id else None,
             )
         )
     return entries
