@@ -83,6 +83,35 @@ class TestDashboardLogs:
         assert r.status_code == status.HTTP_200_OK
         assert isinstance(r.json(), list)
 
+    async def test_logs_com_ip_nao_quebra(self, client, admin_user):
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from app.config import settings
+        from app.models.log import LogAcesso
+
+        engine = create_async_engine(settings.TEST_DATABASE_URL)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        session = maker()
+        try:
+            log = LogAcesso(
+                usuario_id=admin_user.id,
+                acao="login",
+                ip_address="203.0.113.42",
+                user_agent="pytest-agent",
+            )
+            session.add(log)
+            await session.commit()
+        finally:
+            await session.close()
+            await engine.dispose()
+
+        r = await client.get("/api/v1/dashboard/logs")
+        assert r.status_code == status.HTTP_200_OK
+        logs = r.json()
+        alvo = next((l for l in logs if l.get("acao") == "login" and l.get("ip_address") == "203.0.113.42"), None)
+        assert alvo is not None, f"Log com IP nao veio como string. Logs: {logs[:3]}"
+        assert isinstance(alvo["ip_address"], str), "ip_address deve ser serializado como string"
+
 
 class TestCursoStats:
     async def test_curso_stats_retorna_estrutura(self, client):

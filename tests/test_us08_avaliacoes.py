@@ -183,6 +183,38 @@ class TestCorrecaoManual:
         assert r.status_code == status.HTTP_400_BAD_REQUEST
 
 
+class TestAguardandoCorrecaoPorAvaliacao:
+    """Issue 17 — aguardando_correcao deve considerar so a avaliacao do resultado"""
+
+    async def test_dissertativa_pendente_outra_avaliacao_nao_marca_esta(self, client):
+        s1 = await _setup_avaliacao_mista(client, nota_minima=0)
+        s2 = await _setup_avaliacao_mista(client, nota_minima=0)
+
+        await client.post(
+            f"/api/v1/avaliacoes/{s1['av_id']}/submeter",
+            json={
+                "respostas": [
+                    {"questao_id": s1["q_obj"], "alternativa_id": s1["alt_certa"]},
+                    {"questao_id": s1["q_diss"], "resposta_texto": "Aguardando"},
+                ]
+            },
+        )
+        r = await client.post(
+            f"/api/v1/avaliacoes/{s2['av_id']}/submeter",
+            json={"respostas": [{"questao_id": s2["q_obj"], "alternativa_id": s2["alt_certa"]}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        result2_id = r.json()["resultado_id"]
+
+        r = await client.get("/api/v1/avaliacoes/meus-resultados")
+        assert r.status_code == status.HTTP_200_OK
+        resultado_s2 = next((res for res in r.json() if res["id"] == result2_id), None)
+        assert resultado_s2 is not None, "Resultado da 2a avaliacao nao veio em meus-resultados"
+        assert resultado_s2["aguardando_correcao"] is False, (
+            f"meus-resultados marcou aguardando_correcao na avaliacao sem dissertativa pendente: {resultado_s2}"
+        )
+
+
 class TestPesoRemovido:
     """Issue #47 — campo peso removido, criar avaliacao sem peso funciona"""
 

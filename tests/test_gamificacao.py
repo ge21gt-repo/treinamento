@@ -272,3 +272,46 @@ class TestPerfil:
         assert any(b["id"] == badge_id for b in data["badges"])
         assert len(data["historico_recente"]) >= 1
         assert data["historico_recente"][0]["quantidade"] == 200
+
+
+class TestGestaoBadges:
+    """Issue 18 — gestao de badges: listar inativas e contar conquistas"""
+
+    async def test_listagem_padrao_somente_ativas(self, client):
+        r = await client.post(
+            "/api/v1/gamificacao/badges",
+            json={"nome": "BadgeGestaoA", "descricao": "x", "criterio_tipo": "xp_acumulado", "criterio_valor": 10},
+        )
+        badge_id = r.json()["id"]
+        r = await client.patch(f"/api/v1/gamificacao/badges/{badge_id}", json={"ativo": False})
+        assert r.status_code == status.HTTP_200_OK
+
+        r = await client.get("/api/v1/gamificacao/badges")
+        assert r.status_code == status.HTTP_200_OK
+        assert not any(b["id"] == badge_id for b in r.json()), "Listagem padrao nao deve incluir inativa"
+
+    async def test_incluir_inativas_lista_e_conta_conquistas(self, client, admin_user):
+        r = await client.post(
+            "/api/v1/gamificacao/badges",
+            json={"nome": "BadgeGestaoB", "descricao": "x", "criterio_tipo": "xp_acumulado", "criterio_valor": 10},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        badge_id = r.json()["id"]
+        uid = str(admin_user.id)
+        r = await client.post("/api/v1/gamificacao/badges/atribuir", json={"usuario_id": uid, "badge_id": badge_id})
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.get("/api/v1/gamificacao/badges")
+        assert r.status_code == status.HTTP_200_OK
+        badge = next((b for b in r.json() if b["id"] == badge_id), None)
+        assert badge is not None
+        assert badge["conquistas"] == 1, f"Esperava 1 conquista, veio {badge.get('conquistas')}"
+
+        r = await client.patch(f"/api/v1/gamificacao/badges/{badge_id}", json={"ativo": False})
+        assert r.status_code == status.HTTP_200_OK
+
+        r = await client.get("/api/v1/gamificacao/badges?incluir_inativas=true")
+        assert r.status_code == status.HTTP_200_OK
+        badge = next((b for b in r.json() if b["id"] == badge_id), None)
+        assert badge is not None, "incluir_inativas=true deve trazer a badge desativada"
+        assert badge["conquistas"] == 1
