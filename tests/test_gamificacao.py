@@ -274,6 +274,68 @@ class TestPerfil:
         assert data["historico_recente"][0]["quantidade"] == 200
 
 
+class TestRetroativoBadge:
+    """Issue 21 — badge concedida retroativamente (nao so no proximo XP)"""
+
+    async def test_badge_nova_concedida_a_quem_ja_cumpre(self, client, admin_user):
+        uid = str(admin_user.id)
+        r = await client.post(
+            "/api/v1/gamificacao/xp",
+            json={"usuario_id": uid, "quantidade": 300, "origem": "teste", "descricao": "XP retro"},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+
+        r = await client.post(
+            "/api/v1/gamificacao/badges",
+            json={"nome": "BadgeRetro", "descricao": "x", "criterio_tipo": "xp_acumulado", "criterio_valor": 100},
+        )
+        assert r.status_code == status.HTTP_201_CREATED
+        badge_id = r.json()["id"]
+
+        r = await client.get("/api/v1/gamificacao/perfil")
+        assert r.status_code == status.HTTP_200_OK
+        data = r.json()
+        assert any(b["id"] == badge_id for b in data["badges"]), (
+            "Badge nova deveria ter sido concedida retroativamente ao olhar o perfil"
+        )
+
+
+class TestMissoesDuplicidade:
+    """Issue 22 — participar missao idempotente + lista de participantes"""
+
+    async def test_participar_duas_vezes_nao_duplica(self, client, admin_user):
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Missao Dupla", "tipo": "diaria", "xp_recompensa": 100, "criterio": {"cursos": 1}},
+        )
+        missao_id = r.json()["id"]
+        uid = str(admin_user.id)
+        payload = {"usuario_id": uid, "missao_id": missao_id}
+
+        r1 = await client.post("/api/v1/gamificacao/missoes/participar", json=payload)
+        assert r1.status_code == status.HTTP_201_CREATED
+        r2 = await client.post("/api/v1/gamificacao/missoes/participar", json=payload)
+        assert r2.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED)
+        assert r2.json()["id"] == r1.json()["id"], "Participar 2x nao deve criar duplicata"
+
+        r = await client.get(f"/api/v1/gamificacao/missoes/{missao_id}/participantes")
+        assert r.status_code == status.HTTP_200_OK
+        assert sum(1 for p in r.json() if p["usuario_id"] == uid) == 1, "Deve haver 1 linha de participacao"
+
+    async def test_aluno_ve_proprio_historico(self, client, admin_user):
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Missao Hist", "tipo": "semanal", "xp_recompensa": 200, "criterio": {"cursos": 1}},
+        )
+        missao_id = r.json()["id"]
+        uid = str(admin_user.id)
+        await client.post("/api/v1/gamificacao/missoes/participar", json={"usuario_id": uid, "missao_id": missao_id})
+
+        r = await client.get(f"/api/v1/gamificacao/missoes/usuario/{uid}")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        assert any(m["id"] == missao_id for m in r.json()), "Proprio usuario deve ver o proprio historico"
+
+
 class TestGestaoBadges:
     """Issue 18 — gestao de badges: listar inativas e contar conquistas"""
 

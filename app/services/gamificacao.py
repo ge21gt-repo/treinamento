@@ -162,19 +162,40 @@ async def calcular_progresso_criterio(db: AsyncSession, usuario_id: uuid.UUID, c
 
 
 async def atualizar_progresso_missoes(db: AsyncSession, usuario_id: uuid.UUID) -> list[UsuarioMissao]:
+    """Atualiza o progresso das missoes do usuario (issue 21).
+
+    Missoes ativas valem para todos automaticamente: cria a linha de
+    usuario_missao quando ela ainda nao existe (PEND-25, decisao de produto).
+    """
+    hoje_d = date.today()
+    missoes = await db.execute(select(Missao).where(Missao.ativa))
+    missoes_list = [
+        m
+        for m in missoes.scalars().all()
+        if (m.data_inicio is None or m.data_inicio <= hoje_d)
+        and (m.data_fim is None or m.data_fim >= hoje_d)
+    ]
+
     registros = await db.execute(
         select(UsuarioMissao).where(
             UsuarioMissao.usuario_id == usuario_id,
             UsuarioMissao.status == "em_andamento",
         )
     )
-    ums = registros.scalars().all()
+    ums = {um.missao_id: um for um in registros.scalars().all()}
     concluidas: list[UsuarioMissao] = []
 
-    for um in ums:
-        missao = await db.get(Missao, um.missao_id)
-        if not missao or not missao.ativa:
-            continue
+    for missao in missoes_list:
+        um = ums.get(missao.id)
+        if um is None:
+            um = UsuarioMissao(
+                usuario_id=usuario_id,
+                missao_id=missao.id,
+                status="em_andamento",
+                progresso_pct=Decimal("0.00"),
+            )
+            db.add(um)
+            ums[missao.id] = um
 
         criterio = missao.criterio or {}
         criterio_tipo = criterio.get("criterio_tipo") or criterio.get("tipo")
@@ -200,7 +221,7 @@ async def atualizar_progresso_missoes(db: AsyncSession, usuario_id: uuid.UUID) -
             )
             concluidas.append(um)
 
-    if concluidas:
+    if concluidas or any(ums):
         await db.flush()
 
     return concluidas
