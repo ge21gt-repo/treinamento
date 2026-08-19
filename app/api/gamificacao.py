@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.gamificacao import Badge, Missao, Nivel, PontosXP, Streak, UsuarioBadge, UsuarioMissao
-from app.models.usuario import Usuario
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.gamificacao import calcular_nivel, calcular_progresso_criterio
-from app.services.rbac import Permissoes
+from app.services.rbac import Permissoes, has_permission
 from app.schemas.gamificacao import (
     BadgeCreate,
     BadgePerfilRead,
@@ -256,11 +256,43 @@ async def perfil_gamificado(
 
 @router.get("/badges", response_model=list[BadgeRead])
 async def listar_badges(
+    incluir_inativas: bool = Query(False, description="Inclui badges inativas na listagem (gestao)"),
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(select(Badge).where(Badge.ativo))
-    return result.scalars().all()
+    if incluir_inativas and not await _pode_gerenciar_badges(db, current_user.id):
+        raise HTTPException(status_code=403, detail="Sem permissao para listar badges inativas")
+
+    query = select(Badge)
+    if not incluir_inativas:
+        query = query.where(Badge.ativo)
+    badges = (await db.execute(query.order_by(Badge.id))).scalars().all()
+
+    if not badges:
+        return []
+
+    conquistas = dict(
+        (await db.execute(
+            select(UsuarioBadge.badge_id, func.count(UsuarioBadge.usuario_id))
+            .group_by(UsuarioBadge.badge_id)
+        )).all()
+    )
+
+    return [
+        BadgeRead(
+            **BadgeRead.model_validate(b).model_dump(exclude={"conquistas"}),
+            conquistas=conquistas.get(b.id, 0),
+        )
+        for b in badges
+    ]
+
+
+async def _pode_gerenciar_badges(db: AsyncSession, usuario_id: uuid.UUID) -> bool:
+    """Verifica se o usuario tem GAMIFICACAO_CRIAR (via perfis) sem levantar excecao."""
+    result = await db.execute(
+        select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == usuario_id)
+    )
+    return any(has_permission(p.nome, Permissoes.GAMIFICACAO_CRIAR) for p in result.scalars().all())
 
 
 @router.get("/badges/progresso", response_model=list[BadgeProgressoRead])

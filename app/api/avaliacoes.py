@@ -1012,7 +1012,7 @@ async def listar_resultados_usuario(
             )
 
     result = await db.execute(select(ResultadoAvaliacao).where(ResultadoAvaliacao.usuario_id == usuario_id))
-    return result.scalars().all()
+    return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
 
 
 async def _resultado_com_aguardando(
@@ -1026,6 +1026,7 @@ async def _resultado_com_aguardando(
         ).where(
             RespostaParticipante.usuario_id == resultado.usuario_id,
             RespostaParticipante.tentativa_num == resultado.tentativa_num,
+            Questao.avaliacao_id == resultado.avaliacao_id,
             Questao.tipo == "dissertativa",
             RespostaParticipante.pontuacao_atribuida.is_(None),
         )

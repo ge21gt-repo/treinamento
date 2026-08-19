@@ -60,6 +60,7 @@ class BadgeCreate(BadgeBase):
 class BadgeRead(BadgeBase):
     id: int
     criado_em: datetime
+    conquistas: int = 0
 
     model_config = {"from_attributes": True}
 
