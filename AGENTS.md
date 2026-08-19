@@ -390,6 +390,43 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 - Mapeada para `administrador_geral` e `administrador` em `PERFIL_PERMISSOES`
 - Endpoint `POST /usuarios/perfis/atribuir` agora usa `Depends(require_permissao(Permissoes.PERFIL_ATRIBUIR))`
 
+### US-12: Frequência (Presença) ✅ CONCLUÍDA
+**Status:** Concluída em 19/08/2026 (merge `f9476a1` homolog / `73698a0` dev-devin)
+
+**Escopo implementado:**
+- ✅ Model `Presenca`/`PresencaAula` (sessão/aula, usuário, entrada/saída, tempo, IP)
+- ✅ Registro de presença, atualização de saída, listagem por sessão/aula
+- ✅ Consulta administrativa agregada (`/cursos/aulas/presencas`)
+- ✅ Relatório CSV e PDF (`/cursos/aulas/{aula_id}/presencas/relatorio?formato=csv|pdf`)
+- ✅ Fechamento lazy de presenças abertas de aulas já encerradas
+- ✅ Integração Teams (sincronizar presença, processar gravação)
+- ✅ 12 testes (`tests/test_us12.py`)
+
+**Fix aplicado:** `POST /sessoes/presenca` com sessão inexistente retornava **500** (FK violation não tratada) — agora valida a sessão antes do INSERT e retorna **404**; `IntegrityError` de usuário inexistente vira **400**. Teste novo em `tests/test_sessoes.py` (`test_registrar_presenca_sessao_inexistente_404`).
+
+### US-13: Chat em Tempo Real ✅ CONCLUÍDA
+**Status:** Concluída em 19/08/2026 (merge `f9476a1` homolog / `73698a0` dev-devin)
+
+**Escopo implementado:**
+- ✅ Model `MensagemAula` (chat por aula) + SSE `/cursos/{curso_id}/chat/stream` (Server-Sent Events via `StreamingResponse`, não WebSocket)
+- ✅ Model `MensagemCurso` (chat por curso) — endpoints GET/POST `/cursos/{curso_id}/chat`
+- ✅ Moderação: silenciar usuário (`silenciado_ate` na `usuarios`), excluir mensagem
+- ✅ 11 testes (`tests/test_us13.py`)
+
+### US-14: Fórum de Discussão ✅ CONCLUÍDA
+**Status:** Concluída em 19/08/2026 (merge `f9476a1` homolog / `73698a0` dev-devin)
+
+**Escopo implementado:**
+- ✅ Fórum por curso: tópicos, respostas, fixar, fechar, excluir
+- ✅ Moderação: tabela `forum_termos_bloqueados` + serviço `app/services/moderacao.py` (normalização de acentos, termos bloqueados rejeitados com 422)
+- ✅ 20 testes (`tests/test_us14.py`)
+
+### Migrations 009/010/011 (US-13/US-14) ✅
+- `009` (`b98e1d3fd3ed`): tabela `mensagens_aula`
+- `010` (`bcbc58716d17`): coluna `silenciado_ate` em `usuarios`
+- `011` (`ff5220e8f1ca`): tabela `forum_termos_bloqueados`
+- Encadeadas após `013` (cadeia única: `008→012→013→009→010→011`), head único `ff5220e8f1ca`
+
 ## Próximas Prioridades (segundo ROADMAP.md)
 
 - Estrutura Organizacional (estados, municípios, secretarias, unidades)
