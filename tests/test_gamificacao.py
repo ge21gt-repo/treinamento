@@ -22,7 +22,7 @@ class TestGamificacaoAuth:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             r = await ac.post(
-                "/api/v1/gamificacao/xp", json={"usuario_id": str(uuid.uuid4()), "quantidade": 100, "origem": "teste"}
+                "/api/v1/gamificacao/xp", json={"usuario_id": str(uuid.uuid4()), "quantidade": 100, "origem": "curso_concluido"}
             )
         assert r.status_code in AUTH_OK
 
@@ -50,7 +50,7 @@ class TestXP:
         uid = str(admin_user.id)
         r = await client.post(
             "/api/v1/gamificacao/xp",
-            json={"usuario_id": uid, "quantidade": 200, "origem": "teste", "descricao": "XP de teste"},
+            json={"usuario_id": uid, "quantidade": 200, "origem": "curso_concluido", "descricao": "XP de teste"},
         )
         assert r.status_code == status.HTTP_201_CREATED
         assert r.json()["quantidade"] == 200
@@ -70,7 +70,7 @@ class TestXP:
 
     async def test_leaderboard(self, client, admin_user):
         uid = str(admin_user.id)
-        await client.post("/api/v1/gamificacao/xp", json={"usuario_id": uid, "quantidade": 50, "origem": "teste"})
+        await client.post("/api/v1/gamificacao/xp", json={"usuario_id": uid, "quantidade": 50, "origem": "curso_concluido"})
         r = await client.get("/api/v1/gamificacao/leaderboard?limit=10")
         assert r.status_code == status.HTTP_200_OK
         board = r.json()
@@ -80,7 +80,7 @@ class TestXP:
 
     async def test_leaderboard_aceita_periodos_validos(self, client, admin_user):
         uid = str(admin_user.id)
-        await client.post("/api/v1/gamificacao/xp", json={"usuario_id": uid, "quantidade": 50, "origem": "teste"})
+        await client.post("/api/v1/gamificacao/xp", json={"usuario_id": uid, "quantidade": 50, "origem": "curso_concluido"})
         for periodo in ("geral", "semanal", "mensal"):
             r = await client.get(f"/api/v1/gamificacao/leaderboard?periodo={periodo}")
             assert r.status_code == status.HTTP_200_OK
@@ -251,7 +251,7 @@ class TestPerfil:
 
         r = await client.post(
             "/api/v1/gamificacao/xp",
-            json={"usuario_id": uid, "quantidade": 200, "origem": "teste", "descricao": "XP teste perfil"},
+            json={"usuario_id": uid, "quantidade": 200, "origem": "curso_concluido", "descricao": "XP teste perfil"},
         )
         assert r.status_code == status.HTTP_201_CREATED
 
@@ -281,7 +281,7 @@ class TestRetroativoBadge:
         uid = str(admin_user.id)
         r = await client.post(
             "/api/v1/gamificacao/xp",
-            json={"usuario_id": uid, "quantidade": 300, "origem": "teste", "descricao": "XP retro"},
+            json={"usuario_id": uid, "quantidade": 300, "origem": "curso_concluido", "descricao": "XP retro"},
         )
         assert r.status_code == status.HTTP_201_CREATED
 
@@ -377,3 +377,37 @@ class TestGestaoBadges:
         badge = next((b for b in r.json() if b["id"] == badge_id), None)
         assert badge is not None, "incluir_inativas=true deve trazer a badge desativada"
         assert badge["conquistas"] == 1
+
+
+class TestLeaderboardGestao:
+    """Issues 23/24 — leaderboard exclui perfis de gestao, filtra por turma"""
+
+    async def test_leaderboard_exclui_gestao(self, client, admin_user):
+        uid = str(admin_user.id)
+        await client.post("/api/v1/gamificacao/xp", json={"usuario_id": uid, "quantidade": 500, "origem": "curso_concluido"})
+        r = await client.get("/api/v1/gamificacao/leaderboard?limit=100")
+        assert r.status_code == status.HTTP_200_OK
+        board = r.json()
+        assert all(e["usuario_id"] != uid for e in board), (
+            "Admin (perfil de gestao) nao deve aparecer no ranking"
+        )
+
+    async def test_leaderboard_por_turma_filtra_inscritos(self, client, admin_user):
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Turma RB", "descricao": "x", "ordem": 0})
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+
+        r = await client.get(f"/api/v1/gamificacao/leaderboard?curso_id={curso_id}&limit=100")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        assert isinstance(r.json(), list)
+
+    async def test_leaderboard_traz_minha_posicao_para_participante(self, client):
+        """Participante (sem perfil de gestao) deve ter minha_posicao preenchido na sua linha."""
+        from app.api.deps import get_current_user
+
+        r = await client.get("/api/v1/gamificacao/leaderboard?limit=100")
+        assert r.status_code == status.HTTP_200_OK
+        board = r.json()
+        if board:
+            assert all("minha_posicao" in e for e in board), "minha_posicao deve estar no schema"

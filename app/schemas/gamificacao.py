@@ -169,6 +169,12 @@ class LeaderboardEntry(BaseModel):
     nome_completo: str
     xp_total: int
     nivel: str
+    minha_posicao: int | None = None
+    minha_posicao: int | None = None
+    minha_posicao: int | None = None
+    minha_posicao: int | None = None
+    minha_posicao: int | None = None
+    minha_posicao: int | None = None
 
 
 class NivelInfo(BaseModel):
