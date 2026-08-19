@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.avaliacao import Avaliacao, ResultadoAvaliacao
 from app.models.curso import Curso, Inscricao, InscricaoTrilha, Modulo, ProgressoUnidade, Unidade
 from app.services.gamificacao import atribuir_xp as gamificacao_xp
 
@@ -126,6 +127,7 @@ async def atualizar_progresso_curso(
             if not inscricao.data_conclusao:
                 inscricao.data_conclusao = datetime.now(timezone.utc)
             if foi_concluido_agora:
+                inscricao.nota_final = await _nota_final_do_curso(db, usuario_id, curso_id)
                 await gamificacao_xp(db, usuario_id=usuario_id, evento="curso_concluido", referencia_id=curso_id)
         elif inscricao.status == "concluido" and pct < 100:
             inscricao.status = "inscrito"
@@ -216,3 +218,30 @@ async def progresso_curso_detalhado(
         "curso_id": curso_id,
         "modulos": modulos_data,
     }
+
+
+async def _nota_final_do_curso(
+    db: AsyncSession,
+    usuario_id: uuid.UUID,
+    curso_id: int,
+) -> Decimal | None:
+    """Media das melhores notas por avaliacao do curso (issue 20).
+
+    Retorna None quando o curso nao tem nenhuma avaliacao respondida.
+    """
+    melhores = (
+        select(
+            ResultadoAvaliacao.avaliacao_id,
+            func.max(ResultadoAvaliacao.nota).label("nota"),
+        )
+        .join(Avaliacao, Avaliacao.id == ResultadoAvaliacao.avaliacao_id)
+        .join(Unidade, Unidade.id == Avaliacao.unidade_id)
+        .join(Modulo, Modulo.id == Unidade.modulo_id)
+        .where(
+            Modulo.curso_id == curso_id,
+            ResultadoAvaliacao.usuario_id == usuario_id,
+        )
+        .group_by(ResultadoAvaliacao.avaliacao_id)
+        .subquery()
+    )
+    return await db.scalar(select(func.avg(melhores.c.nota)))

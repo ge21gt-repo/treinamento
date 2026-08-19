@@ -276,6 +276,78 @@ class TestProgressoUsuarioCurso:
         assert r.status_code == status.HTTP_404_NOT_FOUND
 
 
+class TestNotaFinal:
+    """Issue 20 — Inscricao.nota_final preenchida ao concluir o curso"""
+
+    async def _setup_curso_com_avaliacao(self, client, curso_titulo="Curso Nota Final"):
+        r = await criar_curso(client, curso_titulo, publicado=True)
+        curso_id = r.json()["id"]
+        mod_resp = await criar_modulo(client, curso_id, "Modulo Nota")
+        modulo_id = mod_resp.json()["id"]
+        uni_resp = await criar_unidade(client, curso_id, modulo_id, "Unidade Nota")
+        unidade_id = uni_resp.json()["id"]
+
+        r = await client.post(
+            "/api/v1/avaliacoes",
+            json={"unidade_id": unidade_id, "titulo": "Avaliacao Nota", "tipo": "prova"},
+        )
+        av_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/avaliacoes/questoes",
+            json={"avaliacao_id": av_id, "enunciado": "2+2?", "tipo": "multipla_escolha", "pontuacao": 10},
+        )
+        q_id = r.json()["id"]
+        r = await client.post(
+            "/api/v1/avaliacoes/alternativas",
+            json={"questao_id": q_id, "texto": "4", "correta": True, "ordem": 0},
+        )
+        alt_id = r.json()["id"]
+
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+
+        return {"curso_id": curso_id, "unidade_id": unidade_id, "av_id": av_id, "q_id": q_id, "alt_id": alt_id}
+
+    async def test_nota_final_preenchida_ao_concluir(self, client):
+        s = await self._setup_curso_com_avaliacao(client)
+
+        r = await client.post(
+            f"/api/v1/avaliacoes/{s['av_id']}/submeter",
+            json={"respostas": [{"questao_id": s["q_id"], "alternativa_id": s["alt_id"]}]},
+        )
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+        assert r.json()["nota"] == 100.0
+
+        r = await client.post(f"/api/v1/cursos/unidades/{s['unidade_id']}/concluir")
+        assert r.status_code == status.HTTP_200_OK, r.text
+
+        r = await client.get("/api/v1/dashboard/meu-progresso")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        cursos = r.json().get("cursos", [])
+        curso_prog = next((c for c in cursos if c.get("curso_id") == s["curso_id"]), None)
+        assert curso_prog is not None, "Curso nao veio em meu-progresso"
+        assert curso_prog["nota_final"] == 100.0, f"nota_final esperada 100, veio {curso_prog.get('nota_final')}"
+
+    async def test_nota_final_null_sem_avaliacao(self, client):
+        r = await criar_curso(client, "Curso Sem Avaliacao NF", publicado=True)
+        curso_id = r.json()["id"]
+        mod_resp = await criar_modulo(client, curso_id, "Modulo")
+        modulo_id = mod_resp.json()["id"]
+        uni_resp = await criar_unidade(client, curso_id, modulo_id, "Unidade")
+        unidade_id = uni_resp.json()["id"]
+
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+        r = await client.post(f"/api/v1/cursos/unidades/{unidade_id}/concluir")
+        assert r.status_code == status.HTTP_200_OK, r.text
+
+        r = await client.get("/api/v1/dashboard/meu-progresso")
+        cursos = r.json().get("cursos", [])
+        curso_prog = next((c for c in cursos if c.get("curso_id") == curso_id), None)
+        assert curso_prog is not None
+        assert curso_prog["nota_final"] is None, "Curso sem avaliacao deve ter nota_final nula"
+
+
 class TestPermissionsRBAC:
     """Verificacao de permissoes RBAC para inscricao"""
 

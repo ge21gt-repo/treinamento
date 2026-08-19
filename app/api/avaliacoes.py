@@ -563,14 +563,6 @@ async def submeter_avaliacao(
     if payload.iniciado_em:
         tempo_gasto = int((datetime.now(timezone.utc) - payload.iniciado_em).total_seconds())
 
-    if aprovado and avaliacao.unidade_id:
-        from app.services.progresso import concluir_unidade
-
-        try:
-            await concluir_unidade(db, current_user.id, avaliacao.unidade_id, tempo_gasto or 0)
-        except ValueError:
-            pass
-
     resultado = ResultadoAvaliacao(
         usuario_id=current_user.id,
         avaliacao_id=avaliacao_id,
@@ -580,6 +572,15 @@ async def submeter_avaliacao(
         tempo_gasto_seg=tempo_gasto,
     )
     db.add(resultado)
+    await db.flush()
+
+    if aprovado and avaliacao.unidade_id:
+        from app.services.progresso import concluir_unidade
+
+        try:
+            await concluir_unidade(db, current_user.id, avaliacao.unidade_id, tempo_gasto or 0)
+        except ValueError:
+            pass
 
     await gamificacao_xp(
         db,

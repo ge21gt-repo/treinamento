@@ -9,7 +9,12 @@ from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.gamificacao import Badge, Missao, Nivel, PontosXP, Streak, UsuarioBadge, UsuarioMissao
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
-from app.services.gamificacao import calcular_nivel, calcular_progresso_criterio
+from app.services.gamificacao import (
+    atualizar_progresso_missoes,
+    calcular_nivel,
+    calcular_progresso_criterio,
+    verificar_badges,
+)
 from app.services.rbac import Permissoes, has_permission
 from app.schemas.gamificacao import (
     BadgeCreate,
@@ -169,6 +174,9 @@ async def perfil_gamificado(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
+    await verificar_badges(db, usuario.id)
+    await atualizar_progresso_missoes(db, usuario.id)
+
     xp_total = await db.scalar(
         select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == usuario.id)
     ) or 0
@@ -301,6 +309,8 @@ async def progresso_badges(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Progresso do usuario logado em cada badge ativa (issue 13.5)."""
+    await verificar_badges(db, current_user.id)
+
     result = await db.execute(select(Badge).where(Badge.ativo))
     badges = result.scalars().all()
 
@@ -339,7 +349,34 @@ async def criar_badge(
     db.add(badge)
     await db.commit()
     await db.refresh(badge)
+
+    await _conceder_badge_retroativamente(db, badge)
+    await db.commit()
+
     return badge
+
+
+async def _conceder_badge_retroativamente(db: AsyncSession, badge: Badge) -> int:
+    """Concede uma badge recem-criada a todos que ja cumprem o criterio (issue 21)."""
+    from app.models.usuario import Usuario
+
+    usuarios = await db.execute(select(Usuario.id).where(Usuario.status_credenciamento == "aprovado"))
+    concedidos = 0
+    for (uid,) in usuarios.all():
+        progresso = await calcular_progresso_criterio(db, uid, badge.criterio_tipo)
+        if progresso >= badge.criterio_valor:
+            existente = await db.execute(
+                select(UsuarioBadge).where(
+                    UsuarioBadge.usuario_id == uid,
+                    UsuarioBadge.badge_id == badge.id,
+                )
+            )
+            if not existente.scalar_one_or_none():
+                db.add(UsuarioBadge(usuario_id=uid, badge_id=badge.id))
+                concedidos += 1
+    if concedidos:
+        await db.flush()
+    return concedidos
 
 
 @router.patch("/badges/{badge_id}", response_model=BadgeRead)
@@ -378,6 +415,15 @@ async def atribuir_badge(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
+    existente = await db.execute(
+        select(UsuarioBadge).where(
+            UsuarioBadge.usuario_id == payload.usuario_id,
+            UsuarioBadge.badge_id == payload.badge_id,
+        )
+    )
+    ub = existente.scalar_one_or_none()
+    if ub:
+        return ub
     ub = UsuarioBadge(**payload.model_dump())
     db.add(ub)
     await db.commit()
@@ -441,8 +487,10 @@ async def listar_missoes_ativas(
 async def listar_missoes_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_LISTAR)),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    if current_user.id != usuario_id:
+        await require_permissao(Permissoes.GAMIFICACAO_LISTAR)(current_user, db)
     ums = (
         await db.execute(
             select(UsuarioMissao)
@@ -464,6 +512,18 @@ async def listar_missoes_usuario(
             )
         )
     return result
+
+
+@router.get("/missoes/{missao_id}/participantes", response_model=list[UsuarioMissaoRead])
+async def listar_participantes_missao(
+    missao_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_LISTAR)),
+):
+    result = await db.execute(
+        select(UsuarioMissao).where(UsuarioMissao.missao_id == missao_id).order_by(UsuarioMissao.criado_em.desc())
+    )
+    return result.scalars().all()
 
 
 @router.post("/missoes", response_model=MissaoRead, status_code=status.HTTP_201_CREATED)
@@ -503,6 +563,15 @@ async def participar_missao(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
+    existente = await db.execute(
+        select(UsuarioMissao).where(
+            UsuarioMissao.usuario_id == payload.usuario_id,
+            UsuarioMissao.missao_id == payload.missao_id,
+        )
+    )
+    um = existente.scalar_one_or_none()
+    if um:
+        return um
     um = UsuarioMissao(**payload.model_dump())
     db.add(um)
     await db.commit()
