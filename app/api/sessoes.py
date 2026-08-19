@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
@@ -108,9 +109,16 @@ async def registrar_presenca(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.SESSAO_GERENCIAR_PRESENCA)),
 ):
+    sessao = await db.get(SessaoAoVivo, payload.sessao_id)
+    if not sessao:
+        raise HTTPException(status_code=404, detail="Sessao nao encontrada")
     presenca = Presenca(**payload.model_dump())
     db.add(presenca)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Usuario nao encontrado")
     await db.refresh(presenca)
     return presenca
 
