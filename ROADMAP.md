@@ -26,6 +26,26 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 - [x] US-05. XR (url_externa)
 - [x] US-05. Testes US-05 (11 testes)
 
+## ✅ CONCLUÍDAS - US-12 (Frequência/Presença)
+- [x] US-12. Model Presenca/PresencaAula (sessão/aula, usuário, entrada/saída, tempo, IP)
+- [x] US-12. Registro de presença, atualização de saída, listagem por sessão/aula
+- [x] US-12. Consulta administrativa agregada (/cursos/aulas/presencas)
+- [x] US-12. Relatório CSV e PDF (/cursos/aulas/{aula_id}/presencas/relatorio)
+- [x] US-12. Fechamento lazy de presenças abertas de aulas encerradas
+- [x] US-12. Integração Teams (sincronizar presença, processar gravação)
+- [x] US-12. Testes US-12 (12 testes)
+
+## ✅ CONCLUÍDAS - US-13 (Chat em Tempo Real)
+- [x] US-13. Model MensagemAula (chat por aula) + SSE /cursos/{curso_id}/chat/stream
+- [x] US-13. Model MensagemCurso (chat por curso) — GET/POST /cursos/{curso_id}/chat
+- [x] US-13. Moderação: silenciar usuário (silenciado_ate), excluir mensagem
+- [x] US-13. Testes US-13 (11 testes)
+
+## ✅ CONCLUÍDAS - US-14 (Fórum de Discussão)
+- [x] US-14. Fórum por curso: tópicos, respostas, fixar, fechar, excluir
+- [x] US-14. Moderação: tabela forum_termos_bloqueados + app/services/moderacao.py (422 para termos bloqueados)
+- [x] US-14. Testes US-14 (20 testes)
+
 ## 🟢 FÁCEIS - Ajustes e Melhorias Imediatas
 
 - [x] 1. Ajustar seeds de perfis para incluir perfil 'gestor' e ajustar descrições existentes
@@ -120,9 +140,9 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 ## Estatísticas
 
 - **Total de tarefas**: 72
-- **Concluídas**: 23 (tasks 1-3, 17.1-17.3, 18-26, 30.1 + US-04 + T-02.5/2.6/2.7 + T-03.1/3.7 + US-05)
+- **Concluídas**: 23 (tasks 1-3, 17.1-17.3, 18-26, 30.1 + US-04 + T-02.5/2.6/2.7 + T-03.1/3.7 + US-05) + **US-12/13/14** (implementadas fora do roadmap numerado)
 - **Pendentes**: 49
-- **Progresso**: 31.9%
+- **Progresso**: 31.9% (roadmap numerado) — US-06/07/08/11/12/13/14 também concluídas
 
 ## Notas
 
@@ -130,3 +150,4 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 - Tarefas anteriores podem ser pré-requisitos para tarefas posteriores
 - Cada tarefa deve ser testada individualmente antes de prosseguir
 - Issues no GitHub podem ser criadas para cada tarefa ou grupo de tarefas
+- **US-12 (Frequência/Presença), US-13 (Chat em Tempo Real) e US-14 (Fórum)** foram implementadas como histórias separadas (fora da numeração do roadmap) — ver seções ✅ CONCLUÍDAS acima e AGENTS.md.
