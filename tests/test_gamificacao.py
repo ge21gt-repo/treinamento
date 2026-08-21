@@ -413,7 +413,7 @@ class TestLeaderboardGestao:
             assert all("minha_posicao" in e for e in board), "minha_posicao deve estar no schema"
 
     async def test_rota_minha_posicao(self, client, admin_user):
-        """Issue 23 — rota dedicada devolve posicao mesmo fora do top N."""
+        """Issue 23 — rota dedicada responde com contrato completo (posicao/no_ranking/total)."""
         uid = str(admin_user.id)
         await client.post(
             "/api/v1/gamificacao/xp",
@@ -422,6 +422,31 @@ class TestLeaderboardGestao:
         r = await client.get("/api/v1/gamificacao/leaderboard/minha-posicao")
         assert r.status_code == status.HTTP_200_OK, r.text
         data = r.json()
-        assert "posicao" in data and "total_participantes" in data
-        assert data["posicao"] >= 1
+        assert "posicao" in data and "total_participantes" in data and "no_ranking" in data
         assert data["total_participantes"] >= 0
+
+    async def test_rota_minha_posicao_gestao_fora_do_ranking(self, client, admin_user):
+        """Issue 23 — usuario com perfil de gestao nao participa: posicao null, no_ranking true."""
+        uid = str(admin_user.id)
+        await client.post(
+            "/api/v1/gamificacao/xp",
+            json={"usuario_id": uid, "quantidade": 100, "origem": "curso_concluido"},
+        )
+        r = await client.get("/api/v1/gamificacao/leaderboard/minha-posicao")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        data = r.json()
+        assert data.get("no_ranking") is True, f"Gestao deve estar fora do ranking: {data}"
+        assert data.get("posicao") is None
+
+    async def test_rota_minha_posicao_respeita_periodo(self, client, admin_user):
+        """Issue 23 — meu XP no semanal deve ser o da semana, nao o total."""
+        uid = str(admin_user.id)
+        await client.post(
+            "/api/v1/gamificacao/xp",
+            json={"usuario_id": uid, "quantidade": 100, "origem": "curso_concluido"},
+        )
+        r = await client.get("/api/v1/gamificacao/leaderboard/minha-posicao?periodo=semanal")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        data = r.json()
+        # admin tem perfil de gestao -> fora do ranking em qualquer periodo
+        assert data.get("no_ranking") is True, f"{data}"

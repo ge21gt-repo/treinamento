@@ -185,22 +185,31 @@ async def leaderboard(
     niveis = await db.execute(select(Nivel).order_by(Nivel.ordem.desc()))
     niveis_list = niveis.scalars().all()
 
-    xp_por_usuario = (
-        select(
-            PontosXP.usuario_id.label("uid"),
-            func.coalesce(func.sum(PontosXP.quantidade), 0).label("xp"),
+    xp_stmt_posicao = select(
+        PontosXP.usuario_id.label("uid"),
+        func.coalesce(func.sum(PontosXP.quantidade), 0).label("xp"),
+    ).where(PontosXP.usuario_id.not_in(de_gestao))
+    if periodo == "semanal":
+        xp_stmt_posicao = xp_stmt_posicao.where(
+            PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=7)
         )
-        .where(PontosXP.usuario_id.not_in(de_gestao))
-        .group_by(PontosXP.usuario_id)
-        .subquery()
-    )
+    elif periodo == "mensal":
+        xp_stmt_posicao = xp_stmt_posicao.where(
+            PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=30)
+        )
+    if curso_id is not None:
+        inscritos = select(Inscricao.usuario_id).where(Inscricao.curso_id == curso_id)
+        xp_stmt_posicao = xp_stmt_posicao.where(PontosXP.usuario_id.in_(inscritos))
+    xp_por_usuario = xp_stmt_posicao.group_by(PontosXP.usuario_id).subquery()
     minha_xp = await db.scalar(
-        select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == current_user.id)
-    ) or 0
-    total_na_frente = await db.scalar(
-        select(func.count(xp_por_usuario.c.uid)).where(xp_por_usuario.c.xp > minha_xp)
+        select(xp_por_usuario.c.xp).where(xp_por_usuario.c.uid == current_user.id)
     )
-    minha_posicao = (total_na_frente or 0) + 1
+    minha_posicao = None
+    if minha_xp is not None:
+        total_na_frente = await db.scalar(
+            select(func.count(xp_por_usuario.c.uid)).where(xp_por_usuario.c.xp > minha_xp)
+        )
+        minha_posicao = (total_na_frente or 0) + 1
 
     entries = []
     for row in rows:
@@ -248,14 +257,16 @@ async def minha_posicao_leaderboard(
         xp_stmt = xp_stmt.where(PontosXP.usuario_id.in_(inscritos))
     xp_por_usuario = xp_stmt.group_by(PontosXP.usuario_id).subquery()
 
+    total = await db.scalar(select(func.count(xp_por_usuario.c.uid))) or 0
     minha_xp = await db.scalar(
-        select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == current_user.id)
-    ) or 0
+        select(xp_por_usuario.c.xp).where(xp_por_usuario.c.uid == current_user.id)
+    )
+    if minha_xp is None:
+        return {"posicao": None, "no_ranking": True, "total_participantes": total}
     total_na_frente = await db.scalar(
         select(func.count(xp_por_usuario.c.uid)).where(xp_por_usuario.c.xp > minha_xp)
     )
-    total = await db.scalar(select(func.count(xp_por_usuario.c.uid))) or 0
-    return {"posicao": (total_na_frente or 0) + 1, "total_participantes": total}
+    return {"posicao": (total_na_frente or 0) + 1, "no_ranking": False, "total_participantes": total}
 
 
 # --- Perfil ---
