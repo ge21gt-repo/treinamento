@@ -411,3 +411,17 @@ class TestLeaderboardGestao:
         board = r.json()
         if board:
             assert all("minha_posicao" in e for e in board), "minha_posicao deve estar no schema"
+
+    async def test_rota_minha_posicao(self, client, admin_user):
+        """Issue 23 — rota dedicada devolve posicao mesmo fora do top N."""
+        uid = str(admin_user.id)
+        await client.post(
+            "/api/v1/gamificacao/xp",
+            json={"usuario_id": uid, "quantidade": 100, "origem": "curso_concluido"},
+        )
+        r = await client.get("/api/v1/gamificacao/leaderboard/minha-posicao")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        data = r.json()
+        assert "posicao" in data and "total_participantes" in data
+        assert data["posicao"] >= 1
+        assert data["total_participantes"] >= 0

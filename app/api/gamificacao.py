@@ -221,6 +221,43 @@ async def leaderboard(
     return entries
 
 
+@router.get("/leaderboard/minha-posicao")
+async def minha_posicao_leaderboard(
+    periodo: str = Query("geral", pattern="^(geral|semanal|mensal)$"),
+    curso_id: int | None = Query(None, description="Restringe a posicao aos inscritos neste curso (turma)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Posicao do usuario logado no ranking (issue 23). Funciona mesmo fora do top N."""
+    de_gestao = (
+        select(UsuarioPerfil.usuario_id)
+        .join(Perfil, Perfil.id == UsuarioPerfil.perfil_id)
+        .where(Perfil.nome.in_(PERFIS_DE_GESTAO))
+    )
+
+    xp_stmt = select(
+        PontosXP.usuario_id.label("uid"),
+        func.coalesce(func.sum(PontosXP.quantidade), 0).label("xp"),
+    ).where(PontosXP.usuario_id.not_in(de_gestao))
+    if periodo == "semanal":
+        xp_stmt = xp_stmt.where(PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=7))
+    elif periodo == "mensal":
+        xp_stmt = xp_stmt.where(PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=30))
+    if curso_id is not None:
+        inscritos = select(Inscricao.usuario_id).where(Inscricao.curso_id == curso_id)
+        xp_stmt = xp_stmt.where(PontosXP.usuario_id.in_(inscritos))
+    xp_por_usuario = xp_stmt.group_by(PontosXP.usuario_id).subquery()
+
+    minha_xp = await db.scalar(
+        select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == current_user.id)
+    ) or 0
+    total_na_frente = await db.scalar(
+        select(func.count(xp_por_usuario.c.uid)).where(xp_por_usuario.c.xp > minha_xp)
+    )
+    total = await db.scalar(select(func.count(xp_por_usuario.c.uid))) or 0
+    return {"posicao": (total_na_frente or 0) + 1, "total_participantes": total}
+
+
 # --- Perfil ---
 
 
