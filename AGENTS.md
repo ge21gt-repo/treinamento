@@ -427,6 +427,21 @@ All routes are under `/api/v1`. `main.py` passes `prefix=PREFIX` to each `includ
 - `011` (`ff5220e8f1ca`): tabela `forum_termos_bloqueados`
 - Encadeadas após `013` (cadeia única: `008→012→013→009→010→011`), head único `ff5220e8f1ca`
 
+### Migration 014 (Issue 22) ✅
+- `014` (`de126b1182f8`): índice único `uq_usuario_missao (usuario_id, missao_id)`
+
+### Issues 17-24 (ciclo de fixes 19/08-25/08) ✅ CONCLUÍDAS
+Todas as 8 issues levantadas pelo front foram corrigidas, validadas em dev e homologadas (merge `57aa5db` homolog / `10f2942` dev-devin).
+
+- **17** — `aguardando_correcao` conta só dissertativas da MESMA avaliação (`Questao.avaliacao_id` no count) + `GET /avaliacoes/resultados/{usuario_id}` consistente
+- **18** — `GET /badges?incluir_inativas=true` (restrito a `gamificacao:criar`) + `conquistas: int` no `BadgeRead`
+- **19** — `LogAcessoRead`/`LogAuditoriaRead` com `IPvAnyAddress` + field_serializer (fim do 500); filtros `acao`/`data_inicio`/`data_fim` em `/logs`; login usa `X-Forwarded-For`
+- **20** — `Inscricao.nota_final` preenchida ao concluir (média das melhores notas, helper `_nota_final_do_curso`); `scripts/backfill_nota_final.py` recalcula concluídas; `submeter` cria o Resultado ANTES de concluir unidade
+- **21** — badges/missões retroativas: `verificar_badges` + `atualizar_progresso_missoes` rodam em `/perfil` e `/badges/progresso`; `POST /badges` concede a quem já cumpre; missões valem para todos (cria `usuario_missao` automático — PEND-25)
+- **22** — `participar_missao` idempotente + índice único; `GET /missoes/{id}/participantes`; aluno vê próprio histórico
+- **23** — leaderboard exclui perfis de gestão (`NOT IN` 5 perfis administrativos, não filtro por participante); valida `origem` de XP contra `EVENTOS_XP` + chama `atribuir_xp`; rota `GET /leaderboard/minha-posicao` (posição mesmo fora do top N, `no_ranking: true` quando fora do grupo, XP medido no mesmo conjunto filtrado)
+- **24** — `GET /leaderboard?curso_id=N` filtra ranking pelos inscritos do curso (turma = `lms.inscricoes`)
+
 ## Próximas Prioridades (segundo ROADMAP.md)
 
 - Estrutura Organizacional (estados, municípios, secretarias, unidades)

@@ -143,6 +143,7 @@ Este documento contém todas as tarefas necessárias para transformar o LMS atua
 - **Concluídas**: 23 (tasks 1-3, 17.1-17.3, 18-26, 30.1 + US-04 + T-02.5/2.6/2.7 + T-03.1/3.7 + US-05) + **US-12/13/14** (implementadas fora do roadmap numerado)
 - **Pendentes**: 49
 - **Progresso**: 31.9% (roadmap numerado) — US-06/07/08/11/12/13/14 também concluídas
+- **Issues 17-24** (ciclo de fixes 19/08-25/08): todas corrigidas, validadas em dev e homologadas — ver AGENTS.md
 
 ## Notas
 
