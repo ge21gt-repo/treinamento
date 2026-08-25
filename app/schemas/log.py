@@ -1,7 +1,8 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
+from pydantic.networks import IPvAnyAddress
 
 
 class LogAcessoRead(BaseModel):
@@ -10,10 +11,14 @@ class LogAcessoRead(BaseModel):
     acao: str
     recurso_tipo: str | None = None
     recurso_id: int | None = None
-    ip_address: str | None = None
+    ip_address: IPvAnyAddress | None = None
     user_agent: str | None = None
     dispositivo: str | None = None
     criado_em: datetime
+
+    @field_serializer("ip_address")
+    def _ip_como_texto(self, valor: IPvAnyAddress | None) -> str | None:
+        return str(valor) if valor is not None else None
 
     model_config = {"from_attributes": True}
 
@@ -26,8 +31,12 @@ class LogAuditoriaRead(BaseModel):
     registro_id: str
     dados_anteriores: dict | None = None
     dados_novos: dict | None = None
-    ip_address: str | None = None
+    ip_address: IPvAnyAddress | None = None
     criado_em: datetime
+
+    @field_serializer("ip_address")
+    def _ip_como_texto(self, valor: IPvAnyAddress | None) -> str | None:
+        return str(valor) if valor is not None else None
 
     model_config = {"from_attributes": True}
 

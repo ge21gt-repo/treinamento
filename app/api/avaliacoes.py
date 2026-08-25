@@ -563,14 +563,6 @@ async def submeter_avaliacao(
     if payload.iniciado_em:
         tempo_gasto = int((datetime.now(timezone.utc) - payload.iniciado_em).total_seconds())
 
-    if aprovado and avaliacao.unidade_id:
-        from app.services.progresso import concluir_unidade
-
-        try:
-            await concluir_unidade(db, current_user.id, avaliacao.unidade_id, tempo_gasto or 0)
-        except ValueError:
-            pass
-
     resultado = ResultadoAvaliacao(
         usuario_id=current_user.id,
         avaliacao_id=avaliacao_id,
@@ -580,6 +572,15 @@ async def submeter_avaliacao(
         tempo_gasto_seg=tempo_gasto,
     )
     db.add(resultado)
+    await db.flush()
+
+    if aprovado and avaliacao.unidade_id:
+        from app.services.progresso import concluir_unidade
+
+        try:
+            await concluir_unidade(db, current_user.id, avaliacao.unidade_id, tempo_gasto or 0)
+        except ValueError:
+            pass
 
     await gamificacao_xp(
         db,
@@ -1012,7 +1013,7 @@ async def listar_resultados_usuario(
             )
 
     result = await db.execute(select(ResultadoAvaliacao).where(ResultadoAvaliacao.usuario_id == usuario_id))
-    return result.scalars().all()
+    return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
 
 
 async def _resultado_com_aguardando(
@@ -1026,6 +1027,7 @@ async def _resultado_com_aguardando(
         ).where(
             RespostaParticipante.usuario_id == resultado.usuario_id,
             RespostaParticipante.tentativa_num == resultado.tentativa_num,
+            Questao.avaliacao_id == resultado.avaliacao_id,
             Questao.tipo == "dissertativa",
             RespostaParticipante.pontuacao_atribuida.is_(None),
         )

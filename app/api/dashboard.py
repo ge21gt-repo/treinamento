@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
@@ -120,6 +121,9 @@ async def metricas_usuario(
 @router.get("/logs", response_model=list[LogAcessoRead])
 async def listar_logs(
     usuario_id: uuid.UUID | None = None,
+    acao: str | None = Query(None, description="Filtra por acao (ex: login)"),
+    data_inicio: datetime | None = Query(None, description="Filtra a partir desta data (ISO)"),
+    data_fim: datetime | None = Query(None, description="Filtra ate esta data (ISO)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -129,6 +133,12 @@ async def listar_logs(
     query = select(LogAcesso)
     if usuario_id is not None:
         query = query.where(LogAcesso.usuario_id == usuario_id)
+    if acao is not None:
+        query = query.where(LogAcesso.acao == acao)
+    if data_inicio is not None:
+        query = query.where(LogAcesso.criado_em >= data_inicio)
+    if data_fim is not None:
+        query = query.where(LogAcesso.criado_em <= data_fim)
     total = await count_query(db, query)
     result = await db.execute(query.order_by(LogAcesso.criado_em.desc()).offset(skip).limit(limit))
     items = result.scalars().all()

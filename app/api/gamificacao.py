@@ -7,10 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
+from app.models.curso import Inscricao
 from app.models.gamificacao import Badge, Missao, Nivel, PontosXP, Streak, UsuarioBadge, UsuarioMissao
-from app.models.usuario import Usuario
-from app.services.gamificacao import calcular_nivel, calcular_progresso_criterio
-from app.services.rbac import Permissoes
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil
+from app.services.gamificacao import (
+    EVENTOS_XP,
+    atribuir_xp,
+    atualizar_progresso_missoes,
+    calcular_nivel,
+    calcular_progresso_criterio,
+    verificar_badges,
+)
+from app.services.rbac import Permissoes, has_permission
 from app.schemas.gamificacao import (
     BadgeCreate,
     BadgePerfilRead,
@@ -76,8 +84,21 @@ async def adicionar_xp(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
-    pontos = PontosXP(**payload.model_dump())
-    db.add(pontos)
+    if payload.origem not in EVENTOS_XP:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Origem de XP invalida. Valores aceitos: {', '.join(sorted(EVENTOS_XP))}",
+        )
+    pontos = await atribuir_xp(
+        db,
+        usuario_id=payload.usuario_id,
+        evento=payload.origem,
+        descricao=payload.descricao,
+        referencia_id=payload.referencia_id,
+        quantidade=payload.quantidade,
+    )
+    if pontos is None:
+        raise HTTPException(status_code=409, detail="XP ja concedido para este evento/referencia")
     await db.commit()
     await db.refresh(pontos)
     return pontos
@@ -113,13 +134,29 @@ async def xp_total_usuario(
 # --- Leaderboard ---
 
 
+PERFIS_DE_GESTAO = (
+    "administrador_geral",
+    "administrador",
+    "gestor",
+    "instrutor",
+    "auditor",
+)
+
+
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])
 async def leaderboard(
     limit: int = Query(10, ge=1, le=100),
     periodo: str = Query("geral", pattern="^(geral|semanal|mensal)$"),
+    curso_id: int | None = Query(None, description="Restringe ao ranking dos inscritos neste curso (turma)"),
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    de_gestao = (
+        select(UsuarioPerfil.usuario_id)
+        .join(Perfil, Perfil.id == UsuarioPerfil.perfil_id)
+        .where(Perfil.nome.in_(PERFIS_DE_GESTAO))
+    )
+
     stmt = (
         select(
             PontosXP.usuario_id,
@@ -128,8 +165,6 @@ async def leaderboard(
         )
         .join(Usuario, Usuario.id == PontosXP.usuario_id)
         .group_by(PontosXP.usuario_id, Usuario.nome_completo)
-        .order_by(func.sum(PontosXP.quantidade).desc())
-        .limit(limit)
     )
 
     if periodo == "semanal":
@@ -137,11 +172,44 @@ async def leaderboard(
     elif periodo == "mensal":
         stmt = stmt.where(PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=30))
 
+    if curso_id is not None:
+        inscritos = select(Inscricao.usuario_id).where(Inscricao.curso_id == curso_id)
+        stmt = stmt.where(PontosXP.usuario_id.in_(inscritos))
+
+    stmt = stmt.where(PontosXP.usuario_id.not_in(de_gestao))
+    stmt = stmt.order_by(func.sum(PontosXP.quantidade).desc()).limit(limit)
+
     result = await db.execute(stmt)
     rows = result.all()
 
     niveis = await db.execute(select(Nivel).order_by(Nivel.ordem.desc()))
     niveis_list = niveis.scalars().all()
+
+    xp_stmt_posicao = select(
+        PontosXP.usuario_id.label("uid"),
+        func.coalesce(func.sum(PontosXP.quantidade), 0).label("xp"),
+    ).where(PontosXP.usuario_id.not_in(de_gestao))
+    if periodo == "semanal":
+        xp_stmt_posicao = xp_stmt_posicao.where(
+            PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=7)
+        )
+    elif periodo == "mensal":
+        xp_stmt_posicao = xp_stmt_posicao.where(
+            PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=30)
+        )
+    if curso_id is not None:
+        inscritos = select(Inscricao.usuario_id).where(Inscricao.curso_id == curso_id)
+        xp_stmt_posicao = xp_stmt_posicao.where(PontosXP.usuario_id.in_(inscritos))
+    xp_por_usuario = xp_stmt_posicao.group_by(PontosXP.usuario_id).subquery()
+    minha_xp = await db.scalar(
+        select(xp_por_usuario.c.xp).where(xp_por_usuario.c.uid == current_user.id)
+    )
+    minha_posicao = None
+    if minha_xp is not None:
+        total_na_frente = await db.scalar(
+            select(func.count(xp_por_usuario.c.uid)).where(xp_por_usuario.c.xp > minha_xp)
+        )
+        minha_posicao = (total_na_frente or 0) + 1
 
     entries = []
     for row in rows:
@@ -156,9 +224,49 @@ async def leaderboard(
                 nome_completo=row.nome_completo,
                 xp_total=row.xp_total,
                 nivel=nivel_nome,
+                minha_posicao=minha_posicao if row.usuario_id == current_user.id else None,
             )
         )
     return entries
+
+
+@router.get("/leaderboard/minha-posicao")
+async def minha_posicao_leaderboard(
+    periodo: str = Query("geral", pattern="^(geral|semanal|mensal)$"),
+    curso_id: int | None = Query(None, description="Restringe a posicao aos inscritos neste curso (turma)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Posicao do usuario logado no ranking (issue 23). Funciona mesmo fora do top N."""
+    de_gestao = (
+        select(UsuarioPerfil.usuario_id)
+        .join(Perfil, Perfil.id == UsuarioPerfil.perfil_id)
+        .where(Perfil.nome.in_(PERFIS_DE_GESTAO))
+    )
+
+    xp_stmt = select(
+        PontosXP.usuario_id.label("uid"),
+        func.coalesce(func.sum(PontosXP.quantidade), 0).label("xp"),
+    ).where(PontosXP.usuario_id.not_in(de_gestao))
+    if periodo == "semanal":
+        xp_stmt = xp_stmt.where(PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=7))
+    elif periodo == "mensal":
+        xp_stmt = xp_stmt.where(PontosXP.criado_em >= datetime.now(timezone.utc) - timedelta(days=30))
+    if curso_id is not None:
+        inscritos = select(Inscricao.usuario_id).where(Inscricao.curso_id == curso_id)
+        xp_stmt = xp_stmt.where(PontosXP.usuario_id.in_(inscritos))
+    xp_por_usuario = xp_stmt.group_by(PontosXP.usuario_id).subquery()
+
+    total = await db.scalar(select(func.count(xp_por_usuario.c.uid))) or 0
+    minha_xp = await db.scalar(
+        select(xp_por_usuario.c.xp).where(xp_por_usuario.c.uid == current_user.id)
+    )
+    if minha_xp is None:
+        return {"posicao": None, "no_ranking": True, "total_participantes": total}
+    total_na_frente = await db.scalar(
+        select(func.count(xp_por_usuario.c.uid)).where(xp_por_usuario.c.xp > minha_xp)
+    )
+    return {"posicao": (total_na_frente or 0) + 1, "no_ranking": False, "total_participantes": total}
 
 
 # --- Perfil ---
@@ -169,6 +277,9 @@ async def perfil_gamificado(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(get_current_user),
 ):
+    await verificar_badges(db, usuario.id)
+    await atualizar_progresso_missoes(db, usuario.id)
+
     xp_total = await db.scalar(
         select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(PontosXP.usuario_id == usuario.id)
     ) or 0
@@ -256,11 +367,43 @@ async def perfil_gamificado(
 
 @router.get("/badges", response_model=list[BadgeRead])
 async def listar_badges(
+    incluir_inativas: bool = Query(False, description="Inclui badges inativas na listagem (gestao)"),
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
-    result = await db.execute(select(Badge).where(Badge.ativo))
-    return result.scalars().all()
+    if incluir_inativas and not await _pode_gerenciar_badges(db, current_user.id):
+        raise HTTPException(status_code=403, detail="Sem permissao para listar badges inativas")
+
+    query = select(Badge)
+    if not incluir_inativas:
+        query = query.where(Badge.ativo)
+    badges = (await db.execute(query.order_by(Badge.id))).scalars().all()
+
+    if not badges:
+        return []
+
+    conquistas = dict(
+        (await db.execute(
+            select(UsuarioBadge.badge_id, func.count(UsuarioBadge.usuario_id))
+            .group_by(UsuarioBadge.badge_id)
+        )).all()
+    )
+
+    return [
+        BadgeRead(
+            **BadgeRead.model_validate(b).model_dump(exclude={"conquistas"}),
+            conquistas=conquistas.get(b.id, 0),
+        )
+        for b in badges
+    ]
+
+
+async def _pode_gerenciar_badges(db: AsyncSession, usuario_id: uuid.UUID) -> bool:
+    """Verifica se o usuario tem GAMIFICACAO_CRIAR (via perfis) sem levantar excecao."""
+    result = await db.execute(
+        select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == usuario_id)
+    )
+    return any(has_permission(p.nome, Permissoes.GAMIFICACAO_CRIAR) for p in result.scalars().all())
 
 
 @router.get("/badges/progresso", response_model=list[BadgeProgressoRead])
@@ -269,6 +412,8 @@ async def progresso_badges(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Progresso do usuario logado em cada badge ativa (issue 13.5)."""
+    await verificar_badges(db, current_user.id)
+
     result = await db.execute(select(Badge).where(Badge.ativo))
     badges = result.scalars().all()
 
@@ -307,7 +452,34 @@ async def criar_badge(
     db.add(badge)
     await db.commit()
     await db.refresh(badge)
+
+    await _conceder_badge_retroativamente(db, badge)
+    await db.commit()
+
     return badge
+
+
+async def _conceder_badge_retroativamente(db: AsyncSession, badge: Badge) -> int:
+    """Concede uma badge recem-criada a todos que ja cumprem o criterio (issue 21)."""
+    from app.models.usuario import Usuario
+
+    usuarios = await db.execute(select(Usuario.id).where(Usuario.status_credenciamento == "aprovado"))
+    concedidos = 0
+    for (uid,) in usuarios.all():
+        progresso = await calcular_progresso_criterio(db, uid, badge.criterio_tipo)
+        if progresso >= badge.criterio_valor:
+            existente = await db.execute(
+                select(UsuarioBadge).where(
+                    UsuarioBadge.usuario_id == uid,
+                    UsuarioBadge.badge_id == badge.id,
+                )
+            )
+            if not existente.scalar_one_or_none():
+                db.add(UsuarioBadge(usuario_id=uid, badge_id=badge.id))
+                concedidos += 1
+    if concedidos:
+        await db.flush()
+    return concedidos
 
 
 @router.patch("/badges/{badge_id}", response_model=BadgeRead)
@@ -346,6 +518,15 @@ async def atribuir_badge(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
+    existente = await db.execute(
+        select(UsuarioBadge).where(
+            UsuarioBadge.usuario_id == payload.usuario_id,
+            UsuarioBadge.badge_id == payload.badge_id,
+        )
+    )
+    ub = existente.scalar_one_or_none()
+    if ub:
+        return ub
     ub = UsuarioBadge(**payload.model_dump())
     db.add(ub)
     await db.commit()
@@ -409,8 +590,10 @@ async def listar_missoes_ativas(
 async def listar_missoes_usuario(
     usuario_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_LISTAR)),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    if current_user.id != usuario_id:
+        await require_permissao(Permissoes.GAMIFICACAO_LISTAR)(current_user, db)
     ums = (
         await db.execute(
             select(UsuarioMissao)
@@ -432,6 +615,18 @@ async def listar_missoes_usuario(
             )
         )
     return result
+
+
+@router.get("/missoes/{missao_id}/participantes", response_model=list[UsuarioMissaoRead])
+async def listar_participantes_missao(
+    missao_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_LISTAR)),
+):
+    result = await db.execute(
+        select(UsuarioMissao).where(UsuarioMissao.missao_id == missao_id).order_by(UsuarioMissao.criado_em.desc())
+    )
+    return result.scalars().all()
 
 
 @router.post("/missoes", response_model=MissaoRead, status_code=status.HTTP_201_CREATED)
@@ -471,6 +666,15 @@ async def participar_missao(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
+    existente = await db.execute(
+        select(UsuarioMissao).where(
+            UsuarioMissao.usuario_id == payload.usuario_id,
+            UsuarioMissao.missao_id == payload.missao_id,
+        )
+    )
+    um = existente.scalar_one_or_none()
+    if um:
+        return um
     um = UsuarioMissao(**payload.model_dump())
     db.add(um)
     await db.commit()

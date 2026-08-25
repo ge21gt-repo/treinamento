@@ -98,11 +98,17 @@ async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depe
     await atualizar_streak(db, user.id)
 
     user_agent = request.headers.get("user-agent", "")
+    xff = request.headers.get("x-forwarded-for", "")
+    ip_cliente = None
+    if xff:
+        ip_cliente = xff.split(",")[0].strip() or None
+    if ip_cliente is None and request.client:
+        ip_cliente = request.client.host
     db.add(
         LogAcesso(
             usuario_id=user.id,
             acao="login",
-            ip_address=request.client.host if request.client else None,
+            ip_address=ip_cliente,
             user_agent=user_agent[:1000] or None,
             dispositivo=_detectar_dispositivo(user_agent),
         )
