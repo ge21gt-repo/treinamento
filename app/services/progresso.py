@@ -129,6 +129,7 @@ async def atualizar_progresso_curso(
             if foi_concluido_agora:
                 inscricao.nota_final = await _nota_final_do_curso(db, usuario_id, curso_id)
                 await gamificacao_xp(db, usuario_id=usuario_id, evento="curso_concluido", referencia_id=curso_id)
+                await _emitir_certificado(db, usuario_id, curso_id, inscricao.nota_final)
         elif inscricao.status == "concluido" and pct < 100:
             inscricao.status = "inscrito"
 
@@ -218,6 +219,26 @@ async def progresso_curso_detalhado(
         "curso_id": curso_id,
         "modulos": modulos_data,
     }
+
+
+async def _emitir_certificado(
+    db: AsyncSession,
+    usuario_id: uuid.UUID,
+    curso_id: int,
+    nota_final,
+) -> None:
+    """Emite o certificado digital ao concluir o curso (US-15)."""
+    from app.models.usuario import Usuario
+    from app.services.certificados import emitir_certificado_curso
+
+    usuario = await db.get(Usuario, usuario_id)
+    curso = await db.get(Curso, curso_id)
+    if not usuario or not curso:
+        return
+    try:
+        await emitir_certificado_curso(db, usuario, curso, nota_final)
+    except Exception:
+        pass
 
 
 async def _nota_final_do_curso(

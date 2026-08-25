@@ -150,6 +150,18 @@ async def lifespan(application: FastAPI):
 
         async with AsyncSessionLocal() as seed_session:
             await seed_termos_default(seed_session)
+
+        # Seed modelo padrao de certificado (US-15) — apenas se tabela vazia
+        from app.services.certificado_templates import TEMPLATE_CERTIFICADO_PADRAO
+
+        template_padrao = TEMPLATE_CERTIFICADO_PADRAO().replace("'", "''")
+        await conn.execute(
+            text(f"""
+            INSERT INTO lms.modelos_certificado (nome, template_html, logo_url, assinatura_digital, ativo)
+            SELECT 'Padrao GE21', '{template_padrao}', NULL, false, true
+            WHERE NOT EXISTS (SELECT 1 FROM lms.modelos_certificado)
+            """)
+        )
     logger.info("Database seeded successfully")
     yield
     logger.info("Shutting down - disposing database engine")
