@@ -222,7 +222,7 @@ def _csv_stream(colunas: list[str], linhas: list[dict]) -> StreamingResponse:
     import io
 
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=colunas)
+    writer = csv.DictWriter(buf, fieldnames=colunas, extrasaction='ignore')
     writer.writeheader()
     for linha in linhas:
         writer.writerow(linha)
