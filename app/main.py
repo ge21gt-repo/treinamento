@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import logging.config
 from contextlib import asynccontextmanager
@@ -163,7 +164,30 @@ async def lifespan(application: FastAPI):
             """)
         )
     logger.info("Database seeded successfully")
+
+    # Job periodico: coleta diaria de metricas de engajamento (US-16, T-16.1)
+    from app.services.analytics import coletar_metricas_diarias
+
+    async def _job_metricas_diarias():
+        while True:
+            try:
+                await asyncio.sleep(6 * 3600)  # 6h apos o start; depois 1x/dia
+                async with AsyncSessionLocal() as job_session:
+                    await coletar_metricas_diarias(job_session)
+                    await job_session.commit()
+                logger.info("Metricas de engajamento coletadas (job diario)")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("Falha na coleta de metricas: %s", e)
+
+    job_task = asyncio.create_task(_job_metricas_diarias())
     yield
+    job_task.cancel()
+    try:
+        await job_task
+    except asyncio.CancelledError:
+        pass
     logger.info("Shutting down - disposing database engine")
     await engine.dispose()
 
