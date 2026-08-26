@@ -25,6 +25,7 @@ async def atribuir_xp(
     descricao: str | None = None,
     referencia_id: int | None = None,
     quantidade: int | None = None,
+    checar_missoes: bool = True,
 ) -> PontosXP | None:
     if quantidade is not None:
         quantidade_xp = quantidade
@@ -64,7 +65,8 @@ async def atribuir_xp(
 
     await calcular_nivel(db, usuario_id)
     await verificar_badges(db, usuario_id)
-    await atualizar_progresso_missoes(db, usuario_id)
+    if checar_missoes:
+        await atualizar_progresso_missoes(db, usuario_id)
 
     return pontos
 
@@ -192,6 +194,7 @@ async def atualizar_progresso_missoes(db: AsyncSession, usuario_id: uuid.UUID) -
                 progresso_pct=Decimal("0.00"),
             )
             db.add(um)
+            await db.flush()
             ums[missao.id] = um
 
         criterio = missao.criterio or {}
@@ -215,6 +218,7 @@ async def atualizar_progresso_missoes(db: AsyncSession, usuario_id: uuid.UUID) -
                 descricao=f"Missão concluída: {missao.titulo}",
                 referencia_id=missao.id,
                 quantidade=missao.xp_recompensa,
+                checar_missoes=False,
             )
             concluidas.append(um)
 

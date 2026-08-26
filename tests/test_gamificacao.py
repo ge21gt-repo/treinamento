@@ -450,3 +450,81 @@ class TestLeaderboardGestao:
         data = r.json()
         # admin tem perfil de gestao -> fora do ranking em qualquer periodo
         assert data.get("no_ranking") is True, f"{data}"
+
+
+class TestLoginMissao:
+    """Issue 29 — login nao pode dar 500 ao cruzar o criterio de uma missao"""
+
+    async def test_login_nao_quebra_ao_concluir_missao(self, client, admin_user):
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+        from sqlalchemy import select
+
+        from app.config import settings
+        from app.models.gamificacao import Missao, PontosXP
+
+        uid = admin_user.id
+        # XP acima do criterio da missao
+        await client.post(
+            "/api/v1/gamificacao/xp",
+            json={"usuario_id": str(uid), "quantidade": 600, "origem": "curso_concluido"},
+        )
+        # missao ativa com criterio xp_acumulado 500
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Rumo ao Bronze", "tipo": "semanal", "xp_recompensa": 250,
+                  "criterio": {"criterio_tipo": "xp_acumulado", "valor": 500}},
+        )
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+
+        # login (dispara atualizar_streak -> missoes)
+        r = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "admin@test.com", "senha": "test123"},
+        )
+        assert r.status_code == status.HTTP_200_OK, f"Login nao pode dar 500: {r.text}"
+
+    async def test_login_sem_duplicar_usuario_missao(self, client, admin_user):
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+        from sqlalchemy import select
+
+        from app.config import settings
+        from app.models.gamificacao import UsuarioMissao
+
+        uid = admin_user.id
+        await client.post(
+            "/api/v1/gamificacao/xp",
+            json={"usuario_id": str(uid), "quantidade": 800, "origem": "curso_concluido"},
+        )
+        r = await client.post(
+            "/api/v1/gamificacao/missoes",
+            json={"titulo": "Rumo ao Prata", "tipo": "especial", "xp_recompensa": 500,
+                  "criterio": {"criterio_tipo": "xp_acumulado", "valor": 700}},
+        )
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+
+        # dois logins seguidos
+        for _ in range(2):
+            r = await client.post(
+                "/api/v1/auth/login",
+                json={"email": "admin@test.com", "senha": "test123"},
+            )
+            assert r.status_code == status.HTTP_200_OK, r.text
+
+        engine = create_async_engine(settings.TEST_DATABASE_URL)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        session = maker()
+        try:
+            rows = (
+                await session.execute(
+                    select(UsuarioMissao).where(UsuarioMissao.usuario_id == uid)
+                )
+            ).scalars().all()
+            por_missao = {}
+            for row in rows:
+                por_missao[row.missao_id] = por_missao.get(row.missao_id, 0) + 1
+            assert all(qtd == 1 for qtd in por_missao.values()), (
+                f"Login nao pode duplicar usuario_missao: {por_missao}"
+            )
+        finally:
+            await session.close()
+            await engine.dispose()
