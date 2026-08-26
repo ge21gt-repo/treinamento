@@ -174,6 +174,7 @@ class PresencaAula(Base):
     hora_saida: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     tempo_permanencia_seg: Mapped[int | None] = mapped_column(Integer)
     presente: Mapped[bool] = mapped_column(Boolean, default=True)
+    saida_estimada: Mapped[bool] = mapped_column(Boolean, default=False)
     ip_acesso: Mapped[str | None] = mapped_column(String(64))
 
 

@@ -23,6 +23,8 @@ async def _criar_aula(client, data_hora_fim=None, em_curso=False):
         payload["data_hora"] = "2099-01-01T14:00:00Z"
         payload.pop("data_hora_fim", None)
     r = await client.post(f"/api/v1/cursos/{curso_id}/aulas", json=payload)
+    ins = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+    assert ins.status_code == status.HTTP_201_CREATED, ins.text
     return curso_id, r.json()["id"]
 
 
@@ -86,6 +88,8 @@ class TestRelatorioPresencas:
             },
         )
         aula_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+        assert r.status_code == status.HTTP_201_CREATED, r.text
         r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/entrar")
         assert r.status_code == status.HTTP_201_CREATED
         return aula_id
@@ -132,6 +136,8 @@ class TestConsultaAdminPresencas:
             },
         )
         aula_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+        assert r.status_code == status.HTTP_201_CREATED, r.text
         r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/entrar")
         assert r.status_code == status.HTTP_201_CREATED
         return {"curso_id": curso_id, "aula_id": aula_id}
@@ -182,6 +188,8 @@ class TestRastreamentoFluxo:
             },
         )
         aula_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+        assert r.status_code == status.HTTP_201_CREATED, r.text
 
         r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/entrar")
         assert r.status_code == status.HTTP_201_CREATED
