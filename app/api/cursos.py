@@ -383,6 +383,19 @@ async def criar_aula(
     db.add(aula)
     await db.commit()
     await db.refresh(aula)
+
+    from app.services.notificacoes import notificar_inscritos
+
+    await notificar_inscritos(
+        db,
+        curso_id=curso_id,
+        tipo="aula_agendada",
+        titulo=f"Aula agendada: {aula.titulo}",
+        corpo=f"Novo encontro em {aula.data_hora.strftime('%d/%m/%Y %H:%M')}.",
+        referencia_tipo="aula",
+        referencia_id=aula.id,
+    )
+    await db.commit()
     return aula
 
 
@@ -827,6 +840,18 @@ async def _processar_gravacao_lazy(db: AsyncSession, aula: AulaSincrona) -> dict
     )
     if resultado.get("success"):
         aula.gravacao_conteudo_id = resultado.get("conteudo_id")
+        await db.commit()
+        from app.services.notificacoes import notificar_inscritos
+
+        await notificar_inscritos(
+            db,
+            curso_id=aula.curso_id,
+            tipo="gravacao_disponivel",
+            titulo=f"Gravacao disponivel: {aula.titulo}",
+            corpo="A gravacao desta aula ja esta disponivel.",
+            referencia_tipo="aula",
+            referencia_id=aula.id,
+        )
         await db.commit()
     return resultado
 
