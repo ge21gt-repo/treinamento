@@ -224,6 +224,8 @@ class AulaSincronaRead(AulaSincronaBase):
     id: int
     criado_por: uuid.UUID | None = None
     criado_em: datetime
+    exige_codigo: bool = False
+    codigo_acesso: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -341,6 +343,7 @@ class PresencaAulaRead(BaseModel):
     hora_saida: datetime | None = None
     tempo_permanencia_seg: int | None = None
     presente: bool
+    saida_estimada: bool = False
 
     model_config = {"from_attributes": True}
 

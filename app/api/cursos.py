@@ -331,16 +331,31 @@ async def excluir_unidade(
 # --- Aulas Síncronas ---
 
 
+async def _aula_read_para(
+    db: AsyncSession,
+    aula: AulaSincrona,
+    usuario_id: uuid.UUID,
+) -> AulaSincronaRead:
+    """Monta AulaSincronaRead expondo codigo_acesso apenas para quem pode editar a aula (issue 25)."""
+    pode_editar = await _user_has_permission(db, usuario_id, Permissoes.CURSO_AULA_EDITAR)
+    return AulaSincronaRead(
+        **AulaSincronaRead.model_validate(aula).model_dump(exclude={"exige_codigo", "codigo_acesso"}),
+        exige_codigo=bool(aula.codigo_acesso),
+        codigo_acesso=aula.codigo_acesso if pode_editar else None,
+    )
+
+
 @router.get("/{curso_id}/aulas", response_model=list[AulaSincronaRead])
 async def listar_aulas(
     curso_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
     result = await db.execute(
         select(AulaSincrona).where(AulaSincrona.curso_id == curso_id).order_by(AulaSincrona.data_hora)
     )
-    return result.scalars().all()
+    aulas = result.scalars().all()
+    return [await _aula_read_para(db, a, current_user.id) for a in aulas]
 
 
 @router.post("/{curso_id}/aulas", response_model=AulaSincronaRead, status_code=status.HTTP_201_CREATED)
@@ -378,13 +393,18 @@ async def aulas_proximas(
 ):
     from datetime import datetime, timezone
 
+    inscricoes = select(Inscricao.curso_id).where(Inscricao.usuario_id == current_user.id)
     result = await db.execute(
         select(AulaSincrona)
-        .where(AulaSincrona.data_hora >= datetime.now(timezone.utc))
+        .where(
+            AulaSincrona.data_hora >= datetime.now(timezone.utc),
+            AulaSincrona.curso_id.in_(inscricoes),
+        )
         .order_by(AulaSincrona.data_hora)
         .limit(20)
     )
-    return result.scalars().all()
+    aulas = result.scalars().all()
+    return [await _aula_read_para(db, a, current_user.id) for a in aulas]
 
 
 @router.patch("/aulas/{aula_id}", response_model=AulaSincronaRead)
@@ -880,15 +900,6 @@ async def acessar_aula(
 
     await _processar_gravacao_lazy(db, aula)
 
-    presenca = PresencaAula(
-        aula_id=aula.id,
-        usuario_id=current_user.id,
-        hora_entrada=datetime.now(timezone.utc),
-        ip_acesso=request.client.host if request.client else None,
-    )
-    db.add(presenca)
-    await db.commit()
-
     return AcessarAulaResponse(
         aula_id=aula.id,
         titulo=aula.titulo,
@@ -910,15 +921,36 @@ async def entrar_aula(
     if not aula:
         raise HTTPException(status_code=404, detail="Aula nao encontrada")
 
+    inscrito = await db.execute(
+        select(Inscricao).where(Inscricao.curso_id == aula.curso_id, Inscricao.usuario_id == current_user.id)
+    )
+    if not inscrito.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Usuario nao esta inscrito no curso")
+
+    # evita duplicar entrada aberta (chamar entrar 2x = 1 linha)
+    aberta = await db.execute(
+        select(PresencaAula).where(
+            PresencaAula.aula_id == aula_id,
+            PresencaAula.usuario_id == current_user.id,
+            PresencaAula.hora_saida.is_(None),
+        )
+    )
+    if aberta.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Entrada ja registrada nesta aula")
+
+    xff = request.headers.get("x-forwarded-for", "")
+    ip_acesso = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
+
     presenca = PresencaAula(
         aula_id=aula.id,
         usuario_id=current_user.id,
         hora_entrada=datetime.now(timezone.utc),
-        ip_acesso=request.client.host if request.client else None,
+        ip_acesso=ip_acesso,
     )
     db.add(presenca)
     await db.commit()
     await db.refresh(presenca)
+    await _broadcast_presenca(aula_id, "entrou", current_user)
     return presenca
 
 
@@ -951,6 +983,7 @@ async def sair_aula(
     presenca.tempo_permanencia_seg = max(0, int((agora - presenca.hora_entrada).total_seconds()))
     await db.commit()
     await db.refresh(presenca)
+    await _broadcast_presenca(aula_id, "saiu", current_user)
     return presenca
 
 
@@ -972,11 +1005,14 @@ async def _fechar_presencas_lazy(db: AsyncSession, aula: AulaSincrona) -> None:
         )
     )
     presencas = result.scalars().all()
+    MIN_PERMANENCIA_SEG = 60
     for presenca in presencas:
         presenca.hora_saida = aula.data_hora_fim
         presenca.tempo_permanencia_seg = max(
             0, int((aula.data_hora_fim - presenca.hora_entrada).total_seconds())
         )
+        presenca.saida_estimada = True
+        presenca.presente = presenca.tempo_permanencia_seg >= MIN_PERMANENCIA_SEG
     if presencas:
         await db.commit()
 
@@ -996,6 +1032,20 @@ async def listar_presencas_aula(
 
     result = await db.execute(
         select(PresencaAula).where(PresencaAula.aula_id == aula_id).order_by(PresencaAula.hora_entrada)
+    )
+    return result.scalars().all()
+
+
+@router.get("/aulas/minhas-presencas", response_model=list[PresencaAulaRead])
+async def minhas_presencas(
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Presencas do participante logado (issue 25, ponto 8) — sem permissao admin."""
+    result = await db.execute(
+        select(PresencaAula)
+        .where(PresencaAula.usuario_id == current_user.id)
+        .order_by(PresencaAula.hora_entrada.desc())
     )
     return result.scalars().all()
 
@@ -1070,10 +1120,11 @@ async def consultar_presencas_admin(
         for p in rows
     ]
 
-    tempos = [p.tempo_permanencia_seg or 0 for p in rows]
+    todas = (await db.execute(query.order_by(PresencaAula.hora_entrada))).scalars().all()
+    tempos = [p.tempo_permanencia_seg or 0 for p in todas]
     resumo = PresencaResumoRead(
-        total_presencas=len(rows),
-        total_presentes=sum(1 for p in rows if p.presente),
+        total_presencas=len(todas),
+        total_presentes=sum(1 for p in todas if p.presente),
         media_tempo_seg=round(sum(tempos) / len(tempos), 2) if tempos else 0.0,
         tempo_total_seg=sum(tempos),
     )
@@ -1227,18 +1278,43 @@ async def _relatorio_presencas_pdf(
 
 # --- Chat em tempo real da aula (US-13) ---
 
+# Issue 25 (P11): conexoes em memoria do processo — broadcast alcanca apenas
+# o worker local. Em dev (1 worker) funciona; com replicas, migrar para um
+# pub/sub (ex: Redis) antes de subir em producao.
 _ws_connections: dict[int, set[WebSocket]] = {}
+_presentes_por_ws: dict[int, dict[str, str]] = {}  # aula_id -> {usuario_id: nome}
+
+
+async def _broadcast_presenca(aula_id: int, acao: str, usuario: Usuario) -> None:
+    """Avisa quem esta no socket da aula que alguem entrou ou saiu (issue 27)."""
+    payload = {
+        "type": "presenca",
+        "acao": acao,  # "entrou" | "saiu"
+        "usuario_id": str(usuario.id),
+        "usuario_nome": usuario.nome_completo,
+    }
+    for conn in list(_ws_connections.get(aula_id, ())):
+        try:
+            await conn.send_json(payload)
+        except Exception:
+            _ws_connections.get(aula_id, set()).discard(conn)
 
 
 @router.websocket("/aulas/{aula_id}/chat/ws")
 async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
     """WebSocket de chat em tempo real da aula (US-13, T-13.1).
 
-    Autentica via token JWT na query string (?token=...), valida que a aula
-    existe e faz broadcast das mensagens para todos os conectados na aula.
+    Autentica via token JWT no subprotocolo (recomendado, nao vaza em log)
+    ou na query string (?token=...) como fallback, valida que a aula existe
+    e faz broadcast das mensagens para todos os conectados na aula.
     """
-    token = websocket.query_params.get("token")
     from app.services.auth import decode_token
+
+    token = None
+    if websocket.headers.get("sec-websocket-protocol"):
+        token = websocket.headers["sec-websocket-protocol"].split(",")[0].strip()
+    if not token:
+        token = websocket.query_params.get("token")
 
     payload = decode_token(token or "")
     if not payload or not payload.get("sub"):
@@ -1259,16 +1335,29 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
             await websocket.accept()
             connections = _ws_connections.setdefault(aula_id, set())
             connections.add(websocket)
+            presentes = _presentes_por_ws.setdefault(aula_id, {})
+            presentes[str(usuario_id)] = usuario.nome_completo or ""
+            await websocket.send_json(
+                {
+                    "type": "presenca_inicial",
+                    "presentes": [
+                        {"usuario_id": uid, "usuario_nome": nome}
+                        for uid, nome in presentes.items()
+                    ],
+                }
+            )
             try:
                 while True:
                     data = await websocket.receive_json()
                     agora = datetime.now(timezone.utc)
-                    if usuario.silenciado_ate and usuario.silenciado_ate > agora:
+                    usuario_fresco = await db.get(Usuario, usuario_id)
+                    silenciado_ate = usuario_fresco.silenciado_ate if usuario_fresco else usuario.silenciado_ate
+                    if silenciado_ate and silenciado_ate > agora:
                         await websocket.send_json(
                             {
                                 "type": "erro",
                                 "detail": "Voce esta silenciado no chat ate "
-                                + usuario.silenciado_ate.isoformat(),
+                                + silenciado_ate.isoformat(),
                             }
                         )
                         continue
@@ -1302,6 +1391,7 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
                 pass
             finally:
                 connections.discard(websocket)
+                presentes.pop(str(usuario_id), None)
     except Exception:
         try:
             await websocket.close(code=4500)
