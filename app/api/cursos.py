@@ -372,6 +372,13 @@ async def criar_aula(
         data["data_hora_fim"] = data["data_hora"] + timedelta(minutes=data["duracao_minutos"])
     aula = AulaSincrona(**data, criado_por=current_user.id)
     if payload.criar_reuniao_teams:
+        if not teams_service._is_configured():
+            raise HTTPException(
+                status_code=422,
+                detail="Integracao Teams nao configurada neste ambiente. "
+                "Defina TEAMS_TENANT_ID, TEAMS_CLIENT_ID, TEAMS_CLIENT_SECRET e "
+                "TEAMS_ORGANIZER_EMAIL antes de criar reunioes.",
+            )
         reuniao = await teams_service.criar_reuniao(
             titulo=aula.titulo,
             data_hora=aula.data_hora,
