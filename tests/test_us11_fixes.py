@@ -172,3 +172,34 @@ class TestSaidaEstimada:
         presencas = r.json()
         assert len(presencas) == 1
         assert presencas[0]["saida_estimada"] is True, "Fechamento automatico deve marcar saida_estimada"
+
+class TestPresencaWebSocket:
+    """Issue 27 — WS transmite eventos de presenca (entrou/saiu)"""
+
+    async def test_entrar_sair_transmite_presenca_no_ws(self, client, admin_token):
+        from fastapi.testclient import TestClient
+
+        from app.main import app
+
+        s = await _setup_curso_aula(client)
+
+        with TestClient(app) as tc:
+            with tc.websocket_connect(
+                f"/api/v1/cursos/aulas/{s['aula_id']}/chat/ws",
+                subprotocols=[admin_token],
+            ) as ws:
+                # lista inicial
+                primeiro = ws.receive_json()
+                assert primeiro["type"] == "presenca_inicial", primeiro
+
+                # admin entra pela rota HTTP -> broadcast no ws
+                await client.post(f"/api/v1/cursos/aulas/{s['aula_id']}/entrar")
+                evento = ws.receive_json()
+                assert evento["type"] == "presenca", evento
+                assert evento["acao"] == "entrou", evento
+
+                # admin sai -> broadcast
+                await client.post(f"/api/v1/cursos/aulas/{s['aula_id']}/sair")
+                evento2 = ws.receive_json()
+                assert evento2["type"] == "presenca", evento2
+                assert evento2["acao"] == "saiu", evento2

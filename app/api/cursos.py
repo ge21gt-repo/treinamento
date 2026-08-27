@@ -950,6 +950,7 @@ async def entrar_aula(
     db.add(presenca)
     await db.commit()
     await db.refresh(presenca)
+    await _broadcast_presenca(aula_id, "entrou", current_user)
     return presenca
 
 
@@ -982,6 +983,7 @@ async def sair_aula(
     presenca.tempo_permanencia_seg = max(0, int((agora - presenca.hora_entrada).total_seconds()))
     await db.commit()
     await db.refresh(presenca)
+    await _broadcast_presenca(aula_id, "saiu", current_user)
     return presenca
 
 
@@ -1280,6 +1282,22 @@ async def _relatorio_presencas_pdf(
 # o worker local. Em dev (1 worker) funciona; com replicas, migrar para um
 # pub/sub (ex: Redis) antes de subir em producao.
 _ws_connections: dict[int, set[WebSocket]] = {}
+_presentes_por_ws: dict[int, dict[str, str]] = {}  # aula_id -> {usuario_id: nome}
+
+
+async def _broadcast_presenca(aula_id: int, acao: str, usuario: Usuario) -> None:
+    """Avisa quem esta no socket da aula que alguem entrou ou saiu (issue 27)."""
+    payload = {
+        "type": "presenca",
+        "acao": acao,  # "entrou" | "saiu"
+        "usuario_id": str(usuario.id),
+        "usuario_nome": usuario.nome_completo,
+    }
+    for conn in list(_ws_connections.get(aula_id, ())):
+        try:
+            await conn.send_json(payload)
+        except Exception:
+            _ws_connections.get(aula_id, set()).discard(conn)
 
 
 @router.websocket("/aulas/{aula_id}/chat/ws")
@@ -1317,6 +1335,17 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
             await websocket.accept()
             connections = _ws_connections.setdefault(aula_id, set())
             connections.add(websocket)
+            presentes = _presentes_por_ws.setdefault(aula_id, {})
+            presentes[str(usuario_id)] = usuario.nome_completo or ""
+            await websocket.send_json(
+                {
+                    "type": "presenca_inicial",
+                    "presentes": [
+                        {"usuario_id": uid, "usuario_nome": nome}
+                        for uid, nome in presentes.items()
+                    ],
+                }
+            )
             try:
                 while True:
                     data = await websocket.receive_json()
@@ -1362,6 +1391,7 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
                 pass
             finally:
                 connections.discard(websocket)
+                presentes.pop(str(usuario_id), None)
     except Exception:
         try:
             await websocket.close(code=4500)

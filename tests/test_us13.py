@@ -69,6 +69,8 @@ class TestChatAulaWebSocket:
 
         with TestClient(app) as tc:
             with tc.websocket_connect(f"/api/v1/cursos/aulas/{aula_id}/chat/ws?token={admin_token}") as ws:
+                inicial = ws.receive_json()
+                assert inicial["type"] == "presenca_inicial", inicial
                 ws.send_json({"texto": "ola via websocket"})
                 data = ws.receive_json()
                 assert data["type"] == "mensagem"
@@ -130,7 +132,9 @@ class TestComunicacaoTempoReal:
 
         with TestClient(app) as tc:
             with tc.websocket_connect(f"/api/v1/cursos/aulas/{aula_id}/chat/ws?token={admin_token}") as ws1:
+                assert ws1.receive_json()["type"] == "presenca_inicial"
                 with tc.websocket_connect(f"/api/v1/cursos/aulas/{aula_id}/chat/ws?token={admin_token}") as ws2:
+                    assert ws2.receive_json()["type"] == "presenca_inicial"
                     ws1.send_json({"texto": "broadcast para todos"})
                     data1 = ws1.receive_json()
                     data2 = ws2.receive_json()
@@ -155,6 +159,7 @@ class TestComunicacaoTempoReal:
 
         with TestClient(app) as tc:
             with tc.websocket_connect(f"/api/v1/cursos/aulas/{aula_id}/chat/ws?token={admin_token}") as ws:
+                assert ws.receive_json()["type"] == "presenca_inicial"
                 ws.send_json({"texto": "silenciado nao pode enviar"})
                 data = ws.receive_json()
                 assert data["type"] == "erro"
