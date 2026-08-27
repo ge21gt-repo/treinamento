@@ -23,6 +23,7 @@ from app.api import (
     entregas,
     gamificacao,
     health,
+    notificacoes,
     sandbox,
     scorm,
     sessoes,
@@ -269,6 +270,7 @@ app.add_middleware(LogRequestsMiddleware)
 
 PREFIX = "/api/v1"
 
+app.include_router(notificacoes.router, prefix=PREFIX)
 app.include_router(health.router)
 app.include_router(auth.router, prefix=PREFIX)
 app.include_router(usuarios.router, prefix=PREFIX)
