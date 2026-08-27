@@ -203,3 +203,26 @@ class TestPresencaWebSocket:
                 evento2 = ws.receive_json()
                 assert evento2["type"] == "presenca", evento2
                 assert evento2["acao"] == "saiu", evento2
+
+
+class TestTeamsAviso:
+    """Issue 26 — aviso quando criar_reuniao_teams=true mas Teams nao configurado"""
+
+    async def test_criar_aula_com_teams_sem_config_422(self, client, monkeypatch):
+        from app.config import settings
+
+        # simular ambiente sem Teams
+        monkeypatch.setattr(settings, "TEAMS_TENANT_ID", "")
+        monkeypatch.setattr(settings, "TEAMS_CLIENT_ID", "")
+        monkeypatch.setattr(settings, "TEAMS_CLIENT_SECRET", "")
+        monkeypatch.setattr(settings, "TEAMS_ORGANIZER_EMAIL", "")
+
+        r = await client.post("/api/v1/cursos", json={"titulo": "Curso Teams Aviso", "descricao": "x", "ordem": 0, "publicado": True})
+        cid = r.json()["id"]
+        r = await client.post(
+            f"/api/v1/cursos/{cid}/aulas",
+            json={"curso_id": cid, "titulo": "Aula Teams", "data_hora": "2099-01-01T10:00:00Z",
+                  "duracao_minutos": 60, "criar_reuniao_teams": True},
+        )
+        assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, r.text
+        assert "TEAMS" in r.text or "Teams" in r.text, r.text
