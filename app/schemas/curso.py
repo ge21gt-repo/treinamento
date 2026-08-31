@@ -368,6 +368,7 @@ class PresencaConsultaItem(BaseModel):
     hora_saida: datetime | None = None
     tempo_permanencia_seg: int | None = None
     presente: bool
+    saida_estimada: bool = False
 
 
 class MensagemAulaCreate(BaseModel):

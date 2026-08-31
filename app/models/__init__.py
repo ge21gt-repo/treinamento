@@ -74,3 +74,5 @@ __all__ = [
     "TrackingScorm",
     "TokenResetSenha",
 ]
+
+from app.models.usuario import UsuarioAulaSilenciado
