@@ -89,8 +89,9 @@ async def listar_cursos(
 @router.post("", response_model=CursoRead, status_code=status.HTTP_201_CREATED)
 async def criar_curso(
     payload: CursoCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.CURSO_CRIAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_CRIAR)),
 ):
     if payload.pre_requisito_curso_id:
         result = await db.execute(select(Curso).where(Curso.id == payload.pre_requisito_curso_id))
@@ -100,6 +101,13 @@ async def criar_curso(
     db.add(curso)
     await db.commit()
     await db.refresh(curso)
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="cursos", registro_id=curso.id, acao="criar",
+        dados_novos={"titulo": curso.titulo}, usuario_id=current_user.id, request=request,
+    )
+    await db.commit()
     return curso
 
 
@@ -120,31 +128,50 @@ async def obter_curso(
 async def atualizar_curso(
     curso_id: int,
     payload: CursoUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.CURSO_EDITAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_EDITAR)),
 ):
     result = await db.execute(select(Curso).where(Curso.id == curso_id))
     curso = result.scalar_one_or_none()
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
+    dados_antes = {"titulo": curso.titulo, "descricao": curso.descricao}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(curso, field, value)
     await db.commit()
     await db.refresh(curso)
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="cursos", registro_id=curso.id, acao="atualizar",
+        dados_anteriores=dados_antes, dados_novos={"titulo": curso.titulo},
+        usuario_id=current_user.id, request=request,
+    )
+    await db.commit()
     return curso
 
 
 @router.delete("/{curso_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def excluir_curso(
     curso_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.CURSO_EXCLUIR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_EXCLUIR)),
 ):
     result = await db.execute(select(Curso).where(Curso.id == curso_id))
     curso = result.scalar_one_or_none()
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
+    dados_antes = {"titulo": curso.titulo}
     await db.delete(curso)
+    await db.commit()
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="cursos", registro_id=curso_id, acao="excluir",
+        dados_anteriores=dados_antes, usuario_id=current_user.id, request=request,
+    )
     await db.commit()
 
 
@@ -574,6 +601,7 @@ async def _user_has_permission(db: AsyncSession, usuario_id: uuid.UUID, permissa
 @router.post("/inscricoes", response_model=InscricaoRead, status_code=status.HTTP_201_CREATED)
 async def inscrever(
     payload: InscricaoCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_INSCREVER)),
 ):
@@ -612,6 +640,12 @@ async def inscrever(
     db.add(inscricao)
     await db.commit()
     await db.refresh(inscricao)
+    from app.services.auditoria import auditar_escrita
+
+    await auditar_escrita(
+        db, "inscricoes", inscricao.id, "criar",
+        dados_novos={"curso_id": payload.curso_id}, usuario_id=current_user.id, request=request,
+    )
     return inscricao
 
 
@@ -641,6 +675,7 @@ async def listar_inscricoes_usuario(
 @router.delete("/inscricoes/{inscricao_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancelar_inscricao(
     inscricao_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_INSCREVER)),
 ):
@@ -652,8 +687,15 @@ async def cancelar_inscricao(
         has_outros = await _user_has_permission(db, current_user.id, Permissoes.CURSO_INSCREVER_OUTROS)
         if not has_outros:
             raise HTTPException(status_code=403, detail="Sem permissao para cancelar inscricao de outro usuario")
+    dados_antes = {"curso_id": inscricao.curso_id}
     await db.delete(inscricao)
     await db.commit()
+    from app.services.auditoria import auditar_escrita
+
+    await auditar_escrita(
+        db, "inscricoes", inscricao_id, "excluir",
+        dados_anteriores=dados_antes, usuario_id=current_user.id, request=request,
+    )
 
 
 # --- Progresso ---

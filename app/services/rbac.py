@@ -87,6 +87,7 @@ class Permissoes:
     DASHBOARD_KPIS = "dashboard:kpis"
     DASHBOARD_GRAFICOS = "dashboard:graficos"
     DASHBOARD_RELATORIOS = "dashboard:relatorios"
+    AUDITORIA_VISUALIZAR = "auditoria:visualizar"
     DASHBOARD_METRICAS_USUARIO = "dashboard:metricas_usuario"
 
     GAMIFICACAO_GERENCIAR = "gamificacao:gerenciar"
@@ -184,6 +185,7 @@ PERFIL_PERMISSOES = {
         Permissoes.DASHBOARD_KPIS,
         Permissoes.DASHBOARD_GRAFICOS,
         Permissoes.DASHBOARD_RELATORIOS,
+        Permissoes.AUDITORIA_VISUALIZAR,
         Permissoes.GAMIFICACAO_GERENCIAR,
         Permissoes.GAMIFICACAO_VISUALIZAR,
         Permissoes.GAMIFICACAO_CRIAR,
@@ -373,6 +375,7 @@ PERFIL_PERMISSOES = {
         Permissoes.DASHBOARD_METRICAS,
         Permissoes.DASHBOARD_LOGS,
         Permissoes.DASHBOARD_STATS,
+        Permissoes.AUDITORIA_VISUALIZAR,
         Permissoes.SESSAO_VISUALIZAR,
         Permissoes.SESSAO_VER_PRESENCA,
         Permissoes.FORUM_VISUALIZAR,
