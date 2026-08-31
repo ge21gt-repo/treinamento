@@ -372,6 +372,13 @@ async def criar_aula(
         data["data_hora_fim"] = data["data_hora"] + timedelta(minutes=data["duracao_minutos"])
     aula = AulaSincrona(**data, criado_por=current_user.id)
     if payload.criar_reuniao_teams:
+        if not teams_service._is_configured():
+            raise HTTPException(
+                status_code=422,
+                detail="Integracao Teams nao configurada neste ambiente. "
+                "Defina TEAMS_TENANT_ID, TEAMS_CLIENT_ID, TEAMS_CLIENT_SECRET e "
+                "TEAMS_ORGANIZER_EMAIL antes de criar reunioes.",
+            )
         reuniao = await teams_service.criar_reuniao(
             titulo=aula.titulo,
             data_hora=aula.data_hora,
@@ -383,6 +390,19 @@ async def criar_aula(
     db.add(aula)
     await db.commit()
     await db.refresh(aula)
+
+    from app.services.notificacoes import notificar_inscritos
+
+    await notificar_inscritos(
+        db,
+        curso_id=curso_id,
+        tipo="aula_agendada",
+        titulo=f"Aula agendada: {aula.titulo}",
+        corpo=f"Novo encontro em {aula.data_hora.strftime('%d/%m/%Y %H:%M')}.",
+        referencia_tipo="aula",
+        referencia_id=aula.id,
+    )
+    await db.commit()
     return await _aula_read_para(db, aula, current_user.id)
 
 
@@ -827,6 +847,18 @@ async def _processar_gravacao_lazy(db: AsyncSession, aula: AulaSincrona) -> dict
     )
     if resultado.get("success"):
         aula.gravacao_conteudo_id = resultado.get("conteudo_id")
+        await db.commit()
+        from app.services.notificacoes import notificar_inscritos
+
+        await notificar_inscritos(
+            db,
+            curso_id=aula.curso_id,
+            tipo="gravacao_disponivel",
+            titulo=f"Gravacao disponivel: {aula.titulo}",
+            corpo="A gravacao desta aula ja esta disponivel.",
+            referencia_tipo="aula",
+            referencia_id=aula.id,
+        )
         await db.commit()
     return resultado
 

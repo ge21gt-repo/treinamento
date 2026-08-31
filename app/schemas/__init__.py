@@ -190,3 +190,5 @@ __all__ = [
     "InscricaoTrilhaRead",
     "TrilhaProgressoRead",
 ]
+
+from app.schemas.notificacao import NotificacaoRead, NotificacoesListaRead

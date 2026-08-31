@@ -10,6 +10,7 @@ from app.api import (
     entregas,
     gamificacao,
     health,
+    notificacoes,
     sandbox,
     scorm,
     sessoes,

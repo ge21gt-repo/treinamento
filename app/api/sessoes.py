@@ -103,12 +103,22 @@ async def excluir_sessao(
 # --- Presenca ---
 
 
-@router.post("/presenca", response_model=PresencaRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/presenca",
+    response_model=PresencaRead,
+    status_code=status.HTTP_201_CREATED,
+    deprecated=True,
+)
 async def registrar_presenca(
     payload: PresencaCreate,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.SESSAO_GERENCIAR_PRESENCA)),
 ):
+    """LEGADO (issue 31): presenca oficial e a de aula (`PresencaAula`).
+
+    Este sistema de presenca por sessao nao alimenta nenhum relatorio e nao
+    e usado pelo front. Mantido apenas por compatibilidade.
+    """
     sessao = await db.get(SessaoAoVivo, payload.sessao_id)
     if not sessao:
         raise HTTPException(status_code=404, detail="Sessao nao encontrada")
@@ -123,23 +133,25 @@ async def registrar_presenca(
     return presenca
 
 
-@router.get("/presenca/{sessao_id}", response_model=list[PresencaRead])
+@router.get("/presenca/{sessao_id}", response_model=list[PresencaRead], deprecated=True)
 async def listar_presenca(
     sessao_id: int,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.SESSAO_VER_PRESENCA)),
 ):
+    """LEGADO (issue 31): presenca oficial e a de aula (`PresencaAula`)."""
     result = await db.execute(select(Presenca).where(Presenca.sessao_id == sessao_id))
     return result.scalars().all()
 
 
-@router.patch("/presenca/{presenca_id}", response_model=PresencaRead)
+@router.patch("/presenca/{presenca_id}", response_model=PresencaRead, deprecated=True)
 async def atualizar_presenca(
     presenca_id: int,
     payload: PresencaUpdate,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.SESSAO_GERENCIAR_PRESENCA)),
 ):
+    """LEGADO (issue 31): presenca oficial e a de aula (`PresencaAula`)."""
     result = await db.execute(select(Presenca).where(Presenca.id == presenca_id))
     presenca = result.scalar_one_or_none()
     if not presenca:
