@@ -120,6 +120,37 @@ class TestAulasProximas:
 class TestSilenciarWS:
     """P3 — silenciar vale para quem esta no websocket (relido do banco)"""
 
+    async def test_silenciar_e_especifico_da_aula(self, client):
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from app.config import settings
+        from app.models.usuario import UsuarioAulaSilenciado
+
+        s1 = await _setup_curso_aula(client)
+        s2 = await _setup_curso_aula(client)
+        uid = "00000000-0000-0000-0000-000000000001"
+
+        # silencia na aula 1 apenas
+        r = await client.patch(f"/api/v1/cursos/aulas/{s1['aula_id']}/chat/silenciar/{uid}?silenciado_ate=2099-01-01T00:00:00Z")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        assert r.json()["aula_id"] == s1["aula_id"]
+
+        # enviar na aula 1 -> bloqueado (403)
+        r = await client.post(f"/api/v1/cursos/aulas/{s1['aula_id']}/chat", json={"texto": "oi"})
+        assert r.status_code == status.HTTP_403_FORBIDDEN, r.text
+
+        # enviar na aula 2 -> permitido (201)
+        r = await client.post(f"/api/v1/cursos/aulas/{s2['aula_id']}/chat", json={"texto": "oi"})
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+
+    async def test_sair_aula_recalcula_presente(self, client):
+        s = await _setup_curso_aula(client)
+        await client.post(f"/api/v1/cursos/aulas/{s['aula_id']}/entrar")
+        await client.post(f"/api/v1/cursos/aulas/{s['aula_id']}/sair")
+        r = await client.get("/api/v1/cursos/aulas/minhas-presencas")
+        presenca = [p for p in r.json() if p["aula_id"] == s["aula_id"]][0]
+        assert "saida_estimada" in presenca, "schema deve expor saida_estimada"
+
     async def test_websocket_relê_silenciado_ate(self, client):
         from httpx import ASGITransport, AsyncClient
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
