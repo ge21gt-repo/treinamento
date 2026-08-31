@@ -76,3 +76,4 @@ __all__ = [
 ]
 
 from app.models.notificacao import Notificacao
+from app.models.usuario import UsuarioAulaSilenciado

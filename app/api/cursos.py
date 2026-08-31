@@ -403,7 +403,7 @@ async def criar_aula(
         referencia_id=aula.id,
     )
     await db.commit()
-    return aula
+    return await _aula_read_para(db, aula, current_user.id)
 
 
 @router.get("/aulas/proximas", response_model=list[AulaSincronaRead])
@@ -446,7 +446,7 @@ async def atualizar_aula(
         setattr(aula, field, value)
     await db.commit()
     await db.refresh(aula)
-    return aula
+    return await _aula_read_para(db, aula, current_user.id)
 
 
 @router.delete("/aulas/{aula_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1013,6 +1013,7 @@ async def sair_aula(
     agora = datetime.now(timezone.utc)
     presenca.hora_saida = agora
     presenca.tempo_permanencia_seg = max(0, int((agora - presenca.hora_entrada).total_seconds()))
+    presenca.presente = presenca.tempo_permanencia_seg >= 60
     await db.commit()
     await db.refresh(presenca)
     await _broadcast_presenca(aula_id, "saiu", current_user)
@@ -1148,6 +1149,7 @@ async def consultar_presencas_admin(
             hora_saida=p.hora_saida,
             tempo_permanencia_seg=p.tempo_permanencia_seg,
             presente=p.presente,
+            saida_estimada=p.saida_estimada,
         )
         for p in rows
     ]
@@ -1215,7 +1217,7 @@ def _relatorio_presencas_csv(
     writer.writerow(["Relatorio de presenca - Aula", aula.titulo])
     writer.writerow(["Data", aula.data_hora.strftime("%d/%m/%Y %H:%M")])
     writer.writerow([])
-    writer.writerow(["Participante", "Email", "Entrada", "Saida", "Tempo (min)", "Presente"])
+    writer.writerow(["Participante", "Email", "Entrada", "Saida", "Tempo (min)", "Presente", "Saida estimada"])
 
     for p in presencas:
         usuario = usuarios.get(p.usuario_id)
@@ -1230,6 +1232,7 @@ def _relatorio_presencas_csv(
                 p.hora_saida.strftime("%d/%m/%Y %H:%M") if p.hora_saida else "em aberto",
                 tempo,
                 "Sim" if p.presente else "Nao",
+                "Sim" if p.saida_estimada else "Nao",
             ]
         )
 
@@ -1265,7 +1268,7 @@ async def _relatorio_presencas_pdf(
         Spacer(1, 12),
     ]
 
-    cabecalho = ["Participante", "Email", "Entrada", "Saida", "Tempo (min)", "Presente"]
+    cabecalho = ["Participante", "Email", "Entrada", "Saida", "Tempo (min)", "Presente", "Saida estimada"]
     linhas = [cabecalho]
     for p in presencas:
         usuario = usuarios.get(p.usuario_id)
@@ -1280,6 +1283,7 @@ async def _relatorio_presencas_pdf(
                 p.hora_saida.strftime("%d/%m/%Y %H:%M") if p.hora_saida else "em aberto",
                 tempo,
                 "Sim" if p.presente else "Nao",
+                "Sim" if p.saida_estimada else "Nao",
             ]
         )
 
@@ -1382,8 +1386,16 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
                 while True:
                     data = await websocket.receive_json()
                     agora = datetime.now(timezone.utc)
-                    usuario_fresco = await db.get(Usuario, usuario_id)
-                    silenciado_ate = usuario_fresco.silenciado_ate if usuario_fresco else usuario.silenciado_ate
+                    from app.models.usuario import UsuarioAulaSilenciado
+
+                    sil_registro = await db.execute(
+                        select(UsuarioAulaSilenciado).where(
+                            UsuarioAulaSilenciado.usuario_id == usuario_id,
+                            UsuarioAulaSilenciado.aula_id == aula_id,
+                        )
+                    )
+                    sil_por_aula = sil_registro.scalar_one_or_none()
+                    silenciado_ate = sil_por_aula.silenciado_ate if sil_por_aula else None
                     if silenciado_ate and silenciado_ate > agora:
                         await websocket.send_json(
                             {
@@ -1485,11 +1497,19 @@ async def enviar_mensagem_aula(
         raise HTTPException(status_code=404, detail="Aula nao encontrada")
 
     agora = datetime.now(timezone.utc)
-    usuario_fresco = await db.get(Usuario, current_user.id)
-    if usuario_fresco and usuario_fresco.silenciado_ate and usuario_fresco.silenciado_ate > agora:
+    from app.models.usuario import UsuarioAulaSilenciado
+
+    sil_registro = await db.execute(
+        select(UsuarioAulaSilenciado).where(
+            UsuarioAulaSilenciado.usuario_id == current_user.id,
+            UsuarioAulaSilenciado.aula_id == aula_id,
+        )
+    )
+    sil_por_aula = sil_registro.scalar_one_or_none()
+    if sil_por_aula and sil_por_aula.silenciado_ate and sil_por_aula.silenciado_ate > agora:
         raise HTTPException(
             status_code=403,
-            detail=f"Usuario silenciado no chat ate {usuario_fresco.silenciado_ate.isoformat()}",
+            detail=f"Usuario silenciado no chat ate {sil_por_aula.silenciado_ate.isoformat()}",
         )
 
     texto = payload.texto.strip()
@@ -1556,6 +1576,19 @@ async def silenciar_usuario_chat(
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
 
-    usuario.silenciado_ate = silenciado_ate or datetime.now(timezone.utc) + timedelta(hours=24)
+    from app.models.usuario import UsuarioAulaSilenciado
+
+    ate = silenciado_ate or datetime.now(timezone.utc) + timedelta(hours=24)
+    existente = await db.execute(
+        select(UsuarioAulaSilenciado).where(
+            UsuarioAulaSilenciado.usuario_id == usuario_id,
+            UsuarioAulaSilenciado.aula_id == aula_id,
+        )
+    )
+    registro = existente.scalar_one_or_none()
+    if registro:
+        registro.silenciado_ate = ate
+    else:
+        db.add(UsuarioAulaSilenciado(usuario_id=usuario_id, aula_id=aula_id, silenciado_ate=ate))
     await db.commit()
-    return {"usuario_id": str(usuario.id), "silenciado_ate": usuario.silenciado_ate.isoformat()}
+    return {"usuario_id": str(usuario.id), "aula_id": aula_id, "silenciado_ate": ate.isoformat()}
