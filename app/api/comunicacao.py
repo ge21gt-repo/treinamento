@@ -1,18 +1,18 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_permissao
+from app.api.deps import require_permissao
 from app.database import get_db
 from app.models.comunicacao import ForumResposta, ForumTermoBloqueado, ForumTopico, MensagemChat
 from app.models.curso import Curso
-from app.models.usuario import Usuario
-from app.services.paginacao import apply_search, count_query
-from app.services.moderacao import checar_conteudo
-from app.services.rbac import Permissoes
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.schemas.comunicacao import (
     ForumRespostaCreate,
     ForumRespostaRead,
+    ForumRespostaUpdate,
     ForumTermoBloqueadoCreate,
     ForumTermoBloqueadoRead,
     ForumTopicoCreate,
@@ -21,8 +21,40 @@ from app.schemas.comunicacao import (
     MensagemChatCreate,
     MensagemChatRead,
 )
+from app.services.moderacao import checar_conteudo
+from app.services.paginacao import apply_search, count_query
+from app.services.rbac import Permissoes, has_permission
 
 router = APIRouter(prefix="/comunicacao", tags=["Comunicacao"])
+
+
+async def _perfis_do_usuario(db: AsyncSession, usuario_id) -> list[Perfil]:
+    result = await db.execute(select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == usuario_id))
+    return list(result.scalars().all())
+
+
+async def _pode_moderar_forum(db: AsyncSession, usuario_id) -> bool:
+    perfis = await _perfis_do_usuario(db, usuario_id)
+    return any(has_permission(p.nome, Permissoes.FORUM_MODERAR) for p in perfis)
+
+
+async def _checar_autoria_ou_moderador(db: AsyncSession, autor_id, current_user: Usuario) -> None:
+    """Bloqueia edicao/exclusao de conteudo de outro autor, exceto para quem modera (issue 50)."""
+    if autor_id == current_user.id:
+        return
+    if await _pode_moderar_forum(db, current_user.id):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Voce so pode editar ou excluir o proprio conteudo",
+    )
+
+
+def _formatar_erro_bloqueio(bloqueado: tuple[str, str | None]) -> str:
+    termo, categoria = bloqueado
+    if categoria:
+        return f"Conteudo bloqueado: contem o termo '{termo}' (categoria: {categoria})"
+    return f"Conteudo bloqueado: contem o termo '{termo}'"
 
 
 # --- Chat ---
@@ -74,7 +106,9 @@ async def listar_termos_bloqueados(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.FORUM_MODERAR)),
 ):
-    result = await db.execute(select(ForumTermoBloqueado).order_by(ForumTermoBloqueado.categoria, ForumTermoBloqueado.termo))
+    result = await db.execute(
+        select(ForumTermoBloqueado).order_by(ForumTermoBloqueado.categoria, ForumTermoBloqueado.termo)
+    )
     return result.scalars().all()
 
 
@@ -117,6 +151,11 @@ async def listar_topicos(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     q: str | None = Query(None, description="Busca textual por titulo ou conteudo"),
+    ordenar_por: str = Query(
+        "atividade",
+        pattern="^(atividade|recentes)$",
+        description="'atividade' (padrao, por ultima resposta) ou 'recentes' (por criacao)",
+    ),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
     _: Usuario = Depends(require_permissao(Permissoes.FORUM_VISUALIZAR)),
@@ -124,27 +163,53 @@ async def listar_topicos(
     curso = await db.get(Curso, curso_id)
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
-    query = select(ForumTopico).where(ForumTopico.curso_id == curso_id)
+
+    # Agregado de respostas (nao removidas) por topico, numa unica subquery -- sem N+1 (issue 52)
+    resposta_agg = (
+        select(
+            ForumResposta.topico_id.label("topico_id"),
+            func.count(ForumResposta.id).label("respostas_count"),
+            func.max(ForumResposta.criado_em).label("ultima_resposta"),
+        )
+        .where(ForumResposta.removida.is_(False))
+        .group_by(ForumResposta.topico_id)
+        .subquery()
+    )
+    respostas_count_expr = func.coalesce(resposta_agg.c.respostas_count, 0)
+    ultima_atividade_expr = func.coalesce(resposta_agg.c.ultima_resposta, ForumTopico.criado_em)
+
+    query = (
+        select(ForumTopico, respostas_count_expr, ultima_atividade_expr)
+        .outerjoin(resposta_agg, resposta_agg.c.topico_id == ForumTopico.id)
+        .where(ForumTopico.curso_id == curso_id)
+    )
     query = apply_search(query, [ForumTopico.titulo, ForumTopico.conteudo], q)
     total = await count_query(db, query)
-    result = await db.execute(
-        query.order_by(ForumTopico.fixado.desc(), ForumTopico.criado_em.desc()).offset(skip).limit(limit)
-    )
-    items = result.scalars().all()
+
+    if ordenar_por == "atividade":
+        query = query.order_by(ForumTopico.fixado.desc(), ultima_atividade_expr.desc())
+    else:
+        query = query.order_by(ForumTopico.fixado.desc(), ForumTopico.criado_em.desc())
+
+    result = await db.execute(query.offset(skip).limit(limit))
+    rows = result.all()
     response.headers["X-Total-Count"] = str(total)
 
-    autores_ids = {t.autor_id for t in items}
+    autores_ids = {t.autor_id for t, _, _ in rows}
     autores = {}
     if autores_ids:
-        rows = await db.execute(select(Usuario).where(Usuario.id.in_(autores_ids)))
-        autores = {u.id: u.nome_completo for u in rows.scalars().all()}
+        autor_rows = await db.execute(select(Usuario).where(Usuario.id.in_(autores_ids)))
+        autores = {u.id: u.nome_completo for u in autor_rows.scalars().all()}
 
+    excluidos = {"autor_nome", "respostas_count", "ultima_atividade"}
     return [
         ForumTopicoRead(
-            **ForumTopicoRead.model_validate(t).model_dump(exclude={"autor_nome"}),
+            **ForumTopicoRead.model_validate(t).model_dump(exclude=excluidos),
             autor_nome=autores.get(t.autor_id, ""),
+            respostas_count=respostas_count,
+            ultima_atividade=ultima_atividade,
         )
-        for t in items
+        for t, respostas_count, ultima_atividade in rows
     ]
 
 
@@ -157,12 +222,9 @@ async def criar_topico(
     curso = await db.get(Curso, payload.curso_id)
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
-    termo = await checar_conteudo(db, f"{payload.titulo} {payload.conteudo}")
-    if termo:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Conteudo bloqueado: contem o termo '{termo}'",
-        )
+    bloqueado = await checar_conteudo(db, f"{payload.titulo} {payload.conteudo}")
+    if bloqueado:
+        raise HTTPException(status_code=422, detail=_formatar_erro_bloqueio(bloqueado))
     topico = ForumTopico(**payload.model_dump(), autor_id=current_user.id)
     db.add(topico)
     await db.commit()
@@ -199,14 +261,25 @@ async def atualizar_topico(
     topico_id: int,
     payload: ForumTopicoUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.FORUM_EDITAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_EDITAR)),
 ):
     result = await db.execute(select(ForumTopico).where(ForumTopico.id == topico_id))
     topico = result.scalar_one_or_none()
     if not topico:
         raise HTTPException(status_code=404, detail="Topico nao encontrado")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    await _checar_autoria_ou_moderador(db, topico.autor_id, current_user)
+
+    dados = payload.model_dump(exclude_unset=True)
+    if "titulo" in dados or "conteudo" in dados:
+        titulo_novo = dados.get("titulo", topico.titulo)
+        conteudo_novo = dados.get("conteudo", topico.conteudo)
+        bloqueado = await checar_conteudo(db, f"{titulo_novo} {conteudo_novo}")
+        if bloqueado:
+            raise HTTPException(status_code=422, detail=_formatar_erro_bloqueio(bloqueado))
+
+    for field, value in dados.items():
         setattr(topico, field, value)
+    topico.atualizado_em = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(topico)
     return await _topico_com_autor(db, topico)
@@ -250,12 +323,13 @@ async def fechar_topico(
 async def excluir_topico(
     topico_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.FORUM_EXCLUIR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_EXCLUIR)),
 ):
     result = await db.execute(select(ForumTopico).where(ForumTopico.id == topico_id))
     topico = result.scalar_one_or_none()
     if not topico:
         raise HTTPException(status_code=404, detail="Topico nao encontrado")
+    await _checar_autoria_ou_moderador(db, topico.autor_id, current_user)
     await db.delete(topico)
     await db.commit()
 
@@ -312,12 +386,9 @@ async def criar_resposta_forum(
         pai = await db.get(ForumResposta, payload.resposta_pai_id)
         if not pai or pai.topico_id != topico.id:
             raise HTTPException(status_code=404, detail="Resposta pai nao encontrada neste topico")
-    termo = await checar_conteudo(db, payload.conteudo)
-    if termo:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Conteudo bloqueado: contem o termo '{termo}'",
-        )
+    bloqueado = await checar_conteudo(db, payload.conteudo)
+    if bloqueado:
+        raise HTTPException(status_code=422, detail=_formatar_erro_bloqueio(bloqueado))
     resposta = ForumResposta(**payload.model_dump(), autor_id=current_user.id)
     db.add(resposta)
     await db.commit()
@@ -326,3 +397,51 @@ async def criar_resposta_forum(
         **ForumRespostaRead.model_validate(resposta).model_dump(exclude={"autor_nome"}),
         autor_nome=current_user.nome_completo,
     )
+
+
+@router.patch("/forum/respostas/{resposta_id}", response_model=ForumRespostaRead)
+async def atualizar_resposta(
+    resposta_id: int,
+    payload: ForumRespostaUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_EDITAR)),
+):
+    resposta = await db.get(ForumResposta, resposta_id)
+    if not resposta or resposta.removida:
+        raise HTTPException(status_code=404, detail="Resposta nao encontrada")
+    await _checar_autoria_ou_moderador(db, resposta.autor_id, current_user)
+
+    bloqueado = await checar_conteudo(db, payload.conteudo)
+    if bloqueado:
+        raise HTTPException(status_code=422, detail=_formatar_erro_bloqueio(bloqueado))
+
+    resposta.conteudo = payload.conteudo
+    resposta.atualizado_em = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(resposta)
+
+    autor = await db.get(Usuario, resposta.autor_id)
+    return ForumRespostaRead(
+        **ForumRespostaRead.model_validate(resposta).model_dump(exclude={"autor_nome"}),
+        autor_nome=autor.nome_completo if autor else "",
+    )
+
+
+@router.delete("/forum/respostas/{resposta_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def excluir_resposta(
+    resposta_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_EXCLUIR)),
+):
+    resposta = await db.get(ForumResposta, resposta_id)
+    if not resposta or resposta.removida:
+        raise HTTPException(status_code=404, detail="Resposta nao encontrada")
+    await _checar_autoria_ou_moderador(db, resposta.autor_id, current_user)
+
+    # Soft delete: forum_respostas.resposta_pai_id nao tem ondelete, e apagar uma
+    # resposta com filhas quebraria a arvore. Marcar como removida preserva a
+    # leitura da conversa (issue 49).
+    resposta.removida = True
+    resposta.conteudo = "[mensagem removida]"
+    resposta.atualizado_em = datetime.now(timezone.utc)
+    await db.commit()

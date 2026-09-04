@@ -429,6 +429,10 @@ PERFIL_PERMISSOES = {
         Permissoes.SESSAO_VISUALIZAR,
         Permissoes.SESSAO_VER_PRESENCA,
         Permissoes.FORUM_CRIAR,
+        # forum:editar/excluir so valem sobre o proprio topico/resposta (issue 50) --
+        # a checagem de autoria (ou forum:moderar) e feita na rota, nao aqui.
+        Permissoes.FORUM_EDITAR,
+        Permissoes.FORUM_EXCLUIR,
         Permissoes.FORUM_VISUALIZAR,
         Permissoes.CHAT_ENVIAR,
         Permissoes.CHAT_VISUALIZAR,

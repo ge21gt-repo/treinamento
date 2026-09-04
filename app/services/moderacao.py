@@ -4,6 +4,7 @@ Termos bloqueados: default fixo no codigo + tabela forum_termos_bloqueados
 (gerenciada pelo admin via API). O seed so popula se a tabela estiver vazia.
 """
 
+import re
 import unicodedata
 
 from sqlalchemy import select
@@ -11,14 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.comunicacao import ForumTermoBloqueado
 
+# Frases, nao palavras administrativas soltas: "presidente", "candidato", "partido",
+# "eleicao"/"eleicoes" e "governador" bloqueavam vocabulario legitimo de servico publico
+# (ex.: "presidente da comissao de licitacao", Lei 14.133) mesmo com casamento por
+# palavra inteira, porque a palavra aparece sozinha nesses casos (issue 51).
 TERMOS_DEFAULT: list[dict] = [
-    {"termo": "eleicao", "categoria": "politico"},
-    {"termo": "eleicoes", "categoria": "politico"},
-    {"termo": "presidente", "categoria": "politico"},
-    {"termo": "prefeito", "categoria": "politico"},
-    {"termo": "governador", "categoria": "politico"},
-    {"termo": "partido", "categoria": "politico"},
-    {"termo": "candidato", "categoria": "politico"},
+    {"termo": "campanha eleitoral", "categoria": "politico"},
+    {"termo": "voto em", "categoria": "politico"},
+    {"termo": "apoie o candidato", "categoria": "politico"},
     {"termo": "pornografia", "categoria": "improprio"},
     {"termo": "ofensa", "categoria": "improprio"},
     {"termo": "palavrao", "categoria": "improprio"},
@@ -42,12 +43,17 @@ async def seed_termos_default(db: AsyncSession) -> None:
     await db.commit()
 
 
-async def checar_conteudo(db: AsyncSession, texto: str) -> str | None:
-    """Retorna o termo bloqueado encontrado, ou None se permitido."""
+async def checar_conteudo(db: AsyncSession, texto: str) -> tuple[str, str | None] | None:
+    """Retorna (termo, categoria) do termo bloqueado encontrado, ou None se permitido.
+
+    Casa por palavra/frase inteira, nao por substring: "partido" nao deve recusar
+    "repartido" nem "compartido" (issue 51).
+    """
     normalizado = normalizar(texto)
     result = await db.execute(select(ForumTermoBloqueado).where(ForumTermoBloqueado.ativo.is_(True)))
     termos = result.scalars().all()
     for termo in termos:
-        if normalizar(termo.termo) in normalizado:
-            return termo.termo
+        padrao = r"(?<!\w)" + re.escape(normalizar(termo.termo)) + r"(?!\w)"
+        if re.search(padrao, normalizado):
+            return termo.termo, termo.categoria
     return None
