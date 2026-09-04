@@ -1,11 +1,13 @@
 """Rotas de consulta de logs de auditoria (US-17, T-17.3/17.4/17.5)."""
 
+import csv
+import io
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_permissao
@@ -59,9 +61,6 @@ async def listar_logs_auditoria(
 
 
 def _logs_csv(logs: list[LogAuditoria]) -> StreamingResponse:
-    import csv
-    import io
-
     buf = io.StringIO()
     writer = csv.DictWriter(
         buf,
@@ -85,20 +84,18 @@ def _logs_csv(logs: list[LogAuditoria]) -> StreamingResponse:
 
 
 def _logs_pdf(logs: list[LogAuditoria]) -> StreamingResponse:
-    import io
-
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4)
     estilos = getSampleStyleSheet()
-    cabecalho = ["id", "acao", "tabela", "registro", "usuario", "criado_em"]
-    dados = [cabecalho] + [
+
+    linhas = [
         [
-            l.id,
+            str(l.id),
             l.acao,
             l.tabela_afetada,
             l.registro_id,
@@ -107,17 +104,21 @@ def _logs_pdf(logs: list[LogAuditoria]) -> StreamingResponse:
         ]
         for l in logs
     ]
+    dados = [
+        ["ID", "Acao", "Tabela", "Registro", "Usuario", "Data/Hora"],
+    ] + linhas
     tabela = Table(dados)
     tabela.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E79")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
             ]
         )
     )
-    doc.build([Paragraph("Logs de Auditoria", estilos["Title"]), tabela])
+
+    doc.build([Paragraph("Relatorio de Auditoria", estilos["Title"]), Spacer(1, 12), tabela])
     buf.seek(0)
     return StreamingResponse(iter([buf.getvalue()]), media_type="application/pdf")
