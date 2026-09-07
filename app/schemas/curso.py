@@ -324,7 +324,9 @@ class ProcessarGravacaoResponse(BaseModel):
 
 
 class AcessarAulaRequest(BaseModel):
-    codigo_acesso: str
+    # Aula sem codigo_acesso e um estado valido (issue 47) -- nao ha o que o
+    # cliente mandar nesse caso.
+    codigo_acesso: str | None = None
 
 
 class AcessarAulaResponse(BaseModel):
@@ -380,6 +382,7 @@ class MensagemAulaRead(BaseModel):
     aula_id: int
     usuario_id: str
     usuario_nome: str = ""
+    usuario_perfil: str | None = None
     texto: str
     excluida: bool = False
     criado_em: datetime

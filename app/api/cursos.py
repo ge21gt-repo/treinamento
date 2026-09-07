@@ -2,18 +2,38 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect, status
-from sqlalchemy import func, select
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_permissao
+from app.config import settings
 from app.database import async_session, get_db
 from app.models.conteudo import Conteudo, EntregaAtividade
-from app.models.curso import AulaSincrona, Curso, Inscricao, MensagemAula, MensagemCurso, Modulo, PresencaAula, ProgressoUnidade, Unidade
+from app.models.curso import (
+    AulaSincrona,
+    Curso,
+    Inscricao,
+    MensagemAula,
+    MensagemCurso,
+    Modulo,
+    PresencaAula,
+    ProgressoUnidade,
+    Unidade,
+)
 from app.models.usuario import Usuario
-from app.services.paginacao import apply_search, count_query
-from app.services.storage import resolve_file_url
 from app.schemas.curso import (
     AcessarAulaRequest,
     AcessarAulaResponse,
@@ -49,17 +69,11 @@ from app.schemas.curso import (
 from app.services import progresso as progresso_service
 from app.services import teams as teams_service
 from app.services.gamificacao import atribuir_xp as gamificacao_xp
+from app.services.paginacao import apply_search, count_query
 from app.services.rbac import Permissoes
+from app.services.storage import resolve_file_url
 
 router = APIRouter(prefix="/cursos", tags=["Cursos"])
-
-
-def _gerar_codigo_acesso() -> str:
-    import secrets
-    import string
-
-    alphabet = string.ascii_uppercase + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(8))
 
 
 # --- Cursos ---
@@ -389,12 +403,12 @@ async def listar_aulas(
 async def criar_aula(
     curso_id: int,
     payload: AulaSincronaCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_AULA_CRIAR)),
 ):
+    # Codigo em branco significa "sem barreira", nao "gere um pra mim" (issue 47).
     data = payload.model_dump(exclude={"criar_reuniao_teams"})
-    if not data.get("codigo_acesso"):
-        data["codigo_acesso"] = _gerar_codigo_acesso()
     if not data.get("data_hora_fim") and data.get("duracao_minutos"):
         data["data_hora_fim"] = data["data_hora"] + timedelta(minutes=data["duracao_minutos"])
     aula = AulaSincrona(**data, criado_por=current_user.id)
@@ -418,16 +432,23 @@ async def criar_aula(
     await db.commit()
     await db.refresh(aula)
 
+    from zoneinfo import ZoneInfo
+
     from app.services.notificacoes import notificar_inscritos
 
+    # Corpo escrito uma vez e lido por toda a turma -- converte para o fuso de
+    # exibicao no momento de montar o texto, nunca para o do container/UTC
+    # cru (issue 40).
+    hora_local = aula.data_hora.astimezone(ZoneInfo(settings.TIMEZONE_EXIBICAO))
     await notificar_inscritos(
         db,
         curso_id=curso_id,
         tipo="aula_agendada",
         titulo=f"Aula agendada: {aula.titulo}",
-        corpo=f"Novo encontro em {aula.data_hora.strftime('%d/%m/%Y %H:%M')}.",
+        corpo=f"Novo encontro em {hora_local.strftime('%d/%m/%Y %H:%M')}.",
         referencia_tipo="aula",
         referencia_id=aula.id,
+        background_tasks=background_tasks,
     )
     await db.commit()
     return await _aula_read_para(db, aula, current_user.id)
@@ -459,7 +480,7 @@ async def atualizar_aula(
     aula_id: int,
     payload: AulaSincronaUpdate,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.CURSO_AULA_EDITAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CURSO_AULA_EDITAR)),
 ):
     result = await db.execute(select(AulaSincrona).where(AulaSincrona.id == aula_id))
     aula = result.scalar_one_or_none()
@@ -498,8 +519,11 @@ async def stream_chat(
     curso_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    if not await _checar_inscrito_ou_permissao(db, curso_id, current_user.id, Permissoes.CHAT_MODERAR):
+        raise HTTPException(status_code=403, detail="Usuario nao esta inscrito no curso")
+
     from fastapi.responses import StreamingResponse
 
     last_id = 0
@@ -540,8 +564,11 @@ async def listar_chat(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    if not await _checar_inscrito_ou_permissao(db, curso_id, current_user.id, Permissoes.CHAT_MODERAR):
+        raise HTTPException(status_code=403, detail="Usuario nao esta inscrito no curso")
+
     from app.models.curso import MensagemCurso
 
     result = await db.execute(
@@ -566,6 +593,9 @@ async def enviar_mensagem(
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.CHAT_ENVIAR)),
 ):
+    if not await _checar_inscrito_ou_permissao(db, curso_id, current_user.id, Permissoes.CHAT_MODERAR):
+        raise HTTPException(status_code=403, detail="Usuario nao esta inscrito no curso")
+
     from app.models.curso import MensagemCurso
 
     texto = payload.get("texto", "").strip()
@@ -578,6 +608,48 @@ async def enviar_mensagem(
     await db.commit()
     await db.refresh(msg)
     return {"id": msg.id, "usuario_id": str(msg.usuario_id), "texto": msg.texto, "criado_em": msg.criado_em.isoformat()}
+
+
+# Ordem de destaque no chat da aula (issue 35) -- participante e auditor ficam sem selo.
+_HIERARQUIA_CHAT_AULA = ("administrador_geral", "administrador", "instrutor", "gestor")
+
+
+async def _perfis_de_maior_hierarquia(
+    db: AsyncSession, usuario_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, str | None]:
+    """Perfil de maior hierarquia de cada usuario, para destacar quem fala no chat (issue 35)."""
+    if not usuario_ids:
+        return {}
+    from app.models.usuario import Perfil, UsuarioPerfil
+
+    result = await db.execute(
+        select(UsuarioPerfil.usuario_id, Perfil.nome)
+        .join(Perfil, Perfil.id == UsuarioPerfil.perfil_id)
+        .where(UsuarioPerfil.usuario_id.in_(usuario_ids))
+    )
+    perfis_por_usuario: dict[uuid.UUID, list[str]] = {}
+    for usuario_id, nome in result.all():
+        perfis_por_usuario.setdefault(usuario_id, []).append(nome)
+
+    def _maior(perfis: list[str]) -> str | None:
+        for candidato in _HIERARQUIA_CHAT_AULA:
+            if candidato in perfis:
+                return candidato
+        return None
+
+    return {uid: _maior(nomes) for uid, nomes in perfis_por_usuario.items()}
+
+
+async def _checar_inscrito_ou_permissao(
+    db: AsyncSession, curso_id: int, usuario_id: uuid.UUID, permissao_bypass: str
+) -> bool:
+    """Inscrito no curso, ou tem a permissao de bypass (quem modera nao se inscreve) -- issue 43."""
+    inscrito = await db.execute(
+        select(Inscricao).where(Inscricao.curso_id == curso_id, Inscricao.usuario_id == usuario_id)
+    )
+    if inscrito.scalar_one_or_none():
+        return True
+    return await _user_has_permission(db, usuario_id, permissao_bypass)
 
 
 async def _user_has_permission(db: AsyncSession, usuario_id: uuid.UUID, permissao: str) -> bool:
@@ -814,7 +886,12 @@ async def consumo_curso(
                     "conteudo_url": u.conteudo_url,
                     "url_externa": u.url_externa,
                     "conteudos": [
-                        {"id": c.id, "tipo_midia": c.tipo_midia, "titulo": c.titulo, "url_arquivo": resolve_file_url(c.url_arquivo)}
+                        {
+                            "id": c.id,
+                            "tipo_midia": c.tipo_midia,
+                            "titulo": c.titulo,
+                            "url_arquivo": resolve_file_url(c.url_arquivo),
+                        }
                         for c in cts
                     ],
                     "progresso": {
@@ -867,7 +944,9 @@ async def progresso_usuario_curso(
     return await progresso_service.progresso_curso_detalhado(db, usuario_id=usuario_id, curso_id=curso_id)
 
 
-async def _processar_gravacao_lazy(db: AsyncSession, aula: AulaSincrona) -> dict | None:
+async def _processar_gravacao_lazy(
+    db: AsyncSession, aula: AulaSincrona, background_tasks: BackgroundTasks | None = None
+) -> dict | None:
     """Dispara a gravacao automaticamente se a aula ja terminou e ainda nao gravou.
 
     Idempotente: nao faz nada se ja existir gravacao, se nao houver reuniao Teams
@@ -900,6 +979,7 @@ async def _processar_gravacao_lazy(db: AsyncSession, aula: AulaSincrona) -> dict
             corpo="A gravacao desta aula ja esta disponivel.",
             referencia_tipo="aula",
             referencia_id=aula.id,
+            background_tasks=background_tasks,
         )
         await db.commit()
     return resultado
@@ -955,6 +1035,7 @@ async def acessar_aula(
     aula_id: int,
     payload: AcessarAulaRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -972,7 +1053,7 @@ async def acessar_aula(
     if not inscrito.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Usuario nao esta inscrito no curso")
 
-    await _processar_gravacao_lazy(db, aula)
+    await _processar_gravacao_lazy(db, aula, background_tasks)
 
     return AcessarAulaResponse(
         aula_id=aula.id,
@@ -1082,10 +1163,11 @@ async def _fechar_presencas_lazy(db: AsyncSession, aula: AulaSincrona) -> None:
     presencas = result.scalars().all()
     MIN_PERMANENCIA_SEG = 60
     for presenca in presencas:
+        # Quem entrou antes do inicio da aula nao pode contar o intervalo todo ate
+        # o fim (issue 36) -- o piso e o inicio real da aula, nao a hora_entrada.
+        inicio = max(presenca.hora_entrada, aula.data_hora)
         presenca.hora_saida = aula.data_hora_fim
-        presenca.tempo_permanencia_seg = max(
-            0, int((aula.data_hora_fim - presenca.hora_entrada).total_seconds())
-        )
+        presenca.tempo_permanencia_seg = max(0, int((aula.data_hora_fim - inicio).total_seconds()))
         presenca.saida_estimada = True
         presenca.presente = presenca.tempo_permanencia_seg >= MIN_PERMANENCIA_SEG
     if presencas:
@@ -1155,7 +1237,8 @@ async def consultar_presencas_admin(
         query = query.where(PresencaAula.hora_entrada <= ate)
 
     total = await count_query(db, query)
-    rows = (await db.execute(query.order_by(PresencaAula.hora_entrada.desc()).offset(skip).limit(limit))).scalars().all()
+    result = await db.execute(query.order_by(PresencaAula.hora_entrada.desc()).offset(skip).limit(limit))
+    rows = result.scalars().all()
 
     aula_ids = {p.aula_id for p in rows}
     aulas = {}
@@ -1207,6 +1290,25 @@ async def consultar_presencas_admin(
 
     response.headers["X-Total-Count"] = str(total)
     return {"itens": itens, "resumo": resumo}
+
+
+@router.get("/aulas/{aula_id}", response_model=AulaSincronaRead)
+async def obter_aula(
+    aula_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Leitura de uma aula isolada (issue 48) -- ex.: para a notificacao de aula levar a algum lugar.
+
+    Precisa vir depois de todas as rotas GET /aulas/<literal> (proximas,
+    minhas-presencas, presencas) -- Starlette casa por padrao de path, nao
+    espera a conversao de tipo falhar para tentar a proxima rota, entao um
+    {aula_id} declarado antes intercepta esses literais e responde 422.
+    """
+    aula = await db.get(AulaSincrona, aula_id)
+    if not aula:
+        raise HTTPException(status_code=404, detail="Aula nao encontrada")
+    return await _aula_read_para(db, aula, current_user.id)
 
 
 @router.get("/aulas/{aula_id}/presencas/relatorio")
@@ -1360,7 +1462,6 @@ async def _relatorio_presencas_pdf(
 # o worker local. Em dev (1 worker) funciona; com replicas, migrar para um
 # pub/sub (ex: Redis) antes de subir em producao.
 _ws_connections: dict[int, set[WebSocket]] = {}
-_presentes_por_ws: dict[int, dict[str, str]] = {}  # aula_id -> {usuario_id: nome}
 
 
 async def _broadcast_presenca(aula_id: int, acao: str, usuario: Usuario) -> None:
@@ -1410,17 +1511,26 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
             if not usuario:
                 await websocket.close(code=4401)
                 return
+            if not await _checar_inscrito_ou_permissao(db, aula.curso_id, usuario_id, Permissoes.CHAT_MODERAR):
+                await websocket.close(code=4403)
+                return
             await websocket.accept()
             connections = _ws_connections.setdefault(aula_id, set())
             connections.add(websocket)
-            presentes = _presentes_por_ws.setdefault(aula_id, {})
-            presentes[str(usuario_id)] = usuario.nome_completo or ""
+            # presenca_inicial vem da presenca de verdade (PresencaAula em aberto),
+            # nao de quem tem o socket do chat conectado -- as duas populacoes sao
+            # diferentes e nao devem ser misturadas (issue 41).
+            presencas_abertas = await db.execute(
+                select(PresencaAula.usuario_id, Usuario.nome_completo)
+                .join(Usuario, Usuario.id == PresencaAula.usuario_id)
+                .where(PresencaAula.aula_id == aula_id, PresencaAula.hora_saida.is_(None))
+            )
             await websocket.send_json(
                 {
                     "type": "presenca_inicial",
                     "presentes": [
-                        {"usuario_id": uid, "usuario_nome": nome}
-                        for uid, nome in presentes.items()
+                        {"usuario_id": str(uid), "usuario_nome": nome}
+                        for uid, nome in presencas_abertas.all()
                     ],
                 }
             )
@@ -1459,12 +1569,14 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
                     db.add(msg)
                     await db.commit()
                     await db.refresh(msg)
+                    perfis = await _perfis_de_maior_hierarquia(db, {usuario.id})
                     payload_out = {
                         "type": "mensagem",
                         "id": msg.id,
                         "aula_id": msg.aula_id,
                         "usuario_id": str(msg.usuario_id),
                         "usuario_nome": usuario.nome_completo,
+                        "usuario_perfil": perfis.get(usuario.id),
                         "texto": msg.texto,
                         "criado_em": msg.criado_em.isoformat(),
                     }
@@ -1477,7 +1589,9 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
                 pass
             finally:
                 connections.discard(websocket)
-                presentes.pop(str(usuario_id), None)
+                # Quem fechou a aba tambem precisa ser avisado aos demais, senao a
+                # lista de quem esta na sala so atualiza ao recarregar (issue 41).
+                await _broadcast_presenca(aula_id, "saiu", usuario)
     except Exception:
         try:
             await websocket.close(code=4500)
@@ -1491,11 +1605,13 @@ async def listar_chat_aula(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.CHAT_VISUALIZAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CHAT_VISUALIZAR)),
 ):
     aula = await db.get(AulaSincrona, aula_id)
     if not aula:
         raise HTTPException(status_code=404, detail="Aula nao encontrada")
+    if not await _checar_inscrito_ou_permissao(db, aula.curso_id, current_user.id, Permissoes.CHAT_MODERAR):
+        raise HTTPException(status_code=403, detail="Usuario nao esta inscrito no curso")
 
     result = await db.execute(
         select(MensagemAula)
@@ -1512,6 +1628,7 @@ async def listar_chat_aula(
     if usuarios_ids:
         rows = await db.execute(select(Usuario).where(Usuario.id.in_(usuarios_ids)))
         usuarios = {u.id: u.nome_completo for u in rows.scalars().all()}
+    perfis = await _perfis_de_maior_hierarquia(db, usuarios_ids)
 
     return [
         MensagemAulaRead(
@@ -1519,6 +1636,7 @@ async def listar_chat_aula(
             aula_id=m.aula_id,
             usuario_id=str(m.usuario_id),
             usuario_nome=usuarios.get(m.usuario_id, ""),
+            usuario_perfil=perfis.get(m.usuario_id),
             texto=m.texto,
             excluida=m.excluida,
             criado_em=m.criado_em,
@@ -1537,6 +1655,8 @@ async def enviar_mensagem_aula(
     aula = await db.get(AulaSincrona, aula_id)
     if not aula:
         raise HTTPException(status_code=404, detail="Aula nao encontrada")
+    if not await _checar_inscrito_ou_permissao(db, aula.curso_id, current_user.id, Permissoes.CHAT_MODERAR):
+        raise HTTPException(status_code=403, detail="Usuario nao esta inscrito no curso")
 
     agora = datetime.now(timezone.utc)
     from app.models.usuario import UsuarioAulaSilenciado
@@ -1564,11 +1684,13 @@ async def enviar_mensagem_aula(
     db.add(msg)
     await db.commit()
     await db.refresh(msg)
+    perfis = await _perfis_de_maior_hierarquia(db, {current_user.id})
     return MensagemAulaRead(
         id=msg.id,
         aula_id=msg.aula_id,
         usuario_id=str(msg.usuario_id),
         usuario_nome=current_user.nome_completo,
+        usuario_perfil=perfis.get(current_user.id),
         texto=msg.texto,
         excluida=msg.excluida,
         criado_em=msg.criado_em,

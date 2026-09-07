@@ -45,3 +45,26 @@ Equipe LMS IDE-SP
         logger.warning(f"Falha ao enviar email para {destino_email}: {e}")
         logger.info(f"[DEV] Link de reset: {link_reset}")
         return False
+
+
+def send_notificacao_email(destino_email: str, titulo: str, corpo: str | None) -> bool:
+    """Envio generico para notificacoes da plataforma que tambem devem ir por e-mail (issue 42)."""
+    texto = corpo or titulo
+    try:
+        msg = MIMEText(texto, "plain", "utf-8")
+        msg["Subject"] = titulo
+        msg["From"] = settings.SMTP_FROM
+        msg["To"] = destino_email
+
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+            if settings.SMTP_TLS:
+                server.starttls()
+            if settings.SMTP_USER:
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            server.send_message(msg)
+
+        logger.info(f"Email de notificacao enviado para {destino_email}")
+        return True
+    except Exception as e:
+        logger.warning(f"Falha ao enviar email de notificacao para {destino_email}: {e}")
+        return False

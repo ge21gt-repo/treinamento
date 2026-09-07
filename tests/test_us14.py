@@ -15,6 +15,12 @@ async def _criar_curso(client):
     return r.json()["id"]
 
 
+async def _inscrever(client, curso_id: int):
+    """Inscreve a identidade atual do client no curso -- forum exige inscricao (issue 43)."""
+    r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+    assert r.status_code == status.HTTP_201_CREATED, r.text
+
+
 async def _criar_usuario_com_perfil(perfil_nome: str, email: str, nome: str = "User"):
     """Cria um usuario aprovado com um perfil atribuido, para simular um segundo autor."""
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -311,6 +317,7 @@ class TestEditarExcluirTopico:
         curso_id = await _criar_curso(client)
         autor = await _criar_usuario_com_perfil("participante", f"autor-{uuid4()}@test.com")
         async with _como(autor):
+            await _inscrever(client, curso_id)
             r = await client.post(
                 "/api/v1/comunicacao/forum",
                 json={"curso_id": curso_id, "titulo": "titulo original", "conteudo": "conteudo original"},
@@ -332,6 +339,7 @@ class TestEditarExcluirTopico:
         outro = await _criar_usuario_com_perfil("participante", f"outro-{uuid4()}@test.com")
 
         async with _como(autor):
+            await _inscrever(client, curso_id)
             r = await client.post(
                 "/api/v1/comunicacao/forum",
                 json={"curso_id": curso_id, "titulo": "topico do autor", "conteudo": "conteudo"},
@@ -352,6 +360,7 @@ class TestEditarExcluirTopico:
         curso_id = await _criar_curso(client)
         autor = await _criar_usuario_com_perfil("participante", f"autor3-{uuid4()}@test.com")
         async with _como(autor):
+            await _inscrever(client, curso_id)
             r = await client.post(
                 "/api/v1/comunicacao/forum",
                 json={"curso_id": curso_id, "titulo": "topico moderavel", "conteudo": "conteudo"},
@@ -391,6 +400,7 @@ class TestEditarExcluirResposta:
         curso_id = await _criar_curso(client)
         autor = await _criar_usuario_com_perfil("participante", f"ra-{uuid4()}@test.com")
         async with _como(autor):
+            await _inscrever(client, curso_id)
             r = await client.post(
                 "/api/v1/comunicacao/forum",
                 json={"curso_id": curso_id, "titulo": "topico resp edit", "conteudo": "conteudo"},
@@ -416,6 +426,7 @@ class TestEditarExcluirResposta:
         outro = await _criar_usuario_com_perfil("participante", f"rc-{uuid4()}@test.com")
 
         async with _como(autor):
+            await _inscrever(client, curso_id)
             r = await client.post(
                 "/api/v1/comunicacao/forum",
                 json={"curso_id": curso_id, "titulo": "topico resp alheia", "conteudo": "conteudo"},

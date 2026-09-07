@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_permissao
 from app.database import get_db
 from app.models.comunicacao import ForumResposta, ForumTermoBloqueado, ForumTopico, MensagemChat
-from app.models.curso import Curso
+from app.models.curso import Curso, Inscricao
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.schemas.comunicacao import (
     ForumRespostaCreate,
@@ -38,6 +38,18 @@ async def _pode_moderar_forum(db: AsyncSession, usuario_id) -> bool:
     return any(has_permission(p.nome, Permissoes.FORUM_MODERAR) for p in perfis)
 
 
+async def _checar_inscrito_ou_moderador_forum(db: AsyncSession, curso_id: int, current_user: Usuario) -> None:
+    """Fórum de um curso é só para quem está inscrito nele, ou quem modera (issue 43)."""
+    inscrito = await db.execute(
+        select(Inscricao).where(Inscricao.curso_id == curso_id, Inscricao.usuario_id == current_user.id)
+    )
+    if inscrito.scalar_one_or_none():
+        return
+    if await _pode_moderar_forum(db, current_user.id):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario nao esta inscrito no curso")
+
+
 async def _checar_autoria_ou_moderador(db: AsyncSession, autor_id, current_user: Usuario) -> None:
     """Bloqueia edicao/exclusao de conteudo de outro autor, exceto para quem modera (issue 50)."""
     if autor_id == current_user.id:
@@ -60,12 +72,17 @@ def _formatar_erro_bloqueio(bloqueado: tuple[str, str | None]) -> str:
 # --- Chat ---
 
 
-@router.post("/chat", response_model=MensagemChatRead, status_code=status.HTTP_201_CREATED)
+@router.post("/chat", response_model=MensagemChatRead, status_code=status.HTTP_201_CREATED, deprecated=True)
 async def enviar_mensagem(
     payload: MensagemChatCreate,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.CHAT_ENVIAR)),
 ):
+    """LEGADO. Chat de sessao independente (MensagemChat), keyed por sessao_id.
+
+    O chat oficial e o da aula (`/cursos/aulas/{id}/chat`) ou o do curso
+    (`/cursos/{id}/chat`). Esta rota permanece por compatibilidade (issue 44).
+    """
     msg = MensagemChat(**payload.model_dump(), usuario_id=current_user.id)
     db.add(msg)
     await db.commit()
@@ -73,7 +90,7 @@ async def enviar_mensagem(
     return msg
 
 
-@router.get("/chat/{sessao_id}", response_model=list[MensagemChatRead])
+@router.get("/chat/{sessao_id}", response_model=list[MensagemChatRead], deprecated=True)
 async def listar_mensagens(
     sessao_id: int,
     skip: int = Query(0, ge=0),
@@ -82,6 +99,7 @@ async def listar_mensagens(
     response: Response = None,
     _: Usuario = Depends(require_permissao(Permissoes.CHAT_VISUALIZAR)),
 ):
+    """LEGADO. Ver `enviar_mensagem` (issue 44)."""
     query = (
         select(MensagemChat)
         .where(MensagemChat.sessao_id == sessao_id)
@@ -158,11 +176,12 @@ async def listar_topicos(
     ),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(require_permissao(Permissoes.FORUM_VISUALIZAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.FORUM_VISUALIZAR)),
 ):
     curso = await db.get(Curso, curso_id)
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
+    await _checar_inscrito_ou_moderador_forum(db, curso_id, current_user)
 
     # Agregado de respostas (nao removidas) por topico, numa unica subquery -- sem N+1 (issue 52)
     resposta_agg = (
@@ -222,6 +241,7 @@ async def criar_topico(
     curso = await db.get(Curso, payload.curso_id)
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
+    await _checar_inscrito_ou_moderador_forum(db, payload.curso_id, current_user)
     bloqueado = await checar_conteudo(db, f"{payload.titulo} {payload.conteudo}")
     if bloqueado:
         raise HTTPException(status_code=422, detail=_formatar_erro_bloqueio(bloqueado))
