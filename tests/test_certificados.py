@@ -95,6 +95,7 @@ class TestCertificados:
         assert any(c["id"] == cert_id for c in certs)
 
     async def test_validar_por_hash(self, client, admin_user):
+        """Issue 33: a validacao publica devolve nome/curso legiveis, nao ids crus."""
         curso_id = await criar_curso(client, "Curso Validacao")
         uid = str(admin_user.id)
         r = await client.post(
@@ -103,6 +104,7 @@ class TestCertificados:
                 "usuario_id": uid,
                 "curso_id": curso_id,
                 "carga_horaria": 20,
+                "nota_final": 77.5,
             },
         )
         hash_val = r.json()["hash_validacao"]
@@ -110,7 +112,14 @@ class TestCertificados:
         r = await client.get(f"/api/v1/certificados/validar/{hash_val}")
         assert r.status_code == status.HTTP_200_OK
         data = r.json()
-        assert data["hash_validacao"] == hash_val
+        assert data["usuario_nome"] == admin_user.nome_completo
+        assert data["curso_titulo"] == "Curso Validacao"
+        assert data["carga_horaria"] == 20
+        assert float(data["nota_final"]) == 77.5
+        # identificadores internos nao devem vazar na rota publica
+        assert "usuario_id" not in data
+        assert "curso_id" not in data
+        assert "modelo_id" not in data
 
     async def test_validar_hash_invalido(self, client):
         r = await client.get("/api/v1/certificados/validar/hash_inexistente_12345")

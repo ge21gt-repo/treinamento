@@ -84,6 +84,7 @@ async def listar_cursos(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     trilha_id: int | None = Query(None),
+    instrutor_id: uuid.UUID | None = Query(None, description="Filtra pelos cursos de um instrutor (issue 32)"),
     q: str | None = Query(None, description="Busca textual por titulo"),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
@@ -92,6 +93,8 @@ async def listar_cursos(
     query = select(Curso)
     if trilha_id is not None:
         query = query.where(Curso.trilha_id == trilha_id)
+    if instrutor_id is not None:
+        query = query.where(Curso.instrutor_id == instrutor_id)
     query = apply_search(query, [Curso.titulo], q)
     total = await count_query(db, query)
     result = await db.execute(query.offset(skip).limit(limit))
@@ -136,6 +139,26 @@ async def obter_curso(
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
     return curso
+
+
+@router.get("/{curso_id}/inscricoes", response_model=list[InscricaoRead])
+async def listar_inscricoes_curso(
+    curso_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_VER_INSCRICOES)),
+):
+    """Quem esta inscrito num curso -- o inverso de /inscricoes/{usuario_id} (issue 32).
+
+    E o dado que faltava pra "turma" ser derivavel de curso + inscritos, sem
+    precisar de uma entidade propria.
+    """
+    curso = await db.get(Curso, curso_id)
+    if not curso:
+        raise HTTPException(status_code=404, detail="Curso nao encontrado")
+    result = await db.execute(
+        select(Inscricao).where(Inscricao.curso_id == curso_id).order_by(Inscricao.data_inscricao)
+    )
+    return result.scalars().all()
 
 
 @router.patch("/{curso_id}", response_model=CursoRead)

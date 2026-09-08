@@ -10,13 +10,14 @@ from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.certificado import Certificado, ModeloCertificado
 from app.models.usuario import Usuario
-from app.services.rbac import Permissoes
 from app.schemas.certificado import (
     CertificadoCreate,
+    CertificadoPublicoRead,
     CertificadoRead,
     ModeloCertificadoCreate,
     ModeloCertificadoRead,
 )
+from app.services.rbac import Permissoes
 
 router = APIRouter(prefix="/certificados", tags=["Certificados"])
 
@@ -89,16 +90,31 @@ async def obter_certificado(
     return cert
 
 
-@router.get("/validar/{hash_validacao}", response_model=CertificadoRead)
+@router.get("/validar/{hash_validacao}", response_model=CertificadoPublicoRead)
 async def validar_certificado(
     hash_validacao: str,
     db: AsyncSession = Depends(get_db),
 ):
+    """Validacao publica (sem login) -- devolve so o que quem confere precisa
+    (nome, curso), nunca os identificadores internos crus (issue 33)."""
+    from app.models.curso import Curso
+    from app.models.usuario import Usuario
+
     result = await db.execute(select(Certificado).where(Certificado.hash_validacao == hash_validacao))
     cert = result.scalar_one_or_none()
     if not cert:
         raise HTTPException(status_code=404, detail="Certificado invalido")
-    return cert
+
+    usuario = await db.get(Usuario, cert.usuario_id)
+    curso = await db.get(Curso, cert.curso_id)
+    return CertificadoPublicoRead(
+        usuario_nome=usuario.nome_completo if usuario else "",
+        curso_titulo=curso.titulo if curso else "",
+        carga_horaria=cert.carga_horaria,
+        nota_final=cert.nota_final,
+        emitido_em=cert.emitido_em,
+        valido_ate=cert.valido_ate,
+    )
 
 
 @router.get("/validar/{hash_validacao}/pagina", response_class=HTMLResponse)

@@ -167,6 +167,12 @@ async def lifespan(application: FastAPI):
         )
     logger.info("Database seeded successfully")
 
+    # Smoke-test do bucket S3 configurado (issue 46) -- so avisa, nunca derruba o start.
+    from app.services.storage import verificar_bucket_disponivel
+
+    if await verificar_bucket_disponivel():
+        logger.info("Bucket S3 respondeu no boot")
+
     # Job periodico: coleta diaria de metricas de engajamento (US-16, T-16.1)
     from app.services.analytics import coletar_metricas_diarias
 

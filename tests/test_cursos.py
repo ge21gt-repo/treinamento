@@ -84,3 +84,53 @@ class TestFiltroTrilha:
     async def test_filtrar_trilha_invalida(self, client):
         response = await client.get("/api/v1/cursos?trilha_id=abc")
         assert response.status_code == 422
+
+
+class TestFiltroInstrutor:
+    """Issue 32: filtro por instrutor em GET /cursos -- base pra "meus cursos"."""
+
+    async def test_filtrar_cursos_por_instrutor(self, client, admin_user):
+        uid = str(admin_user.id)
+        payload = {"titulo": "Curso Do Instrutor", "descricao": "x", "ordem": 0, "instrutor_id": uid}
+        r = await client.post("/api/v1/cursos", json=payload)
+        assert r.status_code == 201
+        await criar_curso(client, "Curso Sem Instrutor")
+
+        response = await client.get(f"/api/v1/cursos?instrutor_id={uid}")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 1
+        assert all(c["instrutor_id"] == uid for c in data)
+
+    async def test_filtrar_instrutor_sem_cursos(self, client):
+        response = await client.get("/api/v1/cursos?instrutor_id=00000000-0000-0000-0000-000000000099")
+        assert response.status_code == 200
+        assert response.json() == []
+
+
+class TestInscricoesCurso:
+    """Issue 32: GET /cursos/{id}/inscricoes -- quem esta inscrito num curso (a "turma")."""
+
+    async def test_listar_inscricoes_do_curso(self, client, admin_user):
+        r = await criar_curso(client, "Curso Com Turma")
+        curso_id = r.json()["id"]
+        r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+        assert r.status_code == 201
+
+        response = await client.get(f"/api/v1/cursos/{curso_id}/inscricoes")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["usuario_id"] == str(admin_user.id)
+        assert data[0]["curso_id"] == curso_id
+
+    async def test_listar_inscricoes_curso_inexistente_404(self, client):
+        response = await client.get("/api/v1/cursos/999999999/inscricoes")
+        assert response.status_code == 404
+
+    async def test_listar_inscricoes_curso_vazio(self, client):
+        r = await criar_curso(client, "Curso Sem Ninguem")
+        curso_id = r.json()["id"]
+        response = await client.get(f"/api/v1/cursos/{curso_id}/inscricoes")
+        assert response.status_code == 200
+        assert response.json() == []
