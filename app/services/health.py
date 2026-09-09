@@ -18,6 +18,50 @@ async def check_database(db: AsyncSession) -> dict:
         return {"status": "error", "detail": str(e)}
 
 
+async def check_migrations(db: AsyncSession) -> dict:
+    """Compara a revisao gravada no banco com a head do codigo.
+
+    Existe porque o deploy nao roda `alembic upgrade head` e o `create_all` do
+    startup so cria tabelas que faltam -- nunca adiciona coluna em tabela que ja
+    existe. O resultado e que migration de coluna passa despercebida ate um
+    endpoint quebrar com 500 (foi o que aconteceu com `conteudos.disponivel`).
+    """
+    try:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        script = ScriptDirectory.from_config(Config("alembic.ini"))
+        head = script.get_current_head()
+
+        resultado = await db.execute(text("SELECT version_num FROM lms.alembic_version"))
+        atual = resultado.scalar_one_or_none()
+
+        if atual == head:
+            return {"status": "ok", "detail": f"Schema na revisao {head}"}
+
+        if atual is None:
+            return {
+                "status": "pendente",
+                "detail": f"Banco sem alembic_version; head do codigo e {head}",
+            }
+
+        try:
+            pendentes = [r.revision for r in script.iterate_revisions(head, atual)]
+        except Exception:
+            pendentes = []
+
+        return {
+            "status": "pendente",
+            "detail": (
+                f"Banco em {atual}, codigo em {head}. "
+                f"Rode 'alembic upgrade head'. Pendentes: {pendentes or 'desconhecidas'}"
+            ),
+        }
+    except Exception as e:
+        logger.error("Health check - falha ao conferir migrations: %s", e)
+        return {"status": "error", "detail": str(e)}
+
+
 async def check_storage() -> dict:
     """Check if S3 bucket is accessible."""
     from app.config import settings
