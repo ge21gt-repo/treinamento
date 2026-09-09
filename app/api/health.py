@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.services.health import check_database, check_storage
+from app.services.health import check_database, check_migrations, check_storage
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,11 @@ router = APIRouter(tags=["Health"])
 async def health(db: AsyncSession = Depends(get_db)):
     db_status = await check_database(db)
     storage_status = await check_storage()
+    migrations_status = await check_migrations(db)
 
+    # migrations fica de fora do `status` geral de proposito: o deploy usa este
+    # endpoint como gate (exige HTTP 200) e schema atrasado nao impede a app de
+    # subir -- so precisa ficar visivel. Ver o aviso de boot no main.py.
     all_ok = db_status["status"] == "ok" and storage_status["status"] == "ok"
 
     return {
@@ -26,6 +30,7 @@ async def health(db: AsyncSession = Depends(get_db)):
         "checks": {
             "database": db_status,
             "storage": storage_status,
+            "migrations": migrations_status,
         },
     }
 

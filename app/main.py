@@ -12,8 +12,8 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.api import (
-    auth,
     auditoria,
+    auth,
     avaliacoes,
     certificados,
     comunicacao,
@@ -172,6 +172,21 @@ async def lifespan(application: FastAPI):
 
     if await verificar_bucket_disponivel():
         logger.info("Bucket S3 respondeu no boot")
+
+    # Schema atrasado em relacao ao codigo e silencioso ate um endpoint quebrar
+    # com 500: o deploy nao roda `alembic upgrade head` e o create_all acima so
+    # cria tabela que falta, nunca coluna. Avisa alto no boot.
+    from app.services.health import check_migrations
+
+    async with AsyncSessionLocal() as check_session:
+        migracoes = await check_migrations(check_session)
+    if migracoes["status"] == "ok":
+        logger.info("Migrations: %s", migracoes["detail"])
+    else:
+        logger.warning(
+            "MIGRATIONS DESATUALIZADAS - endpoints podem responder 500 por coluna inexistente. %s",
+            migracoes["detail"],
+        )
 
     # Job periodico: coleta diaria de metricas de engajamento (US-16, T-16.1)
     from app.services.analytics import coletar_metricas_diarias
