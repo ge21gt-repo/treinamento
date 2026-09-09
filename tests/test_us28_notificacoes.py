@@ -67,3 +67,78 @@ class TestRotasNotificacoes:
 
         r = await client.get("/api/v1/notificacoes")
         assert r.json()["nao_lidas"] == 0
+
+    async def test_notificacao_aula_usa_horario_local_nao_utc(self, client):
+        """Issue 40: corpo mostra o horario de Sao Paulo (UTC-3), nao o UTC cru."""
+        curso_id = await _setup_curso_inscrito(client)
+        r = await client.post(
+            f"/api/v1/cursos/{curso_id}/aulas",
+            json={
+                "curso_id": curso_id,
+                "titulo": "Aula Fuso",
+                "data_hora": "2026-09-15T17:00:00Z",
+                "duracao_minutos": 60,
+            },
+        )
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+
+        r = await client.get("/api/v1/notificacoes")
+        notif = next(n for n in r.json()["itens"] if n["titulo"] == "Aula agendada: Aula Fuso")
+        assert "14:00" in notif["corpo"], notif["corpo"]
+        assert "17:00" not in notif["corpo"]
+
+
+class TestNotificacaoPorEmail:
+    """Issue 42 — notificacao tambem sai por e-mail, sem bloquear a resposta."""
+
+    async def test_aula_agendada_dispara_email_em_background(self, client, monkeypatch):
+        chamadas = []
+
+        def _fake_send(destino_email, titulo, corpo):
+            chamadas.append((destino_email, titulo, corpo))
+            return True
+
+        monkeypatch.setattr("app.services.notificacoes.send_notificacao_email", _fake_send)
+
+        curso_id = await _setup_curso_inscrito(client)
+        r = await client.post(
+            f"/api/v1/cursos/{curso_id}/aulas",
+            json={
+                "curso_id": curso_id,
+                "titulo": "Aula Email",
+                "data_hora": "2099-01-04T10:00:00Z",
+                "duracao_minutos": 60,
+            },
+        )
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+
+        assert len(chamadas) >= 1, "aula_agendada deveria disparar e-mail"
+        assert chamadas[0][1] == "Aula agendada: Aula Email"
+
+    async def test_tipo_fora_da_lista_nao_dispara_email(self, client, monkeypatch):
+        """'badge_conquistada' nao esta em TIPOS_QUE_VAO_POR_EMAIL -- nao deveria agendar nada."""
+        chamadas = []
+        monkeypatch.setattr(
+            "app.services.notificacoes.send_notificacao_email",
+            lambda *a, **k: chamadas.append(a) or True,
+        )
+
+        from fastapi import BackgroundTasks
+
+        from app.database import async_session
+        from app.services.notificacoes import notificar_inscritos
+
+        curso_id = await _setup_curso_inscrito(client)
+        background_tasks = BackgroundTasks()
+        async with async_session() as db:
+            await notificar_inscritos(
+                db,
+                curso_id=curso_id,
+                tipo="badge_conquistada",
+                titulo="Nova badge!",
+                background_tasks=background_tasks,
+            )
+            await db.commit()
+        await background_tasks()
+
+        assert chamadas == []

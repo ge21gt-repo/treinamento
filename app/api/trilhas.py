@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -38,6 +38,7 @@ async def listar_trilhas(
 @router.post("", response_model=TrilhaRead, status_code=status.HTTP_201_CREATED)
 async def criar_trilha(
     payload: TrilhaCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(require_permissao(Permissoes.TRILHA_CRIAR)),
 ):
@@ -45,6 +46,13 @@ async def criar_trilha(
     db.add(trilha)
     await db.commit()
     await db.refresh(trilha)
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="trilhas", registro_id=trilha.id, acao="criar",
+        dados_novos={"titulo": trilha.titulo}, usuario_id=current_user.id, request=request,
+    )
+    await db.commit()
     return trilha
 
 
@@ -219,17 +227,27 @@ async def obter_trilha(
 async def atualizar_trilha(
     trilha_id: int,
     payload: TrilhaUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.TRILHA_EDITAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.TRILHA_EDITAR)),
 ):
     result = await db.execute(select(TrilhaAprendizagem).where(TrilhaAprendizagem.id == trilha_id))
     trilha = result.scalar_one_or_none()
     if not trilha:
         raise HTTPException(status_code=404, detail="Trilha nao encontrada")
+    dados_antes = {"titulo": trilha.titulo}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(trilha, field, value)
     await db.commit()
     await db.refresh(trilha)
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="trilhas", registro_id=trilha.id, acao="atualizar",
+        dados_anteriores=dados_antes, dados_novos={"titulo": trilha.titulo},
+        usuario_id=current_user.id, request=request,
+    )
+    await db.commit()
     return trilha
 
 
@@ -300,12 +318,21 @@ async def progresso_trilha_detalhado(
 @router.delete("/{trilha_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def excluir_trilha(
     trilha_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.TRILHA_EXCLUIR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.TRILHA_EXCLUIR)),
 ):
     result = await db.execute(select(TrilhaAprendizagem).where(TrilhaAprendizagem.id == trilha_id))
     trilha = result.scalar_one_or_none()
     if not trilha:
         raise HTTPException(status_code=404, detail="Trilha nao encontrada")
+    dados_antes = {"titulo": trilha.titulo}
     await db.delete(trilha)
+    await db.commit()
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="trilhas", registro_id=trilha_id, acao="excluir",
+        dados_anteriores=dados_antes, usuario_id=current_user.id, request=request,
+    )
     await db.commit()

@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -445,8 +445,9 @@ async def progresso_badges(
 @router.post("/badges", response_model=BadgeRead, status_code=status.HTTP_201_CREATED)
 async def criar_badge(
     payload: BadgeCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
     badge = Badge(**payload.model_dump())
     db.add(badge)
@@ -455,7 +456,12 @@ async def criar_badge(
 
     await _conceder_badge_retroativamente(db, badge)
     await db.commit()
+    from app.services.auditoria import auditar_escrita
 
+    await auditar_escrita(
+        db, "badges", badge.id, "criar",
+        dados_novos={"nome": badge.nome}, usuario_id=current_user.id, request=request,
+    )
     return badge
 
 
@@ -486,30 +492,47 @@ async def _conceder_badge_retroativamente(db: AsyncSession, badge: Badge) -> int
 async def atualizar_badge(
     badge_id: int,
     payload: BadgeUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_GERENCIAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_GERENCIAR)),
 ):
     badge = await db.get(Badge, badge_id)
     if not badge:
         raise HTTPException(status_code=404, detail="Badge nao encontrada")
+    dados_antes = {"nome": badge.nome}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(badge, field, value)
     await db.commit()
     await db.refresh(badge)
+    from app.services.auditoria import auditar_escrita
+
+    await auditar_escrita(
+        db, "badges", badge.id, "atualizar",
+        dados_anteriores=dados_antes, dados_novos={"nome": badge.nome},
+        usuario_id=current_user.id, request=request,
+    )
     return badge
 
 
 @router.delete("/badges/{badge_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def excluir_badge(
     badge_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_GERENCIAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_GERENCIAR)),
 ):
     badge = await db.get(Badge, badge_id)
     if not badge:
         raise HTTPException(status_code=404, detail="Badge nao encontrada")
+    dados_antes = {"nome": badge.nome}
     await db.delete(badge)
     await db.commit()
+    from app.services.auditoria import auditar_escrita
+
+    await auditar_escrita(
+        db, "badges", badge_id, "excluir",
+        dados_anteriores=dados_antes, usuario_id=current_user.id, request=request,
+    )
 
 
 @router.post("/badges/atribuir", response_model=UsuarioBadgeRead, status_code=status.HTTP_201_CREATED)
@@ -632,13 +655,20 @@ async def listar_participantes_missao(
 @router.post("/missoes", response_model=MissaoRead, status_code=status.HTTP_201_CREATED)
 async def criar_missao(
     payload: MissaoCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_CRIAR)),
 ):
     missao = Missao(**payload.model_dump())
     db.add(missao)
     await db.commit()
     await db.refresh(missao)
+    from app.services.auditoria import auditar_escrita
+
+    await auditar_escrita(
+        db, "missoes", missao.id, "criar",
+        dados_novos={"titulo": missao.titulo}, usuario_id=current_user.id, request=request,
+    )
     return missao
 
 
@@ -646,17 +676,26 @@ async def criar_missao(
 async def atualizar_missao(
     missao_id: int,
     payload: MissaoUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_EDITAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.GAMIFICACAO_EDITAR)),
 ):
     result = await db.execute(select(Missao).where(Missao.id == missao_id))
     missao = result.scalar_one_or_none()
     if not missao:
         raise HTTPException(status_code=404, detail="Missao nao encontrada")
+    dados_antes = {"titulo": missao.titulo}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(missao, field, value)
     await db.commit()
     await db.refresh(missao)
+    from app.services.auditoria import auditar_escrita
+
+    await auditar_escrita(
+        db, "missoes", missao.id, "atualizar",
+        dados_anteriores=dados_antes, dados_novos={"titulo": missao.titulo},
+        usuario_id=current_user.id, request=request,
+    )
     return missao
 
 

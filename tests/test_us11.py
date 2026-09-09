@@ -50,13 +50,14 @@ async def criar_conteudo(client):
 class TestCodigoAcesso:
     """T-11.1 — CRUD de sessão ao vivo com código de acesso"""
 
-    async def test_criar_aula_gera_codigo_automaticamente(self, client):
+    async def test_criar_aula_sem_codigo_fica_sem_barreira(self, client):
+        """Codigo em branco significa sem barreira, nao 'gere um pra mim' (issue 47)."""
         curso_id = await criar_curso(client)
         r = await criar_aula(client, curso_id)
         assert r.status_code == status.HTTP_201_CREATED
         data = r.json()
-        assert data["codigo_acesso"]
-        assert len(data["codigo_acesso"]) == 8
+        assert data["codigo_acesso"] is None
+        assert data["exige_codigo"] is False
         assert data["data_hora_fim"] is not None
 
     async def test_criar_aula_com_codigo_informado(self, client):
@@ -131,6 +132,8 @@ class TestPresenca:
         curso_id = await criar_curso(client)
         r = await criar_aula(client, curso_id, codigo_acesso="ABC-1234")
         aula_id = r.json()["id"]
+        # pre-existente: faltava a inscricao desde que /entrar passou a exigi-la
+        await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
 
         r = await client.post(f"/api/v1/cursos/aulas/{aula_id}/entrar")
         assert r.status_code == status.HTTP_201_CREATED

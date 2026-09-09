@@ -324,3 +324,68 @@ class TestSCORM:
         r = await client.get(f"/api/v1/scorm/cursos/{curso_id}/relatorio")
         assert r.status_code == 200
         assert isinstance(r.json(), list)
+
+
+class TestConteudoDisponivel:
+    """Issue 46: conteudo marcado indisponivel (bucket morto) nao oferece url_acesso."""
+
+    async def test_conteudo_disponivel_por_padrao(self, client):
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post(
+            "/api/v1/conteudos",
+            json={
+                "unidade_id": uni_id,
+                "tipo_midia": "link",
+                "titulo": "Novo",
+                "url_arquivo": "https://example.com/x",
+            },
+        )
+        assert r.status_code == 201
+        assert r.json()["disponivel"] is True
+        assert r.json()["url_acesso"] == "https://example.com/x"
+
+    async def test_conteudo_indisponivel_url_acesso_nulo(self, client):
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from app.config import settings
+        from app.models.conteudo import Conteudo
+
+        curso_id = await criar_curso(client)
+        mod_id = await criar_modulo(client, curso_id)
+        uni_id = await criar_unidade(client, mod_id)
+        r = await client.post(
+            "/api/v1/conteudos",
+            json={
+                "unidade_id": uni_id,
+                "tipo_midia": "video",
+                "titulo": "Video Orfao",
+                "url_arquivo": "https://lms-conteudos.s3.us-east-2.amazonaws.com/videos/x.mp4",
+            },
+        )
+        conteudo_id = r.json()["id"]
+
+        # simula o que a migration c7d3e9a1f204 faz nos 12 registros conhecidos
+        engine = create_async_engine(settings.TEST_DATABASE_URL)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        session = maker()
+        try:
+            conteudo = (await session.execute(select(Conteudo).where(Conteudo.id == conteudo_id))).scalar_one()
+            conteudo.disponivel = False
+            await session.commit()
+        finally:
+            await session.close()
+            await engine.dispose()
+
+        r = await client.get(f"/api/v1/conteudos/{conteudo_id}")
+        assert r.status_code == 200
+        assert r.json()["disponivel"] is False
+        assert r.json()["url_acesso"] is None
+
+    async def test_verificar_bucket_disponivel_nao_derruba_com_storage_local(self, client):
+        """Issue 46: o smoke-test de boot e um no-op (True) fora do backend S3."""
+        from app.services.storage import verificar_bucket_disponivel
+
+        assert await verificar_bucket_disponivel() is True

@@ -36,10 +36,15 @@ class ConteudoRead(ConteudoBase):
     id: int
     criado_por: uuid.UUID | None = None
     criado_em: datetime
+    disponivel: bool = True
 
     @computed_field
     @property
-    def url_acesso(self) -> str:
+    def url_acesso(self) -> str | None:
+        # Nao gera (nem tenta) URL assinada pra um arquivo que sabidamente nao
+        # existe mais -- a tela recebe null em vez de um link morto (issue 46).
+        if not self.disponivel:
+            return None
         return resolve_file_url(self.url_arquivo)
 
     model_config = {"from_attributes": True}

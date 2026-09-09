@@ -1,9 +1,12 @@
+import logging
 import uuid
 from pathlib import Path
 
 from fastapi import UploadFile
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = Path("./uploads")
 ALLOWED_MIME_TYPES: dict[str, list[str]] = {
@@ -205,5 +208,39 @@ def resolve_file_url(stored_url: str, expires_in: int = 3600) -> str:
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=expires_in,
         )
-    except Exception:
+    except Exception as e:
+        # generate_presigned_url e local/offline -- nao confere se o bucket
+        # existe de verdade, entao isto raramente pega um bucket morto (o link
+        # sai "valido" e so falha no navegador). Fica como defesa pra outras
+        # falhas (credencial invalida, etc.) nao ficarem 100% silenciosas.
+        logger.warning("Falha ao gerar URL assinada para %s: %s", stored_url, e)
         return stored_url
+
+
+async def verificar_bucket_disponivel() -> bool:
+    """Smoke-test de boot: confere que o bucket configurado responde (issue 46).
+
+    So loga um aviso -- nunca derruba o start. O objetivo e avisar no deploy que
+    o bucket sumiu/mudou, em vez de o primeiro aluno que clicar num link achar
+    isso sozinho.
+    """
+    if settings.STORAGE_BACKEND != "s3":
+        return True
+    try:
+        import aioboto3
+
+        session = aioboto3.Session(
+            aws_access_key_id=settings.S3_ACCESS_KEY,
+            aws_secret_access_key=settings.S3_SECRET_KEY,
+            region_name=settings.S3_REGION,
+        )
+        async with session.client("s3", endpoint_url=settings.S3_ENDPOINT or None) as s3:
+            await s3.head_bucket(Bucket=settings.S3_BUCKET)
+        return True
+    except Exception as e:
+        logger.warning(
+            "Bucket S3 '%s' nao respondeu no boot (%s) -- uploads/downloads podem falhar.",
+            settings.S3_BUCKET,
+            e,
+        )
+        return False

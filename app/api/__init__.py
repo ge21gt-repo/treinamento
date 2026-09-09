@@ -1,5 +1,6 @@
 from app.api import (
     auth,
+    auditoria,
     avaliacoes,
     certificados,
     comunicacao,

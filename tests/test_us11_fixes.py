@@ -33,7 +33,23 @@ class TestCodigoAcesso:
         from app.database import get_db
         from app.main import app
 
-        s = await _setup_curso_aula(client)
+        r = await client.post(
+            "/api/v1/cursos",
+            json={"titulo": "Curso Aula Com Codigo", "descricao": "x", "ordem": 0, "publicado": True},
+        )
+        curso_id = r.json()["id"]
+        r = await client.post(
+            f"/api/v1/cursos/{curso_id}/aulas",
+            json={
+                "curso_id": curso_id,
+                "titulo": "Aula Com Codigo",
+                "data_hora": "2099-01-01T10:00:00Z",
+                "duracao_minutos": 60,
+                "codigo_acesso": "ABC12345",
+            },
+        )
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+        s = {"curso_id": curso_id, "aula_id": r.json()["id"]}
 
         # simular um participante (sem permissao de edicao de aula)
         engine = create_async_engine(settings.TEST_DATABASE_URL)
@@ -203,6 +219,70 @@ class TestSaidaEstimada:
         presencas = r.json()
         assert len(presencas) == 1
         assert presencas[0]["saida_estimada"] is True, "Fechamento automatico deve marcar saida_estimada"
+
+    async def test_fechamento_lazy_nao_conta_tempo_antes_do_inicio_da_aula(self, client):
+        """Issue 36 (defeito 1): quem entrou antes do inicio nao pode herdar a aula inteira."""
+        from datetime import datetime, timezone
+
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from app.config import settings
+        from app.models.curso import AulaSincrona, PresencaAula
+
+        s = await _setup_curso_aula(client)
+        await client.post(f"/api/v1/cursos/aulas/{s['aula_id']}/entrar")
+
+        engine = create_async_engine(settings.TEST_DATABASE_URL)
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        session = maker()
+        try:
+            aula = (await session.execute(select(AulaSincrona).where(AulaSincrona.id == s["aula_id"]))).scalar_one()
+            aula.data_hora = datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc)
+            aula.data_hora_fim = aula.data_hora + timedelta(minutes=90)  # aula de 1h30
+            await session.commit()
+
+            presenca = (
+                await session.execute(select(PresencaAula).where(PresencaAula.aula_id == s["aula_id"]))
+            ).scalar_one()
+            # entrou um dia antes de a aula comecar
+            presenca.hora_entrada = aula.data_hora - timedelta(days=1)
+            await session.commit()
+        finally:
+            await session.close()
+            await engine.dispose()
+
+        r = await client.get(f"/api/v1/cursos/aulas/{s['aula_id']}/presencas")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        presenca_fechada = r.json()[0]
+        # 1h30 = 5400s -- nunca 1 dia + 1h30 como o bug antigo produzia
+        assert presenca_fechada["tempo_permanencia_seg"] == 5400, presenca_fechada
+
+
+class TestObterAulaIsolada:
+    """Issue 48 — GET /cursos/aulas/{id} para notificacao poder levar a algum lugar."""
+
+    async def test_obter_aula_por_id(self, client):
+        s = await _setup_curso_aula(client)
+        r = await client.get(f"/api/v1/cursos/aulas/{s['aula_id']}")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        assert r.json()["id"] == s["aula_id"]
+        assert r.json()["curso_id"] == s["curso_id"]
+
+    async def test_obter_aula_inexistente_404(self, client):
+        r = await client.get("/api/v1/cursos/aulas/999999999")
+        assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestPatchAulaNaoQuebra:
+    """Issue 45 — PATCH grava e devolvia 500 por causa do NameError em current_user."""
+
+    async def test_patch_aula_retorna_200(self, client):
+        s = await _setup_curso_aula(client)
+        r = await client.patch(f"/api/v1/cursos/aulas/{s['aula_id']}", json={"descricao": "ping"})
+        assert r.status_code == status.HTTP_200_OK, r.text
+        assert r.json()["descricao"] == "ping"
+
 
 class TestPresencaWebSocket:
     """Issue 27 — WS transmite eventos de presenca (entrou/saiu)"""

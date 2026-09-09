@@ -32,6 +32,7 @@ class ForumTopico(Base):
     fixado: Mapped[bool] = mapped_column(Boolean, default=False)
     fechado: Mapped[bool] = mapped_column(Boolean, default=False)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     respostas: Mapped[list["ForumResposta"]] = relationship(back_populates="topico", cascade="all, delete-orphan")
 
@@ -48,6 +49,8 @@ class ForumResposta(Base):
     conteudo: Mapped[str] = mapped_column(Text, nullable=False)
     resposta_pai_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("lms.forum_respostas.id"))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    atualizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    removida: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     topico: Mapped["ForumTopico"] = relationship(back_populates="respostas")
 

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,9 @@ class Conteudo(Base):
     ordem: Mapped[int] = mapped_column(Integer, default=0)
     criado_por: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # False quando o arquivo aponta pra um bucket/storage que sabidamente nao existe mais
+    # (issue 46) -- a tela para de oferecer o link em vez de tentar abrir algo morto.
+    disponivel: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class MaterialComplementar(Base):

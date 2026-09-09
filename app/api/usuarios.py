@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -80,15 +80,25 @@ async def obter_usuario(
 async def atualizar_usuario(
     usuario_id: uuid.UUID,
     payload: UsuarioUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.USUARIO_EDITAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.USUARIO_EDITAR)),
 ):
     result = await db.execute(select(Usuario).where(Usuario.id == usuario_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+    dados_antes = {"email": user.email, "nome_completo": user.nome_completo}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(user, field, value)
+    await db.commit()
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="usuarios", registro_id=usuario_id, acao="atualizar",
+        dados_anteriores=dados_antes, dados_novos={"email": user.email},
+        usuario_id=current_user.id, request=request,
+    )
     await db.commit()
     result = await db.execute(
         select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == usuario_id)
@@ -99,14 +109,23 @@ async def atualizar_usuario(
 @router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def excluir_usuario(
     usuario_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.USUARIO_EXCLUIR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.USUARIO_EXCLUIR)),
 ):
     result = await db.execute(select(Usuario).where(Usuario.id == usuario_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+    dados_antes = {"email": user.email, "nome_completo": user.nome_completo}
     await db.delete(user)
+    await db.commit()
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="usuarios", registro_id=usuario_id, acao="excluir",
+        dados_anteriores=dados_antes, usuario_id=current_user.id, request=request,
+    )
     await db.commit()
 
 

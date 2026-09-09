@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,13 +65,21 @@ async def listar_avaliacoes(
 @router.post("", response_model=AvaliacaoRead, status_code=status.HTTP_201_CREATED)
 async def criar_avaliacao(
     payload: AvaliacaoCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_CRIAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_CRIAR)),
 ):
     avaliacao = Avaliacao(**payload.model_dump())
     db.add(avaliacao)
     await db.commit()
     await db.refresh(avaliacao)
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="avaliacoes", registro_id=avaliacao.id, acao="criar",
+        dados_novos={"titulo": avaliacao.titulo}, usuario_id=current_user.id, request=request,
+    )
+    await db.commit()
     return avaliacao
 
 
@@ -207,31 +215,50 @@ async def obter_avaliacao(
 async def atualizar_avaliacao(
     avaliacao_id: int,
     payload: AvaliacaoUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EDITAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EDITAR)),
 ):
     result = await db.execute(select(Avaliacao).where(Avaliacao.id == avaliacao_id))
     avaliacao = result.scalar_one_or_none()
     if not avaliacao:
         raise HTTPException(status_code=404, detail="Avaliacao nao encontrada")
+    dados_antes = {"titulo": avaliacao.titulo}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(avaliacao, field, value)
     await db.commit()
     await db.refresh(avaliacao)
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="avaliacoes", registro_id=avaliacao.id, acao="atualizar",
+        dados_anteriores=dados_antes, dados_novos={"titulo": avaliacao.titulo},
+        usuario_id=current_user.id, request=request,
+    )
+    await db.commit()
     return avaliacao
 
 
 @router.delete("/{avaliacao_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def excluir_avaliacao(
     avaliacao_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EXCLUIR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EXCLUIR)),
 ):
     result = await db.execute(select(Avaliacao).where(Avaliacao.id == avaliacao_id))
     avaliacao = result.scalar_one_or_none()
     if not avaliacao:
         raise HTTPException(status_code=404, detail="Avaliacao nao encontrada")
+    dados_antes = {"titulo": avaliacao.titulo}
     await db.delete(avaliacao)
+    await db.commit()
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="avaliacoes", registro_id=avaliacao_id, acao="excluir",
+        dados_anteriores=dados_antes, usuario_id=current_user.id, request=request,
+    )
     await db.commit()
 
 

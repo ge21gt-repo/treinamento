@@ -97,23 +97,9 @@ async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depe
 
     await atualizar_streak(db, user.id)
 
-    user_agent = request.headers.get("user-agent", "")
-    xff = request.headers.get("x-forwarded-for", "")
-    ip_cliente = None
-    if xff:
-        ip_cliente = xff.split(",")[0].strip() or None
-    if ip_cliente is None and request.client:
-        ip_cliente = request.client.host
-    db.add(
-        LogAcesso(
-            usuario_id=user.id,
-            acao="login",
-            ip_address=ip_cliente,
-            user_agent=user_agent[:1000] or None,
-            dispositivo=_detectar_dispositivo(user_agent),
-        )
-    )
+    from app.services.log_acesso import registrar_log_acesso
 
+    await registrar_log_acesso(db, request, user.id, "login")
     await db.commit()
 
     perfis = [up.perfil.nome for up in user.perfis] if user.perfis else []

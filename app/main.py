@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.api import (
+    auditoria,
     auth,
     avaliacoes,
     certificados,
@@ -166,6 +167,27 @@ async def lifespan(application: FastAPI):
         )
     logger.info("Database seeded successfully")
 
+    # Smoke-test do bucket S3 configurado (issue 46) -- so avisa, nunca derruba o start.
+    from app.services.storage import verificar_bucket_disponivel
+
+    if await verificar_bucket_disponivel():
+        logger.info("Bucket S3 respondeu no boot")
+
+    # Schema atrasado em relacao ao codigo e silencioso ate um endpoint quebrar
+    # com 500: o deploy nao roda `alembic upgrade head` e o create_all acima so
+    # cria tabela que falta, nunca coluna. Avisa alto no boot.
+    from app.services.health import check_migrations
+
+    async with AsyncSessionLocal() as check_session:
+        migracoes = await check_migrations(check_session)
+    if migracoes["status"] == "ok":
+        logger.info("Migrations: %s", migracoes["detail"])
+    else:
+        logger.warning(
+            "MIGRATIONS DESATUALIZADAS - endpoints podem responder 500 por coluna inexistente. %s",
+            migracoes["detail"],
+        )
+
     # Job periodico: coleta diaria de metricas de engajamento (US-16, T-16.1)
     from app.services.analytics import coletar_metricas_diarias
 
@@ -237,6 +259,31 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
 app.add_exception_handler(Exception, _unhandled_exception_handler)
 
 
+async def _registrar_acesso_escrita(method: str, path: str, authorization: str) -> None:
+    """Grava log_acesso de operacoes de escrita (T-17.1), sem bloquear a resposta."""
+    if method not in ("POST", "PATCH", "DELETE", "PUT"):
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        return
+    from app.services.auth import decode_token
+
+    token = authorization.split(" ", 1)[1]
+    payload = decode_token(token)
+    if not payload or not payload.get("sub"):
+        return
+    try:
+        import uuid
+
+        from app.database import async_session
+        from app.models.log import LogAcesso
+
+        async with async_session() as db:
+            db.add(LogAcesso(usuario_id=uuid.UUID(payload["sub"]), acao=method, recurso_tipo="route", recurso_id=None))
+            await db.commit()
+    except Exception:
+        pass
+
+
 # Request logging middleware (raw ASGI, no BaseHTTPMiddleware)
 class LogRequestsMiddleware:
     def __init__(self, app):
@@ -257,6 +304,14 @@ class LogRequestsMiddleware:
 
         await self.app(scope, receive, send_wrapper)
 
+        import asyncio
+
+        auth = b""
+        for k, v in scope.get("headers", []):
+            if k == b"authorization":
+                auth = v.decode()
+        asyncio.create_task(_registrar_acesso_escrita(scope["method"], scope["path"], auth))
+
         duration = (datetime.now(timezone.utc) - start).total_seconds()
         logger.info(
             "%s %s -> %s (%.3fs)",
@@ -272,6 +327,7 @@ PREFIX = "/api/v1"
 
 app.include_router(notificacoes.router, prefix=PREFIX)
 app.include_router(health.router)
+app.include_router(auditoria.router, prefix=PREFIX)
 app.include_router(auth.router, prefix=PREFIX)
 app.include_router(usuarios.router, prefix=PREFIX)
 app.include_router(trilhas.router, prefix=PREFIX)

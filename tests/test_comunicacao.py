@@ -14,6 +14,29 @@ async def criar_curso(client, titulo="Curso Teste"):
     return r.json()["id"]
 
 
+async def _criar_forasteiro():
+    """Participante sem inscricao em curso nenhum (issue 43)."""
+    import uuid
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from app.config import settings
+    from tests.conftest import _assign_perfil, _create_user
+
+    engine = create_async_engine(settings.TEST_DATABASE_URL)
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    session = maker()
+    try:
+        email = f"forasteiro-{uuid.uuid4()}@test.com"
+        user = await _create_user(session, uuid.uuid4(), email, "Forasteiro", "participante")
+        await _assign_perfil(session, user.id, "participante")
+        await session.commit()
+        return user
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
 class TestComunicacaoAuth:
     async def test_forum_list_requires_auth(self):
         transport = ASGITransport(app=app)
@@ -111,3 +134,79 @@ class TestChat:
         assert r.status_code == status.HTTP_200_OK
         msgs = r.json()
         assert len(msgs) >= 1
+
+
+class TestRotasLegadoSaoDeprecated:
+    """Issue 44: chat de sessao (MensagemChat) marcado deprecated, sem remover nada."""
+
+    async def test_openapi_marca_rotas_de_sessao_como_deprecated(self, client):
+        r = await client.get("/openapi.json")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        paths = r.json()["paths"]
+        assert paths["/api/v1/comunicacao/chat"]["post"]["deprecated"] is True
+        assert paths["/api/v1/comunicacao/chat/{sessao_id}"]["get"]["deprecated"] is True
+
+
+class TestForumExigeInscricao:
+    """Issue 43: forum de um curso e so para quem esta inscrito nele, ou quem modera."""
+
+    async def test_forasteiro_nao_le_nem_cria_topico(self, client):
+        curso_id = await criar_curso(client, "Curso Forum Fechado")
+        forasteiro = await _criar_forasteiro()
+
+        from app.api.deps import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: forasteiro
+        try:
+            r = await client.get(f"/api/v1/comunicacao/forum/{curso_id}")
+            assert r.status_code == status.HTTP_403_FORBIDDEN, r.text
+
+            r = await client.post(
+                "/api/v1/comunicacao/forum",
+                json={"curso_id": curso_id, "titulo": "nao deveria entrar", "conteudo": "x"},
+            )
+            assert r.status_code == status.HTTP_403_FORBIDDEN, r.text
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+
+    async def test_inscrito_le_e_cria_topico(self, client):
+        curso_id = await criar_curso(client, "Curso Forum Aberto")
+        participante = await _criar_forasteiro()
+
+        from app.api.deps import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: participante
+        try:
+            r = await client.post("/api/v1/cursos/inscricoes", json={"curso_id": curso_id})
+            assert r.status_code == status.HTTP_201_CREATED, r.text
+
+            r = await client.get(f"/api/v1/comunicacao/forum/{curso_id}")
+            assert r.status_code == status.HTTP_200_OK, r.text
+
+            r = await client.post(
+                "/api/v1/comunicacao/forum",
+                json={"curso_id": curso_id, "titulo": "agora posso", "conteudo": "x"},
+            )
+            assert r.status_code == status.HTTP_201_CREATED, r.text
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+
+
+class TestChatCursoExigeInscricao:
+    """Issue 43: chat do curso e so para quem esta inscrito nele, ou quem modera."""
+
+    async def test_forasteiro_nao_le_nem_envia(self, client):
+        curso_id = await criar_curso(client, "Curso Chat Fechado")
+        forasteiro = await _criar_forasteiro()
+
+        from app.api.deps import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: forasteiro
+        try:
+            r = await client.get(f"/api/v1/cursos/{curso_id}/chat")
+            assert r.status_code == status.HTTP_403_FORBIDDEN, r.text
+
+            r = await client.post(f"/api/v1/cursos/{curso_id}/chat", json={"texto": "nao deveria entrar"})
+            assert r.status_code == status.HTTP_403_FORBIDDEN, r.text
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
