@@ -123,13 +123,19 @@ def validar_token_keycloak(token: str) -> dict | None:
 
 
 def mapear_roles_keycloak(payload: dict) -> list[str]:
-    """Extrai roles de `realm_access` e `resource_access.treinamento-front`."""
+    """Extrai roles de `realm_access` e de qualquer client em `resource_access`.
+
+    Aceita roles de qualquer client (ex.: `treinamento-front` no browser e
+    `treinamento-testes` via API) — o que importa é o que o crachá diz, não de
+    qual porta ele veio.
+    """
     roles: set[str] = set()
     realm = payload.get("realm_access", {}) or {}
     for r in realm.get("roles", []) or []:
         roles.add(str(r))
     res = payload.get("resource_access", {}) or {}
-    front = res.get(settings.KEYCLOAK_CLIENT_ID or "treinamento-front", {}) or {}
-    for r in front.get("roles", []) or []:
-        roles.add(str(r))
+    for _client, entry in res.items():
+        entry = entry or {}
+        for r in entry.get("roles", []) or []:
+            roles.add(str(r))
     return sorted(roles)
