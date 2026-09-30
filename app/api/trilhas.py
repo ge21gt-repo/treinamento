@@ -46,11 +46,11 @@ async def criar_trilha(
     db.add(trilha)
     await db.commit()
     await db.refresh(trilha)
-    from app.services.auditoria import registrar_auditoria
+    from app.services.auditoria import _serializar, registrar_auditoria
 
     await registrar_auditoria(
         db, tabela="trilhas", registro_id=trilha.id, acao="criar",
-        dados_novos={"titulo": trilha.titulo}, usuario_id=current_user.id, request=request,
+        dados_novos=_serializar(trilha), usuario_id=current_user.id, request=request,
     )
     await db.commit()
     return trilha
@@ -235,7 +235,9 @@ async def atualizar_trilha(
     trilha = result.scalar_one_or_none()
     if not trilha:
         raise HTTPException(status_code=404, detail="Trilha nao encontrada")
-    dados_antes = {"titulo": trilha.titulo}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(trilha)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(trilha, field, value)
     await db.commit()
@@ -244,7 +246,7 @@ async def atualizar_trilha(
 
     await registrar_auditoria(
         db, tabela="trilhas", registro_id=trilha.id, acao="atualizar",
-        dados_anteriores=dados_antes, dados_novos={"titulo": trilha.titulo},
+        dados_anteriores=dados_antes, dados_novos=_serializar(trilha),
         usuario_id=current_user.id, request=request,
     )
     await db.commit()
@@ -326,7 +328,9 @@ async def excluir_trilha(
     trilha = result.scalar_one_or_none()
     if not trilha:
         raise HTTPException(status_code=404, detail="Trilha nao encontrada")
-    dados_antes = {"titulo": trilha.titulo}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(trilha)
     await db.delete(trilha)
     await db.commit()
     from app.services.auditoria import registrar_auditoria

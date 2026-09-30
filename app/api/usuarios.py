@@ -88,15 +88,25 @@ async def atualizar_usuario(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
-    dados_antes = {"email": user.email, "nome_completo": user.nome_completo}
+    from app.services.auditoria import _serializar
+
+    # LGPD: nao gravar senha/cpf/telefone em claro no snapshot de auditoria.
+    dados_antes = _serializar(user)
+    dados_antes.pop("senha_hash", None)
+    dados_antes.pop("cpf", None)
+    dados_antes.pop("telefone", None)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(user, field, value)
     await db.commit()
     from app.services.auditoria import registrar_auditoria
 
+    dados_novos = _serializar(user)
+    dados_novos.pop("senha_hash", None)
+    dados_novos.pop("cpf", None)
+    dados_novos.pop("telefone", None)
     await registrar_auditoria(
         db, tabela="usuarios", registro_id=usuario_id, acao="atualizar",
-        dados_anteriores=dados_antes, dados_novos={"email": user.email},
+        dados_anteriores=dados_antes, dados_novos=dados_novos,
         usuario_id=current_user.id, request=request,
     )
     await db.commit()
@@ -117,7 +127,13 @@ async def excluir_usuario(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
-    dados_antes = {"email": user.email, "nome_completo": user.nome_completo}
+    from app.services.auditoria import _serializar
+
+    # LGPD: nao gravar senha/cpf/telefone em claro no snapshot de auditoria.
+    dados_antes = _serializar(user)
+    dados_antes.pop("senha_hash", None)
+    dados_antes.pop("cpf", None)
+    dados_antes.pop("telefone", None)
     await db.delete(user)
     await db.commit()
     from app.services.auditoria import registrar_auditoria

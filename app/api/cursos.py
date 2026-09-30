@@ -118,11 +118,11 @@ async def criar_curso(
     db.add(curso)
     await db.commit()
     await db.refresh(curso)
-    from app.services.auditoria import registrar_auditoria
+    from app.services.auditoria import _serializar, registrar_auditoria
 
     await registrar_auditoria(
         db, tabela="cursos", registro_id=curso.id, acao="criar",
-        dados_novos={"titulo": curso.titulo}, usuario_id=current_user.id, request=request,
+        dados_novos=_serializar(curso), usuario_id=current_user.id, request=request,
     )
     await db.commit()
     return curso
@@ -173,7 +173,9 @@ async def atualizar_curso(
     curso = result.scalar_one_or_none()
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
-    dados_antes = {"titulo": curso.titulo, "descricao": curso.descricao}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(curso)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(curso, field, value)
     await db.commit()
@@ -182,7 +184,7 @@ async def atualizar_curso(
 
     await registrar_auditoria(
         db, tabela="cursos", registro_id=curso.id, acao="atualizar",
-        dados_anteriores=dados_antes, dados_novos={"titulo": curso.titulo},
+        dados_anteriores=dados_antes, dados_novos=_serializar(curso),
         usuario_id=current_user.id, request=request,
     )
     await db.commit()
@@ -200,7 +202,9 @@ async def excluir_curso(
     curso = result.scalar_one_or_none()
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
-    dados_antes = {"titulo": curso.titulo}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(curso)
     await db.delete(curso)
     await db.commit()
     from app.services.auditoria import registrar_auditoria
@@ -735,11 +739,11 @@ async def inscrever(
     db.add(inscricao)
     await db.commit()
     await db.refresh(inscricao)
-    from app.services.auditoria import auditar_escrita
+    from app.services.auditoria import _serializar, auditar_escrita
 
     await auditar_escrita(
         db, "inscricoes", inscricao.id, "criar",
-        dados_novos={"curso_id": payload.curso_id}, usuario_id=current_user.id, request=request,
+        dados_novos=_serializar(inscricao), usuario_id=current_user.id, request=request,
     )
     return inscricao
 
@@ -782,7 +786,9 @@ async def cancelar_inscricao(
         has_outros = await _user_has_permission(db, current_user.id, Permissoes.CURSO_INSCREVER_OUTROS)
         if not has_outros:
             raise HTTPException(status_code=403, detail="Sem permissao para cancelar inscricao de outro usuario")
-    dados_antes = {"curso_id": inscricao.curso_id}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(inscricao)
     await db.delete(inscricao)
     await db.commit()
     from app.services.auditoria import auditar_escrita

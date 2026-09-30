@@ -73,11 +73,11 @@ async def criar_avaliacao(
     db.add(avaliacao)
     await db.commit()
     await db.refresh(avaliacao)
-    from app.services.auditoria import registrar_auditoria
+    from app.services.auditoria import _serializar, registrar_auditoria
 
     await registrar_auditoria(
         db, tabela="avaliacoes", registro_id=avaliacao.id, acao="criar",
-        dados_novos={"titulo": avaliacao.titulo}, usuario_id=current_user.id, request=request,
+        dados_novos=_serializar(avaliacao), usuario_id=current_user.id, request=request,
     )
     await db.commit()
     return avaliacao
@@ -223,7 +223,9 @@ async def atualizar_avaliacao(
     avaliacao = result.scalar_one_or_none()
     if not avaliacao:
         raise HTTPException(status_code=404, detail="Avaliacao nao encontrada")
-    dados_antes = {"titulo": avaliacao.titulo}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(avaliacao)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(avaliacao, field, value)
     await db.commit()
@@ -232,7 +234,7 @@ async def atualizar_avaliacao(
 
     await registrar_auditoria(
         db, tabela="avaliacoes", registro_id=avaliacao.id, acao="atualizar",
-        dados_anteriores=dados_antes, dados_novos={"titulo": avaliacao.titulo},
+        dados_anteriores=dados_antes, dados_novos=_serializar(avaliacao),
         usuario_id=current_user.id, request=request,
     )
     await db.commit()
@@ -250,7 +252,9 @@ async def excluir_avaliacao(
     avaliacao = result.scalar_one_or_none()
     if not avaliacao:
         raise HTTPException(status_code=404, detail="Avaliacao nao encontrada")
-    dados_antes = {"titulo": avaliacao.titulo}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(avaliacao)
     await db.delete(avaliacao)
     await db.commit()
     from app.services.auditoria import registrar_auditoria

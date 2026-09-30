@@ -456,11 +456,11 @@ async def criar_badge(
 
     await _conceder_badge_retroativamente(db, badge)
     await db.commit()
-    from app.services.auditoria import auditar_escrita
+    from app.services.auditoria import _serializar, auditar_escrita
 
     await auditar_escrita(
         db, "badges", badge.id, "criar",
-        dados_novos={"nome": badge.nome}, usuario_id=current_user.id, request=request,
+        dados_novos=_serializar(badge), usuario_id=current_user.id, request=request,
     )
     return badge
 
@@ -499,7 +499,9 @@ async def atualizar_badge(
     badge = await db.get(Badge, badge_id)
     if not badge:
         raise HTTPException(status_code=404, detail="Badge nao encontrada")
-    dados_antes = {"nome": badge.nome}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(badge)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(badge, field, value)
     await db.commit()
@@ -508,7 +510,7 @@ async def atualizar_badge(
 
     await auditar_escrita(
         db, "badges", badge.id, "atualizar",
-        dados_anteriores=dados_antes, dados_novos={"nome": badge.nome},
+        dados_anteriores=dados_antes, dados_novos=_serializar(badge),
         usuario_id=current_user.id, request=request,
     )
     return badge
@@ -524,7 +526,9 @@ async def excluir_badge(
     badge = await db.get(Badge, badge_id)
     if not badge:
         raise HTTPException(status_code=404, detail="Badge nao encontrada")
-    dados_antes = {"nome": badge.nome}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(badge)
     await db.delete(badge)
     await db.commit()
     from app.services.auditoria import auditar_escrita
@@ -663,11 +667,11 @@ async def criar_missao(
     db.add(missao)
     await db.commit()
     await db.refresh(missao)
-    from app.services.auditoria import auditar_escrita
+    from app.services.auditoria import _serializar, auditar_escrita
 
     await auditar_escrita(
         db, "missoes", missao.id, "criar",
-        dados_novos={"titulo": missao.titulo}, usuario_id=current_user.id, request=request,
+        dados_novos=_serializar(missao), usuario_id=current_user.id, request=request,
     )
     return missao
 
@@ -684,7 +688,9 @@ async def atualizar_missao(
     missao = result.scalar_one_or_none()
     if not missao:
         raise HTTPException(status_code=404, detail="Missao nao encontrada")
-    dados_antes = {"titulo": missao.titulo}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(missao)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(missao, field, value)
     await db.commit()
@@ -693,7 +699,7 @@ async def atualizar_missao(
 
     await auditar_escrita(
         db, "missoes", missao.id, "atualizar",
-        dados_anteriores=dados_antes, dados_novos={"titulo": missao.titulo},
+        dados_anteriores=dados_antes, dados_novos=_serializar(missao),
         usuario_id=current_user.id, request=request,
     )
     return missao
