@@ -72,9 +72,9 @@ def _gerar_qr_bytes(url: str) -> bytes:
 
 def _url_validacao(hash_validacao: str) -> str:
     base = settings.BASE_URL.rstrip("/")
-    if base.endswith("/api/v1"):
-        base = base[: -len("/api/v1")]
-    return f"{base}/certificados/validar/{hash_validacao}"
+    if not base.endswith("/api/v1"):
+        base = f"{base}/api/v1"
+    return f"{base}/certificados/validar/{hash_validacao}/pagina"
 
 
 async def _modelo_padrao(db: AsyncSession) -> ModeloCertificado:
@@ -96,6 +96,23 @@ async def _modelo_padrao(db: AsyncSession) -> ModeloCertificado:
     db.add(modelo)
     await db.flush()
     return modelo
+
+
+async def _presigned_se_necessario(url: str | None) -> str | None:
+    """Converte URL crua do bucket em URL assinada (presigned), se S3.
+
+    Se nao for S3 ou nao conseguir, devolve a original (issue #74).
+    """
+    from app.services.storage import get_presigned_url
+
+    if not url or settings.STORAGE_BACKEND != "s3":
+        return url
+    # A URL crua e "{endpoint}/{key}"; a key e o que vem depois do bucket/endpoint.
+    try:
+        key = url.split(f"{settings.S3_BUCKET}/", 1)[1]
+    except IndexError:
+        return url
+    return await get_presigned_url(key) or url
 
 
 async def emitir_certificado_curso(
@@ -137,6 +154,10 @@ async def emitir_certificado_curso(
         url_pdf = await upload_bytes(pdf_bytes, f"certificado_{cert_id}.pdf", "certificados", "application/pdf")
         qr_bytes = _gerar_qr_bytes(url_validacao)
         url_qr = await upload_bytes(qr_bytes, f"certificado_{cert_id}_qr.png", "certificados", "image/png")
+        # Bucket privado: armazena URL assinada (presigned) em vez da crua, senao
+        # o PDF/QR abre 403 (issue #74).
+        url_pdf = await _presigned_se_necessario(url_pdf)
+        url_qr = await _presigned_se_necessario(url_qr)
     except Exception:
         logger.exception("Falha ao gerar PDF/QR do certificado %s", cert_id)
         url_pdf = None
