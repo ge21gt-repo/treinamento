@@ -275,13 +275,28 @@ async def _registrar_acesso_escrita(method: str, path: str, authorization: str) 
     if not payload or not payload.get("sub"):
         return
     try:
+        import re
         import uuid
 
         from app.database import async_session
         from app.models.log import LogAcesso
 
+        # Issue #82: gravar o path da rota em recurso_tipo (ex.: /api/v1/cursos/5)
+        # e o id numerico (se houver) em recurso_id, em vez de "route"/None fixos.
+        recurso_id = None
+        m = re.search(r"/(\d+)(?:/|$)", path)
+        if m:
+            recurso_id = int(m.group(1))
+
         async with async_session() as db:
-            db.add(LogAcesso(usuario_id=uuid.UUID(payload["sub"]), acao=method, recurso_tipo="route", recurso_id=None))
+            db.add(
+                LogAcesso(
+                    usuario_id=uuid.UUID(payload["sub"]),
+                    acao=method,
+                    recurso_tipo=path[:50],
+                    recurso_id=recurso_id,
+                )
+            )
             await db.commit()
     except Exception:
         pass
