@@ -2,12 +2,15 @@
 
 import hashlib
 import io
+import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.models.certificado import Certificado, ModeloCertificado
@@ -135,6 +138,7 @@ async def emitir_certificado_curso(
         qr_bytes = _gerar_qr_bytes(url_validacao)
         url_qr = await upload_bytes(qr_bytes, f"certificado_{cert_id}_qr.png", "certificados", "image/png")
     except Exception:
+        logger.exception("Falha ao gerar PDF/QR do certificado %s", cert_id)
         url_pdf = None
         url_qr = None
 
