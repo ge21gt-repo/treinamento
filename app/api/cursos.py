@@ -46,7 +46,8 @@ from app.schemas.curso import (
     CursoRead,
     CursoUpdate,
     InscricaoCreate,
-    InscricaoRead,
+InscricaoRead,
+    InscricaoTurmaRead,
     MensagemAulaCreate,
     MensagemAulaRead,
     ModuloArvoreRead,
@@ -141,24 +142,41 @@ async def obter_curso(
     return curso
 
 
-@router.get("/{curso_id}/inscricoes", response_model=list[InscricaoRead])
+@router.get("/{curso_id}/inscricoes", response_model=list[InscricaoTurmaRead])
 async def listar_inscricoes_curso(
     curso_id: int,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.CURSO_VER_INSCRICOES)),
 ):
-    """Quem esta inscrito num curso -- o inverso de /inscricoes/{usuario_id} (issue 32).
+    """Quem esta inscrito num curso, com nome/email do usuario (issue #87).
 
-    E o dado que faltava pra "turma" ser derivavel de curso + inscritos, sem
-    precisar de uma entidade propria.
+    O instrutor nao tem `usuario:listar`, entao o nome vem do JOIN com
+    `lms.usuarios` nesta rota -- nao de uma segunda chamada.
     """
     curso = await db.get(Curso, curso_id)
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
     result = await db.execute(
-        select(Inscricao).where(Inscricao.curso_id == curso_id).order_by(Inscricao.data_inscricao)
+        select(Inscricao, Usuario.nome_completo, Usuario.email)
+        .join(Usuario, Usuario.id == Inscricao.usuario_id)
+        .where(Inscricao.curso_id == curso_id)
+        .order_by(Inscricao.data_inscricao)
     )
-    return result.scalars().all()
+    return [
+        InscricaoTurmaRead(
+            id=insc.id,
+            usuario_id=insc.usuario_id,
+            curso_id=insc.curso_id,
+            status=insc.status,
+            progresso_pct=insc.progresso_pct,
+            data_inscricao=insc.data_inscricao,
+            data_conclusao=insc.data_conclusao,
+            nota_final=insc.nota_final,
+            usuario_nome=nome,
+            usuario_email=email,
+        )
+        for insc, nome, email in result.all()
+    ]
 
 
 @router.patch("/{curso_id}", response_model=CursoRead)

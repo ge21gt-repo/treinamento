@@ -151,6 +151,25 @@ class InscricaoRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class InscricaoTurmaRead(BaseModel):
+    """Inscricao com nome/email do usuario, para a turma do instrutor (issue #87).
+
+    Evita exigir a permissao `usuario:listar` no endpoint de inscricoes do curso:
+    o nome vem do JOIN com `lms.usuarios`, nao de uma segunda chamada.
+    """
+
+    id: int
+    usuario_id: uuid.UUID
+    curso_id: int
+    status: str
+    progresso_pct: float
+    data_inscricao: datetime
+    data_conclusao: datetime | None = None
+    nota_final: float | None = None
+    usuario_nome: str
+    usuario_email: str
+
+
 class ProgressoUnidadeBase(BaseModel):
     usuario_id: uuid.UUID
     unidade_id: int
