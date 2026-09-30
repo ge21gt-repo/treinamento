@@ -56,10 +56,21 @@ async def emitir_certificado(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.CERTIFICADO_CRIAR)),
 ):
+    # Duplicidade: um certificado por (usuario, curso) — igual ao caminho automatico.
+    existente = await db.execute(
+        select(Certificado).where(
+            Certificado.usuario_id == payload.usuario_id,
+            Certificado.curso_id == payload.curso_id,
+        )
+    )
+    if existente.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Certificado ja emitido para este usuario e curso")
+
     cert = Certificado(**payload.model_dump())
     db.add(cert)
     await db.flush()
-    cert.hash_validacao = hashlib.sha256(str(cert.id).encode()).hexdigest()
+    # Mesmo formato de hash do caminho automatico (consistencia na validacao).
+    cert.hash_validacao = hashlib.sha256(f"{cert.id}:{payload.usuario_id}:{payload.curso_id}".encode()).hexdigest()
     await db.commit()
     await db.refresh(cert)
     return cert
@@ -81,12 +92,15 @@ async def meus_certificados(
 async def obter_certificado(
     certificado_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
     result = await db.execute(select(Certificado).where(Certificado.id == certificado_id))
     cert = result.scalar_one_or_none()
     if not cert:
         raise HTTPException(status_code=404, detail="Certificado nao encontrado")
+    # So o dono ou quem tem permissao de visualizar pode ver (issue #76).
+    if cert.usuario_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Sem permissao para ver este certificado")
     return cert
 
 
