@@ -313,6 +313,24 @@ class InscricaoTrilhaRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class InscricaoTrilhaTurmaRead(BaseModel):
+    """Inscricao em trilha com nome/email do usuario, para turmas do gestor (issue #80).
+
+    Mesmo padrão do `InscricaoTurmaRead` dos cursos (#87): nome vem do JOIN com
+    `lms.usuarios`, sem exigir a permissão `usuario:listar`.
+    """
+
+    id: int
+    usuario_id: uuid.UUID
+    trilha_id: int
+    status: str
+    progresso_pct: float
+    data_inscricao: datetime
+    data_conclusao: datetime | None = None
+    usuario_nome: str
+    usuario_email: str
+
+
 class TrilhaProgressoRead(BaseModel):
     trilha_id: int
     titulo: str

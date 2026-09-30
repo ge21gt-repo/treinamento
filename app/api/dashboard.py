@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,14 +9,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.certificado import Certificado
-from app.models.curso import AulaSincrona, Curso, Inscricao, InscricaoTrilha, PresencaAula, TrilhaAprendizagem
+from app.models.curso import (
+    AulaSincrona,
+    Curso,
+    Inscricao,
+    InscricaoTrilha,
+    Modulo,
+    PresencaAula,
+    ProgressoUnidade,
+    TrilhaAprendizagem,
+    Unidade,
+)
 from app.models.gamificacao import Nivel, PontosXP
 from app.models.log import LogAcesso, MetricaEngajamento
 from app.models.sessao import SessaoAoVivo
 from app.models.usuario import Usuario
 from app.schemas.log import LogAcessoRead, MetricaEngajamentoRead
-from app.services.rbac import Permissoes
 from app.services.paginacao import count_query
+from app.services.rbac import Permissoes
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard e Analytics"])
 
@@ -119,6 +129,50 @@ async def metricas_usuario(
     return result.scalars().all()
 
 
+@router.get("/relatorios/conteudos-acessados")
+async def relatorio_conteudos_acessados(
+    usuario_id: uuid.UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    response: Response = None,
+    _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_RELATORIOS)),
+):
+    """Conteudos (unidades) acessados por um usuario entre cursos (issue #77).
+
+    Lista as unidades com progresso registrado (nao_iniciado/excluido), com o
+    titulo do curso, modulo e unidade, para o card 'Conteudos acessados' do
+    relatorio por aluno. Ordenado pela data de conclusao mais recente.
+    """
+    query = (
+        select(Unidade, Modulo, Curso, ProgressoUnidade)
+        .join(Modulo, Modulo.id == Unidade.modulo_id)
+        .join(Curso, Curso.id == Modulo.curso_id)
+        .join(ProgressoUnidade, ProgressoUnidade.unidade_id == Unidade.id)
+        .where(ProgressoUnidade.usuario_id == usuario_id)
+        .order_by(ProgressoUnidade.concluido_em.desc().nullslast())
+    )
+    total = await count_query(db, query)
+    result = await db.execute(query.offset(skip).limit(limit))
+    linhas = result.all()
+    response.headers["X-Total-Count"] = str(total)
+    return [
+        {
+            "curso_id": curso.id,
+            "curso": curso.titulo,
+            "modulo_id": modulo.id,
+            "modulo": modulo.titulo,
+            "unidade_id": unidade.id,
+            "unidade": unidade.titulo,
+            "tipo": unidade.tipo,
+            "status": progresso.status,
+            "tempo_gasto": progresso.tempo_gasto,
+            "concluido_em": progresso.concluido_em.isoformat() if progresso.concluido_em else None,
+        }
+        for unidade, modulo, curso, progresso in linhas
+    ]
+
+
 @router.post("/metricas/coletar")
 async def coletar_metricas_manual(
     dias: int = Query(1, ge=1, le=90, description="Quantos dias retroativos coletar"),
@@ -166,6 +220,7 @@ async def relatorio_presenca_consolidado(
     data_inicio: datetime | None = Query(None),
     data_fim: datetime | None = Query(None),
     curso_id: int | None = Query(None),
+    trilha_id: int | None = Query(None, description="Filtra por trilha (issue #79)"),
     formato: str = Query("json", pattern="^(json|csv|pdf)$"),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_RELATORIOS)),
@@ -186,6 +241,8 @@ async def relatorio_presenca_consolidado(
     ).join(PresencaAula, PresencaAula.aula_id == AulaSincrona.id)
     if curso_id is not None:
         query = query.where(AulaSincrona.curso_id == curso_id)
+    if trilha_id is not None:
+        query = query.join(Curso, Curso.id == AulaSincrona.curso_id).where(Curso.trilha_id == trilha_id)
     linhas = await db.execute(
         query.where(*filtro).group_by(AulaSincrona.id).order_by(AulaSincrona.id)
     )
@@ -354,6 +411,7 @@ async def grafico_temporal(
     data_inicio: datetime | None = Query(None),
     data_fim: datetime | None = Query(None),
     curso_id: int | None = Query(None),
+    trilha_id: int | None = Query(None, description="Filtra por trilha (issue #79)"),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_GRAFICOS)),
 ):
@@ -393,6 +451,8 @@ async def grafico_temporal(
     )
     if curso_id is not None:
         insc_query = insc_query.where(Inscricao.curso_id == curso_id)
+    if trilha_id is not None:
+        insc_query = insc_query.join(Curso, Curso.id == Inscricao.curso_id).where(Curso.trilha_id == trilha_id)
     inscricoes = await db.execute(insc_query.group_by(expr_insc).order_by(expr_insc))
     serie_inscricoes = [{"bucket": b.isoformat(), "total": t} for b, t in inscricoes.all()]
 

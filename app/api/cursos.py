@@ -606,6 +606,7 @@ async def stream_chat(
 @router.get("/{curso_id}/chat", response_model=list[dict])
 async def listar_chat(
     curso_id: int,
+    usuario_id: uuid.UUID | None = Query(None, description="Filtra mensagens de um usuario (issue #78)"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -616,9 +617,12 @@ async def listar_chat(
 
     from app.models.curso import MensagemCurso
 
+    filtros = [MensagemCurso.curso_id == curso_id]
+    if usuario_id is not None:
+        filtros.append(MensagemCurso.usuario_id == usuario_id)
     result = await db.execute(
         select(MensagemCurso)
-        .where(MensagemCurso.curso_id == curso_id)
+        .where(*filtros)
         .order_by(MensagemCurso.criado_em.desc())
         .offset((page - 1) * limit)
         .limit(limit)
