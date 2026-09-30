@@ -96,9 +96,11 @@ async def validar_certificado(
     db: AsyncSession = Depends(get_db),
 ):
     """Validacao publica (sem login) -- devolve so o que quem confere precisa
-    (nome, curso), nunca os identificadores internos crus (issue 33)."""
+    (nome, CPF mascarado, prefeitura, curso), nunca os identificadores internos
+    crus (issue 33)."""
     from app.models.curso import Curso
     from app.models.usuario import Usuario
+    from app.services.certificado_templates import mascarar_cpf
 
     result = await db.execute(select(Certificado).where(Certificado.hash_validacao == hash_validacao))
     cert = result.scalar_one_or_none()
@@ -110,6 +112,8 @@ async def validar_certificado(
     return CertificadoPublicoRead(
         hash_validacao=hash_validacao,
         usuario_nome=usuario.nome_completo if usuario else "",
+        cpf_mascarado=mascarar_cpf(usuario.cpf) if usuario else None,
+        orgao_instituicao=usuario.orgao_instituicao if usuario else None,
         curso_titulo=curso.titulo if curso else "",
         carga_horaria=cert.carga_horaria,
         nota_final=cert.nota_final,
