@@ -230,6 +230,7 @@ async def excluir_perfil(
 @router.post("/criar-subordinado", response_model=UsuarioRead, status_code=status.HTTP_201_CREATED)
 async def criar_subordinado(
     payload: CriarSubordinadoRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
     _: None = Depends(require_permissao(Permissoes.USUARIO_CRIAR)),
@@ -302,6 +303,18 @@ async def criar_subordinado(
 
     await db.commit()
     await db.refresh(subordinado)
+    # Issue #85: criar subordinado tambem gera auditoria (como PATCH/DELETE).
+    from app.services.auditoria import _serializar, registrar_auditoria
+
+    dados_novos = _serializar(subordinado)
+    dados_novos.pop("senha_hash", None)
+    dados_novos.pop("cpf", None)
+    dados_novos.pop("telefone", None)
+    await registrar_auditoria(
+        db, tabela="usuarios", registro_id=subordinado.id, acao="criar",
+        dados_novos=dados_novos, usuario_id=current_user.id, request=request,
+    )
+    await db.commit()
     # Carregar perfis para o schema UsuarioRead
     result = await db.execute(
         select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == subordinado.id)
