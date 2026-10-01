@@ -46,7 +46,8 @@ from app.schemas.curso import (
     CursoRead,
     CursoUpdate,
     InscricaoCreate,
-    InscricaoRead,
+InscricaoRead,
+    InscricaoTurmaRead,
     MensagemAulaCreate,
     MensagemAulaRead,
     ModuloArvoreRead,
@@ -118,11 +119,11 @@ async def criar_curso(
     db.add(curso)
     await db.commit()
     await db.refresh(curso)
-    from app.services.auditoria import registrar_auditoria
+    from app.services.auditoria import _serializar, registrar_auditoria
 
     await registrar_auditoria(
         db, tabela="cursos", registro_id=curso.id, acao="criar",
-        dados_novos={"titulo": curso.titulo}, usuario_id=current_user.id, request=request,
+        dados_novos=_serializar(curso), usuario_id=current_user.id, request=request,
     )
     await db.commit()
     return curso
@@ -141,24 +142,41 @@ async def obter_curso(
     return curso
 
 
-@router.get("/{curso_id}/inscricoes", response_model=list[InscricaoRead])
+@router.get("/{curso_id}/inscricoes", response_model=list[InscricaoTurmaRead])
 async def listar_inscricoes_curso(
     curso_id: int,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.CURSO_VER_INSCRICOES)),
 ):
-    """Quem esta inscrito num curso -- o inverso de /inscricoes/{usuario_id} (issue 32).
+    """Quem esta inscrito num curso, com nome/email do usuario (issue #87).
 
-    E o dado que faltava pra "turma" ser derivavel de curso + inscritos, sem
-    precisar de uma entidade propria.
+    O instrutor nao tem `usuario:listar`, entao o nome vem do JOIN com
+    `lms.usuarios` nesta rota -- nao de uma segunda chamada.
     """
     curso = await db.get(Curso, curso_id)
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
     result = await db.execute(
-        select(Inscricao).where(Inscricao.curso_id == curso_id).order_by(Inscricao.data_inscricao)
+        select(Inscricao, Usuario.nome_completo, Usuario.email)
+        .join(Usuario, Usuario.id == Inscricao.usuario_id)
+        .where(Inscricao.curso_id == curso_id)
+        .order_by(Inscricao.data_inscricao)
     )
-    return result.scalars().all()
+    return [
+        InscricaoTurmaRead(
+            id=insc.id,
+            usuario_id=insc.usuario_id,
+            curso_id=insc.curso_id,
+            status=insc.status,
+            progresso_pct=insc.progresso_pct,
+            data_inscricao=insc.data_inscricao,
+            data_conclusao=insc.data_conclusao,
+            nota_final=insc.nota_final,
+            usuario_nome=nome,
+            usuario_email=email,
+        )
+        for insc, nome, email in result.all()
+    ]
 
 
 @router.patch("/{curso_id}", response_model=CursoRead)
@@ -173,7 +191,9 @@ async def atualizar_curso(
     curso = result.scalar_one_or_none()
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
-    dados_antes = {"titulo": curso.titulo, "descricao": curso.descricao}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(curso)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(curso, field, value)
     await db.commit()
@@ -182,7 +202,7 @@ async def atualizar_curso(
 
     await registrar_auditoria(
         db, tabela="cursos", registro_id=curso.id, acao="atualizar",
-        dados_anteriores=dados_antes, dados_novos={"titulo": curso.titulo},
+        dados_anteriores=dados_antes, dados_novos=_serializar(curso),
         usuario_id=current_user.id, request=request,
     )
     await db.commit()
@@ -200,7 +220,9 @@ async def excluir_curso(
     curso = result.scalar_one_or_none()
     if not curso:
         raise HTTPException(status_code=404, detail="Curso nao encontrado")
-    dados_antes = {"titulo": curso.titulo}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(curso)
     await db.delete(curso)
     await db.commit()
     from app.services.auditoria import registrar_auditoria
@@ -584,6 +606,7 @@ async def stream_chat(
 @router.get("/{curso_id}/chat", response_model=list[dict])
 async def listar_chat(
     curso_id: int,
+    usuario_id: uuid.UUID | None = Query(None, description="Filtra mensagens de um usuario (issue #78)"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -594,9 +617,12 @@ async def listar_chat(
 
     from app.models.curso import MensagemCurso
 
+    filtros = [MensagemCurso.curso_id == curso_id]
+    if usuario_id is not None:
+        filtros.append(MensagemCurso.usuario_id == usuario_id)
     result = await db.execute(
         select(MensagemCurso)
-        .where(MensagemCurso.curso_id == curso_id)
+        .where(*filtros)
         .order_by(MensagemCurso.criado_em.desc())
         .offset((page - 1) * limit)
         .limit(limit)
@@ -735,11 +761,11 @@ async def inscrever(
     db.add(inscricao)
     await db.commit()
     await db.refresh(inscricao)
-    from app.services.auditoria import auditar_escrita
+    from app.services.auditoria import _serializar, auditar_escrita
 
     await auditar_escrita(
         db, "inscricoes", inscricao.id, "criar",
-        dados_novos={"curso_id": payload.curso_id}, usuario_id=current_user.id, request=request,
+        dados_novos=_serializar(inscricao), usuario_id=current_user.id, request=request,
     )
     return inscricao
 
@@ -782,7 +808,9 @@ async def cancelar_inscricao(
         has_outros = await _user_has_permission(db, current_user.id, Permissoes.CURSO_INSCREVER_OUTROS)
         if not has_outros:
             raise HTTPException(status_code=403, detail="Sem permissao para cancelar inscricao de outro usuario")
-    dados_antes = {"curso_id": inscricao.curso_id}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(inscricao)
     await db.delete(inscricao)
     await db.commit()
     from app.services.auditoria import auditar_escrita

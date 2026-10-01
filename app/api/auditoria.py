@@ -60,11 +60,36 @@ async def listar_logs_auditoria(
     return [LogAuditoriaRead.model_validate(l) for l in logs]
 
 
+@router.get("/opcoes")
+async def opcoes_auditoria(
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AUDITORIA_VISUALIZAR)),
+):
+    """Valores distintos de tabela_afetada e acao para popular os filtros do front (issue #86)."""
+    tabelas = await db.execute(select(LogAuditoria.tabela_afetada).distinct().order_by(LogAuditoria.tabela_afetada))
+    acoes = await db.execute(select(LogAuditoria.acao).distinct().order_by(LogAuditoria.acao))
+    return {
+        "tabelas": [r[0] for r in tabelas.all() if r[0]],
+        "acoes": [r[0] for r in acoes.all() if r[0]],
+    }
+
+
 def _logs_csv(logs: list[LogAuditoria]) -> StreamingResponse:
+    import json as _json
+
     buf = io.StringIO()
     writer = csv.DictWriter(
         buf,
-        fieldnames=["id", "usuario_id", "acao", "tabela_afetada", "registro_id", "criado_em"],
+        fieldnames=[
+            "id",
+            "usuario_id",
+            "acao",
+            "tabela_afetada",
+            "registro_id",
+            "dados_anteriores",
+            "dados_novos",
+            "criado_em",
+        ],
         extrasaction="ignore",
     )
     writer.writeheader()
@@ -76,6 +101,8 @@ def _logs_csv(logs: list[LogAuditoria]) -> StreamingResponse:
                 "acao": l.acao,
                 "tabela_afetada": l.tabela_afetada,
                 "registro_id": l.registro_id,
+                "dados_anteriores": _json.dumps(l.dados_anteriores, ensure_ascii=False) if l.dados_anteriores else "",
+                "dados_novos": _json.dumps(l.dados_novos, ensure_ascii=False) if l.dados_novos else "",
                 "criado_em": l.criado_em.isoformat(),
             }
         )

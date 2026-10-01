@@ -53,6 +53,8 @@ class CertificadoPublicoRead(BaseModel):
 
     hash_validacao: str
     usuario_nome: str
+    cpf_mascarado: str | None = None
+    orgao_instituicao: str | None = None
     curso_titulo: str
     carga_horaria: int
     nota_final: Decimal | None = None

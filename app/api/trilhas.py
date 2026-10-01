@@ -7,7 +7,14 @@ from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.curso import Inscricao, InscricaoTrilha, TrilhaAprendizagem
 from app.models.usuario import Usuario
-from app.schemas.curso import InscricaoTrilhaRead, TrilhaCreate, TrilhaProgressoRead, TrilhaRead, TrilhaUpdate
+from app.schemas.curso import (
+    InscricaoTrilhaRead,
+    InscricaoTrilhaTurmaRead,
+    TrilhaCreate,
+    TrilhaProgressoRead,
+    TrilhaRead,
+    TrilhaUpdate,
+)
 from app.services.paginacao import apply_search, count_query
 from app.services.rbac import Permissoes
 
@@ -46,11 +53,11 @@ async def criar_trilha(
     db.add(trilha)
     await db.commit()
     await db.refresh(trilha)
-    from app.services.auditoria import registrar_auditoria
+    from app.services.auditoria import _serializar, registrar_auditoria
 
     await registrar_auditoria(
         db, tabela="trilhas", registro_id=trilha.id, acao="criar",
-        dados_novos={"titulo": trilha.titulo}, usuario_id=current_user.id, request=request,
+        dados_novos=_serializar(trilha), usuario_id=current_user.id, request=request,
     )
     await db.commit()
     return trilha
@@ -210,6 +217,43 @@ async def inscrever_trilha(
     return inscricao
 
 
+@router.get("/{trilha_id}/inscritos", response_model=list[InscricaoTrilhaTurmaRead])
+async def listar_inscritos_trilha(
+    trilha_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.TRILHA_VER_PROGRESSO)),
+):
+    """Quem esta inscrito numa trilha, com nome/email do usuario (issue #80).
+
+    Análoga à turma do curso (#87): o nome vem do JOIN com `lms.usuarios`,
+    sem exigir a permissão `usuario:listar`.
+    """
+    result = await db.execute(select(TrilhaAprendizagem).where(TrilhaAprendizagem.id == trilha_id))
+    trilha = result.scalar_one_or_none()
+    if not trilha:
+        raise HTTPException(status_code=404, detail="Trilha nao encontrada")
+    result = await db.execute(
+        select(InscricaoTrilha, Usuario.nome_completo, Usuario.email)
+        .join(Usuario, Usuario.id == InscricaoTrilha.usuario_id)
+        .where(InscricaoTrilha.trilha_id == trilha_id)
+        .order_by(InscricaoTrilha.data_inscricao)
+    )
+    return [
+        InscricaoTrilhaTurmaRead(
+            id=insc.id,
+            usuario_id=insc.usuario_id,
+            trilha_id=insc.trilha_id,
+            status=insc.status,
+            progresso_pct=float(insc.progresso_pct or 0),
+            data_inscricao=insc.data_inscricao,
+            data_conclusao=insc.data_conclusao,
+            usuario_nome=nome,
+            usuario_email=email,
+        )
+        for insc, nome, email in result.all()
+    ]
+
+
 @router.get("/{trilha_id}", response_model=TrilhaRead)
 async def obter_trilha(
     trilha_id: int,
@@ -235,7 +279,9 @@ async def atualizar_trilha(
     trilha = result.scalar_one_or_none()
     if not trilha:
         raise HTTPException(status_code=404, detail="Trilha nao encontrada")
-    dados_antes = {"titulo": trilha.titulo}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(trilha)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(trilha, field, value)
     await db.commit()
@@ -244,7 +290,7 @@ async def atualizar_trilha(
 
     await registrar_auditoria(
         db, tabela="trilhas", registro_id=trilha.id, acao="atualizar",
-        dados_anteriores=dados_antes, dados_novos={"titulo": trilha.titulo},
+        dados_anteriores=dados_antes, dados_novos=_serializar(trilha),
         usuario_id=current_user.id, request=request,
     )
     await db.commit()
@@ -326,7 +372,9 @@ async def excluir_trilha(
     trilha = result.scalar_one_or_none()
     if not trilha:
         raise HTTPException(status_code=404, detail="Trilha nao encontrada")
-    dados_antes = {"titulo": trilha.titulo}
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(trilha)
     await db.delete(trilha)
     await db.commit()
     from app.services.auditoria import registrar_auditoria

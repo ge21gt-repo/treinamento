@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -9,6 +10,8 @@ from sqlalchemy.orm import selectinload
 from app.models.avaliacao import Avaliacao, ResultadoAvaliacao
 from app.models.curso import Curso, Inscricao, InscricaoTrilha, Modulo, ProgressoUnidade, Unidade
 from app.services.gamificacao import atribuir_xp as gamificacao_xp
+
+logger = logging.getLogger(__name__)
 
 
 async def _get_unidade_curso(db: AsyncSession, unidade_id: int) -> tuple[int, int | None]:
@@ -238,7 +241,7 @@ async def _emitir_certificado(
     try:
         await emitir_certificado_curso(db, usuario, curso, nota_final)
     except Exception:
-        pass
+        logger.exception("Falha ao emitir certificado automatico (usuario=%s curso=%s)", usuario_id, curso_id)
 
 
 async def _nota_final_do_curso(
