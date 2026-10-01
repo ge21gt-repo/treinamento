@@ -322,13 +322,14 @@ def _pdf_simples(titulo: str, colunas: list[str], linhas: list[dict]) -> Streami
 async def relatorio_desempenho(
     curso_id: int | None = Query(None, description="Filtra por curso"),
     trilha_id: int | None = Query(None, description="Filtra por trilha"),
+    ativo: bool | None = Query(None, description="Filtra cursos ativos (publicados) ou inativos (issue #93)"),
     data_inicio: datetime | None = Query(None),
     data_fim: datetime | None = Query(None),
     formato: str = Query("json", pattern="^(json|csv|pdf)$"),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_RELATORIOS)),
 ):
-    """Relatorio de desempenho por curso ou trilha (T-16.4)."""
+    """Relatorio de desempenho por curso ou trilha (T-16.4), com status ativo/inativo (issue #93)."""
     if curso_id is None and trilha_id is None:
         raise HTTPException(status_code=400, detail="Informe curso_id ou trilha_id")
 
@@ -337,6 +338,8 @@ async def relatorio_desempenho(
         filtro.append(Inscricao.curso_id == curso_id)
     if trilha_id is not None:
         filtro.append(Curso.trilha_id == trilha_id)
+    if ativo is not None:
+        filtro.append(Curso.publicado.is_(ativo))
     if data_inicio is not None:
         filtro.append(Inscricao.data_inscricao >= data_inicio)
     if data_fim is not None:
@@ -347,11 +350,12 @@ async def relatorio_desempenho(
             Curso.id.label("curso_id"),
             Curso.titulo.label("curso"),
             Curso.trilha_id,
+            Curso.publicado.label("ativo"),
             func.count(Inscricao.id).label("inscritos"),
             func.count(Inscricao.id).filter(Inscricao.status == "concluido").label("concluidos"),
             func.avg(Inscricao.nota_final).filter(Inscricao.nota_final.isnot(None)).label("nota_media"),
         )
-        .join(Inscricao, Inscricao.curso_id == Curso.id)
+        .outerjoin(Inscricao, Inscricao.curso_id == Curso.id)
         .where(*filtro)
         .group_by(Curso.id)
         .order_by(Curso.id)
@@ -365,6 +369,7 @@ async def relatorio_desempenho(
                 "curso_id": row.curso_id,
                 "curso": row.curso,
                 "trilha_id": row.trilha_id,
+                "ativo": bool(row.ativo),
                 "inscritos": inscritos,
                 "concluidos": concluidos,
                 "evasao_pct": round((inscritos - concluidos) / inscritos * 100, 2) if inscritos else 0.0,
@@ -393,16 +398,93 @@ async def relatorio_desempenho(
 
     if formato == "csv":
         return _csv_stream(
-            ["curso_id", "curso", "inscritos", "concluidos", "evasao_pct", "taxa_conclusao_pct", "nota_media"],
+            ["curso_id", "curso", "ativo", "inscritos", "concluidos", "evasao_pct", "taxa_conclusao_pct", "nota_media"],
             cursos,
         )
     if formato == "pdf":
         return _pdf_simples(
             "Desempenho por Curso",
-            ["curso", "inscritos", "concluidos", "evasao_pct", "taxa_conclusao_pct", "nota_media"],
+            ["curso", "ativo", "inscritos", "concluidos", "evasao_pct", "taxa_conclusao_pct", "nota_media"],
             cursos,
         )
     return {"cursos": cursos, "trilha": trilha}
+
+
+@router.get("/relatorios/acessos")
+async def relatorio_acessos_plataforma(
+    data_inicio: datetime | None = Query(None),
+    data_fim: datetime | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    formato: str = Query("json", pattern="^(json|csv|pdf)$"),
+    db: AsyncSession = Depends(get_db),
+    response: Response = None,
+    _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_RELATORIOS)),
+):
+    """Relatorio de quem acessou a plataforma, agregado por usuario (issue #93).
+
+    Agrupa `lms.log_acesso` por usuario: total de acessos, ultimo acesso e
+    acao mais recente. Complementa o `GET /dashboard/logs` (log cru) com uma
+    visao consolidada para o gestor.
+    """
+    filtro = []
+    if data_inicio is not None:
+        filtro.append(LogAcesso.criado_em >= data_inicio)
+    if data_fim is not None:
+        filtro.append(LogAcesso.criado_em <= data_fim)
+
+    base = (
+        select(LogAcesso.usuario_id, func.count(LogAcesso.id).label("total_acessos"),
+               func.max(LogAcesso.criado_em).label("ultimo_acesso"))
+        .where(*filtro)
+        .group_by(LogAcesso.usuario_id)
+        .subquery()
+    )
+    total = await db.execute(
+        select(func.count()).select_from(select(base.c.usuario_id).subquery())
+    )
+    total_acessos = total.scalar() or 0
+
+    linhas = await db.execute(
+        select(
+            base.c.usuario_id.label("usuario_id"),
+            Usuario.nome_completo.label("nome"),
+            Usuario.email.label("email"),
+            base.c.total_acessos,
+            base.c.ultimo_acesso,
+        )
+        .join(Usuario, Usuario.id == base.c.usuario_id)
+        .order_by(base.c.total_acessos.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    itens = [
+        {
+            "usuario_id": str(r.usuario_id),
+            "nome": r.nome,
+            "email": r.email,
+            "total_acessos": r.total_acessos,
+            "ultimo_acesso": r.ultimo_acesso.isoformat() if r.ultimo_acesso else None,
+        }
+        for r in linhas.all()
+    ]
+    response.headers["X-Total-Count"] = str(total_acessos)
+
+    if formato == "csv":
+        return _csv_stream(
+            ["usuario_id", "nome", "email", "total_acessos", "ultimo_acesso"], itens
+        )
+    if formato == "pdf":
+        return _pdf_simples(
+            "Acessos a Plataforma",
+            ["nome", "email", "total_acessos", "ultimo_acesso"], itens
+        )
+    return {
+        "data_inicio": data_inicio.isoformat() if data_inicio else None,
+        "data_fim": data_fim.isoformat() if data_fim else None,
+        "total_usuarios": total_acessos,
+        "acessos": itens,
+    }
 
 
 @router.get("/graficos/temporal")
