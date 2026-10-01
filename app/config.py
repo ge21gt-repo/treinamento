@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     TEAMS_CLIENT_SECRET: str = ""
     TEAMS_ORGANIZER_EMAIL: str = ""
 
+    # Keycloak (staging — idesp-realm / treinamento-front)
+    KEYCLOAK_SERVER: str = ""
+    KEYCLOAK_REALM: str = ""
+    KEYCLOAK_ISSUER: str = ""
+    KEYCLOAK_CLIENT_ID: str = ""
+    KEYCLOAK_CLIENT_SECRET: str = ""
+    KEYCLOAK_JWKS_URI: str = ""
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")

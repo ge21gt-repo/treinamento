@@ -151,6 +151,25 @@ class InscricaoRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class InscricaoTurmaRead(BaseModel):
+    """Inscricao com nome/email do usuario, para a turma do instrutor (issue #87).
+
+    Evita exigir a permissao `usuario:listar` no endpoint de inscricoes do curso:
+    o nome vem do JOIN com `lms.usuarios`, nao de uma segunda chamada.
+    """
+
+    id: int
+    usuario_id: uuid.UUID
+    curso_id: int
+    status: str
+    progresso_pct: float
+    data_inscricao: datetime
+    data_conclusao: datetime | None = None
+    nota_final: float | None = None
+    usuario_nome: str
+    usuario_email: str
+
+
 class ProgressoUnidadeBase(BaseModel):
     usuario_id: uuid.UUID
     unidade_id: int
@@ -292,6 +311,24 @@ class InscricaoTrilhaRead(BaseModel):
     data_conclusao: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class InscricaoTrilhaTurmaRead(BaseModel):
+    """Inscricao em trilha com nome/email do usuario, para turmas do gestor (issue #80).
+
+    Mesmo padrão do `InscricaoTurmaRead` dos cursos (#87): nome vem do JOIN com
+    `lms.usuarios`, sem exigir a permissão `usuario:listar`.
+    """
+
+    id: int
+    usuario_id: uuid.UUID
+    trilha_id: int
+    status: str
+    progresso_pct: float
+    data_inscricao: datetime
+    data_conclusao: datetime | None = None
+    usuario_nome: str
+    usuario_email: str
 
 
 class TrilhaProgressoRead(BaseModel):

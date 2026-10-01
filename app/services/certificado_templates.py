@@ -2,13 +2,17 @@
 
 
 def mascarar_cpf(cpf: str | None) -> str:
-    """Mascara o CPF no formato ***.456.789-** (LGPD)."""
+    """Mascara o CPF no formato ***.456.789-** (LGPD).
+
+    Nunca devolve o CPF cru: se nao tiver 11 digitos, retorna "***" em vez de
+    expor o dado (issue #72).
+    """
     if not cpf:
         return "-"
     digits = "".join(d for d in cpf if d.isdigit())
     if len(digits) != 11:
-        return cpf
-    return f"***.***.789-**"
+        return "***"
+    return f"***.{digits[3:6]}.{digits[6:9]}-**"
 
 
 def TEMPLATE_CERTIFICADO_PADRAO() -> str:

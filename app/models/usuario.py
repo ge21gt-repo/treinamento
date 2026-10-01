@@ -18,7 +18,7 @@ class Usuario(Base):
     nome_completo: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str] = mapped_column(String(150), nullable=False, unique=True)
     cpf: Mapped[str | None] = mapped_column(String(14), unique=True)
-    senha_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    senha_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     orgao_instituicao: Mapped[str | None] = mapped_column(String(200))
     cargo: Mapped[str | None] = mapped_column(String(150))
     telefone: Mapped[str | None] = mapped_column(String(20), unique=True)
@@ -36,6 +36,8 @@ class Usuario(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     silenciado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    keycloak_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    auth_provider: Mapped[str] = mapped_column(String(20), default="local", nullable=False, server_default="local")
 
     perfis: Mapped[list["UsuarioPerfil"]] = relationship(
         back_populates="usuario",
@@ -74,7 +76,9 @@ class UsuarioAulaSilenciado(Base):
     usuario_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("lms.usuarios.id", ondelete="CASCADE"), primary_key=True
     )
-    aula_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.aulas_sincronas.id", ondelete="CASCADE"), primary_key=True)
+    aula_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lms.aulas_sincronas.id", ondelete="CASCADE"), primary_key=True
+    )
     silenciado_ate: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

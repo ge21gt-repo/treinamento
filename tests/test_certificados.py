@@ -120,6 +120,9 @@ class TestCertificados:
         assert "usuario_id" not in data
         assert "curso_id" not in data
         assert "modelo_id" not in data
+        # issue #73: contrato inclui CPF mascarado e orgao (None quando ausente)
+        assert "cpf_mascarado" in data
+        assert "orgao_instituicao" in data
 
     async def test_validar_hash_invalido(self, client):
         r = await client.get("/api/v1/certificados/validar/hash_inexistente_12345")

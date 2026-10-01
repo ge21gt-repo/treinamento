@@ -114,8 +114,16 @@ async def aprovar_solicitacao(
     result_perfil = await db.execute(select(Perfil).where(Perfil.nome == solicitacao.perfil_solicitado))
     perfil = result_perfil.scalar_one_or_none()
     if perfil:
-        # Atribuir perfil ao usuario
-        db.add(UsuarioPerfil(usuario_id=usuario.id, perfil_id=perfil.id))
+        # Atribuir perfil ao usuario (se ainda nao tiver -- provisionamento do
+        # Keycloak ja cria o perfil; duplicar viola usuario_perfil_pkey -> 500).
+        ja_tem = await db.execute(
+            select(UsuarioPerfil).where(
+                UsuarioPerfil.usuario_id == usuario.id,
+                UsuarioPerfil.perfil_id == perfil.id,
+            )
+        )
+        if not ja_tem.scalar_one_or_none():
+            db.add(UsuarioPerfil(usuario_id=usuario.id, perfil_id=perfil.id))
 
     # Atualizar status da solicitacao
     solicitacao.status = "aprovado"

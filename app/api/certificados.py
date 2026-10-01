@@ -56,10 +56,21 @@ async def emitir_certificado(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.CERTIFICADO_CRIAR)),
 ):
+    # Duplicidade: um certificado por (usuario, curso) — igual ao caminho automatico.
+    existente = await db.execute(
+        select(Certificado).where(
+            Certificado.usuario_id == payload.usuario_id,
+            Certificado.curso_id == payload.curso_id,
+        )
+    )
+    if existente.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Certificado ja emitido para este usuario e curso")
+
     cert = Certificado(**payload.model_dump())
     db.add(cert)
     await db.flush()
-    cert.hash_validacao = hashlib.sha256(str(cert.id).encode()).hexdigest()
+    # Mesmo formato de hash do caminho automatico (consistencia na validacao).
+    cert.hash_validacao = hashlib.sha256(f"{cert.id}:{payload.usuario_id}:{payload.curso_id}".encode()).hexdigest()
     await db.commit()
     await db.refresh(cert)
     return cert
@@ -81,12 +92,15 @@ async def meus_certificados(
 async def obter_certificado(
     certificado_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
     result = await db.execute(select(Certificado).where(Certificado.id == certificado_id))
     cert = result.scalar_one_or_none()
     if not cert:
         raise HTTPException(status_code=404, detail="Certificado nao encontrado")
+    # So o dono ou quem tem permissao de visualizar pode ver (issue #76).
+    if cert.usuario_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Sem permissao para ver este certificado")
     return cert
 
 
@@ -96,9 +110,11 @@ async def validar_certificado(
     db: AsyncSession = Depends(get_db),
 ):
     """Validacao publica (sem login) -- devolve so o que quem confere precisa
-    (nome, curso), nunca os identificadores internos crus (issue 33)."""
+    (nome, CPF mascarado, prefeitura, curso), nunca os identificadores internos
+    crus (issue 33)."""
     from app.models.curso import Curso
     from app.models.usuario import Usuario
+    from app.services.certificado_templates import mascarar_cpf
 
     result = await db.execute(select(Certificado).where(Certificado.hash_validacao == hash_validacao))
     cert = result.scalar_one_or_none()
@@ -110,6 +126,8 @@ async def validar_certificado(
     return CertificadoPublicoRead(
         hash_validacao=hash_validacao,
         usuario_nome=usuario.nome_completo if usuario else "",
+        cpf_mascarado=mascarar_cpf(usuario.cpf) if usuario else None,
+        orgao_instituicao=usuario.orgao_instituicao if usuario else None,
         curso_titulo=curso.titulo if curso else "",
         carga_horaria=cert.carga_horaria,
         nota_final=cert.nota_final,
