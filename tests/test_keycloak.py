@@ -191,6 +191,35 @@ async def test_get_current_user_keycloak_participante_pendente(client):
                 assert solicitacao.status == "pendente"
 
 
+def test_mapear_perfil_lms_tre_roles():
+    """Roles do IDESP (TRE_*) mapeiam para o perfil LMS de maior hierarquia."""
+    from app.services.keycloak import mapear_perfil_lms
+
+    casos = {
+        "TRE_ADM": "administrador_geral",
+        "TRE_AUDITOR": "auditor",
+        "TRE_GESTOR": "gestor",
+        "TRE_INSTRUTOR": "instrutor",
+        "TRE_OPERADOR": "administrador",
+        "TRE_PARTICIPANTE": "participante",
+        # nomes antigos continuam valendo (compatibilidade retroativa)
+        "administrador_geral": "administrador_geral",
+        "instrutor": "instrutor",
+    }
+    for role, esperado in casos.items():
+        assert mapear_perfil_lms([role]) == esperado, f"{role} -> {esperado}"
+
+
+def test_mapear_perfil_lms_prioridade_e_fallback():
+    """Varias roles: o perfil mais alto vence. Role desconhecida -> participante."""
+    from app.services.keycloak import mapear_perfil_lms
+
+    assert mapear_perfil_lms(["TRE_GESTOR", "TRE_INSTRUTOR"]) == "instrutor"
+    assert mapear_perfil_lms(["TRE_PARTICIPANTE", "TRE_ADM"]) == "administrador_geral"
+    assert mapear_perfil_lms(["ROLE_DESCONHECIDA"]) == "participante"
+    assert mapear_perfil_lms([]) == "participante"
+
+
 @pytest.mark.asyncio
 async def test_get_current_user_keycloak_gestao_aprovado(client):
     """Perfil de gestao (role do IDESP) nasce aprovado direto."""

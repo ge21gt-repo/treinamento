@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models.credenciamento import SolicitacaoCredenciamento
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.auth import decode_token
-from app.services.keycloak import mapear_roles_keycloak, validar_token_keycloak
+from app.services.keycloak import mapear_perfil_lms, mapear_roles_keycloak, validar_token_keycloak
 from app.services.rbac import has_permission
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -62,15 +62,10 @@ async def get_current_user(
                 return user
         # Provisionamento: cria usuário vinculado ao Keycloak
         nome = kc_payload.get("name") or kc_payload.get("given_name") or email or f"keycloak-{sub[:8]}"
-        # Mapear roles Keycloak -> perfil local (se não mapear, usa participante)
+        # Mapear roles Keycloak -> perfil local (se não mapear, usa participante).
+        # Entende as roles do IDESP (TRE_ADM, TRE_GESTOR, ...) e os nomes antigos.
         roles = mapear_roles_keycloak(kc_payload)
-        perfil_nome = None
-        for cand in ["administrador_geral", "administrador", "instrutor", "auditor", "gestor", "participante"]:
-            if cand in roles:
-                perfil_nome = cand
-                break
-        if not perfil_nome:
-            perfil_nome = "participante"
+        perfil_nome = mapear_perfil_lms(roles)
         # Perfis de gestao (role dada pelo IDESP) nascem aprovados direto;
         # participante nasce pendente + solicitacao (igual POST /auth/registro),
         # para o admin aprovar na telinha.

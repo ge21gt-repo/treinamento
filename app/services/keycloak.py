@@ -139,3 +139,46 @@ def mapear_roles_keycloak(payload: dict) -> list[str]:
         for r in entry.get("roles", []) or []:
             roles.add(str(r))
     return sorted(roles)
+
+
+# Roles criadas pelo IDESP no Keycloak (client `treinamento-front`) -> perfis LMS.
+# `TRE_OPERADOR` vira `administrador` (sub-admin sem dashboards/auditoria); se o
+# IDESP exigir "não pode deletar", criamos um perfil `operador` dedicado depois.
+ROLE_KEYCLOAK_PARA_PERFIL = {
+    "TRE_ADM": "administrador_geral",
+    "TRE_AUDITOR": "auditor",
+    "TRE_GESTOR": "gestor",
+    "TRE_INSTRUTOR": "instrutor",
+    "TRE_OPERADOR": "administrador",
+    "TRE_PARTICIPANTE": "participante",
+    # Compatibilidade retroativa com os nomes antigos, caso algum usuário ainda
+    # não tenha a role `TRE_*` atualizada no Keycloak.
+    "administrador_geral": "administrador_geral",
+    "administrador": "administrador",
+    "auditor": "auditor",
+    "gestor": "gestor",
+    "instrutor": "instrutor",
+    "participante": "participante",
+}
+
+# Hierarquia: em caso de múltiplas roles, o perfil mais alto vence.
+_HIERARQUIA_PERFIL = (
+    "administrador_geral",
+    "administrador",
+    "instrutor",
+    "auditor",
+    "gestor",
+    "participante",
+)
+
+
+def mapear_perfil_lms(roles: list[str]) -> str:
+    """Converte roles do Keycloak (ex.: `TRE_ADM`) no perfil LMS de maior hierarquia.
+
+    Role desconhecida ou token sem role -> `participante` (padrão atual).
+    """
+    for perfil in _HIERARQUIA_PERFIL:
+        for role in roles:
+            if ROLE_KEYCLOAK_PARA_PERFIL.get(role) == perfil:
+                return perfil
+    return "participante"
