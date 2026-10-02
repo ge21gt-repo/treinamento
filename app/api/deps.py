@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.database import get_db
 from app.models.credenciamento import SolicitacaoCredenciamento
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
@@ -67,15 +68,17 @@ async def get_current_user(
         roles = mapear_roles_keycloak(kc_payload)
         perfil_nome = mapear_perfil_lms(roles)
         # Perfis de gestao (role dada pelo IDESP) nascem aprovados direto;
-        # participante nasce pendente + solicitacao (igual POST /auth/registro),
-        # para o admin aprovar na telinha.
+        # participante nasce APROVADO por padrao (KEYCLOAK_PARTICIPANTE_APROVADO),
+        # mantendo a opcao reversivel de nascer pendente + solicitacao (fluxo antigo).
+        participante_aprovado = settings.KEYCLOAK_PARTICIPANTE_APROVADO
         perfil_gestao = perfil_nome != "participante"
+        aprovado_direto = perfil_gestao or participante_aprovado
         user = Usuario(
             nome_completo=str(nome)[:200],
             email=str(email).lower() if email else f"{sub}@keycloak.local",
             senha_hash=None,
-            ativo=perfil_gestao,
-            status_credenciamento="aprovado" if perfil_gestao else "pendente",
+            ativo=aprovado_direto,
+            status_credenciamento="aprovado" if aprovado_direto else "pendente",
             aceite_lgpd=True,
             keycloak_sub=str(sub),
             auth_provider="keycloak",
@@ -86,8 +89,8 @@ async def get_current_user(
         perfil = result.scalar_one_or_none()
         if perfil:
             db.add(UsuarioPerfil(usuario_id=user.id, perfil_id=perfil.id))
-        if not perfil_gestao:
-            # Aluno pendente: cria solicitacao para o admin aprovar (fluxo local).
+        if not aprovado_direto:
+            # Participante pendente: cria solicitacao para o admin aprovar (fluxo local).
             db.add(
                 SolicitacaoCredenciamento(
                     usuario_id=user.id,

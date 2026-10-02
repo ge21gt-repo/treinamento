@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_SECRET: str = ""
     KEYCLOAK_JWKS_URI: str = ""
 
+    # Se True (padrao), o participante provisionado via Keycloak nasce APROVADO
+    # (ativo) — comportamento original. Se False, nasce pendente + solicitacao
+    # de credenciamento para o admin aprovar (fluxo antigo). Reversivel via .env.
+    KEYCLOAK_PARTICIPANTE_APROVADO: bool = True
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")
