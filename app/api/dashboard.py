@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
@@ -608,37 +608,43 @@ async def grafico_temporal(
         if trilha_id is not None:
             curso_filtro.append(Curso.trilha_id == trilha_id)
 
-        # atividade 1: unidades concluidas no recorte (progresso_unidade -> unidade -> modulo -> curso)
-        serie_atividade = (
-            select(expr.label("bucket"), func.count(ProgressoUnidade.id))
+        # Cada fonte tem a propria coluna de data, entao o bucket sai da propria tabela (correcao do dev, issue #97)
+        trunc = {"dia": "day", "semana": "week", "mes": "month"}[periodo]
+        recorte = []
+        if curso_id is not None:
+            recorte.append(Curso.id == curso_id)
+        if trilha_id is not None:
+            recorte.append(Curso.trilha_id == trilha_id)
+
+        b1 = func.date_trunc(trunc, ProgressoUnidade.concluido_em)
+        q1 = (
+            select(b1.label("bucket"), func.count(ProgressoUnidade.id).label("total"))
             .join(Unidade, Unidade.id == ProgressoUnidade.unidade_id)
             .join(Modulo, Modulo.id == Unidade.modulo_id)
             .join(Curso, Curso.id == Modulo.curso_id)
-            .where(ProgressoUnidade.concluido_em >= data_inicio, ProgressoUnidade.concluido_em <= data_fim)
-            .group_by(expr)
+            .where(ProgressoUnidade.concluido_em >= data_inicio, ProgressoUnidade.concluido_em <= data_fim, *recorte)
+            .group_by(b1)
         )
-        # atividade 2: mensagens no curso
-        serie_mensagens = (
-            select(expr.label("bucket"), func.count(MensagemCurso.id))
+        b2 = func.date_trunc(trunc, MensagemCurso.criado_em)
+        q2 = (
+            select(b2.label("bucket"), func.count(MensagemCurso.id).label("total"))
             .join(Curso, Curso.id == MensagemCurso.curso_id)
-            .where(MensagemCurso.criado_em >= data_inicio, MensagemCurso.criado_em <= data_fim)
-            .group_by(expr)
+            .where(MensagemCurso.criado_em >= data_inicio, MensagemCurso.criado_em <= data_fim, *recorte)
+            .group_by(b2)
         )
-        # atividade 3: presencas em aulas do recorte
-        serie_presencas = (
-            select(expr.label("bucket"), func.count(PresencaAula.id))
+        b3 = func.date_trunc(trunc, PresencaAula.hora_entrada)
+        q3 = (
+            select(b3.label("bucket"), func.count(PresencaAula.id).label("total"))
             .join(AulaSincrona, AulaSincrona.id == PresencaAula.aula_id)
             .join(Curso, Curso.id == AulaSincrona.curso_id)
-            .where(PresencaAula.hora_entrada >= data_inicio, PresencaAula.hora_entrada <= data_fim)
-            .group_by(expr)
+            .where(PresencaAula.hora_entrada >= data_inicio, PresencaAula.hora_entrada <= data_fim, *recorte)
+            .group_by(b3)
         )
-        for q in (serie_atividade, serie_mensagens, serie_presencas):
-            q = q.where(*curso_filtro)
-
+        fontes = union_all(q1, q2, q3).subquery()
         acessos = await db.execute(
-            serie_atividade.union_all(serie_mensagens).union_all(serie_presencas).subquery().select()
+            select(fontes.c.bucket, func.sum(fontes.c.total)).group_by(fontes.c.bucket).order_by(fontes.c.bucket)
         )
-        serie_acessos = [{"bucket": b.isoformat(), "total": t} for b, t in acessos.all()]
+        serie_acessos = [{"bucket": b.isoformat(), "total": int(t)} for b, t in acessos.all()]
     else:
         acessos = await db.execute(
             select(expr.label("bucket"), func.count(LogAcesso.id))
