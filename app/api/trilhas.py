@@ -384,3 +384,41 @@ async def excluir_trilha(
         dados_anteriores=dados_antes, usuario_id=current_user.id, request=request,
     )
     await db.commit()
+
+
+@router.delete("/inscricoes/{inscricao_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def cancelar_inscricao_trilha(
+    inscricao_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.TRILHA_INSCREVER)),
+):
+    """Cancela a inscricao numa trilha (issue #99).
+
+    Espelha o cancelamento de curso: so a linha de `InscricaoTrilha` e apagada
+    (o progresso nos cursos da trilha fica). 404 se nao existe; 403 se for de
+    outro usuario sem `curso:inscrever_outros`.
+    """
+    result = await db.execute(select(InscricaoTrilha).where(InscricaoTrilha.id == inscricao_id))
+    inscricao = result.scalar_one_or_none()
+    if not inscricao:
+        raise HTTPException(status_code=404, detail="Inscricao nao encontrada")
+
+    if inscricao.usuario_id != current_user.id:
+        from app.api.cursos import _user_has_permission
+
+        has_outros = await _user_has_permission(db, current_user.id, Permissoes.CURSO_INSCREVER_OUTROS)
+        if not has_outros:
+            raise HTTPException(status_code=403, detail="Sem permissao para cancelar inscricao de outro usuario")
+
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(inscricao)
+    await db.delete(inscricao)
+    await db.commit()
+    from app.services.auditoria import auditar_escrita
+
+    await auditar_escrita(
+        db, "inscricoes_trilha", inscricao_id, "excluir",
+        dados_anteriores=dados_antes, usuario_id=current_user.id, request=request,
+    )
