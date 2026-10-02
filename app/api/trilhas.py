@@ -84,6 +84,7 @@ async def listar_minhas_trilhas(
         if total_cursos == 0:
             resultado.append(
                 TrilhaProgressoRead(
+                    inscricao_id=inscricao.id,
                     trilha_id=trilha.id,
                     titulo=trilha.titulo,
                     nivel=trilha.nivel,
@@ -111,6 +112,7 @@ async def listar_minhas_trilhas(
 
         resultado.append(
             TrilhaProgressoRead(
+                inscricao_id=inscricao.id,
                 trilha_id=trilha.id,
                 titulo=trilha.titulo,
                 nivel=trilha.nivel,
