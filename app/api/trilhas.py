@@ -221,7 +221,7 @@ async def inscrever_trilha(
 async def listar_inscritos_trilha(
     trilha_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.TRILHA_VER_PROGRESSO)),
+    _: Usuario = Depends(require_permissao(Permissoes.CURSO_VER_INSCRICOES)),
 ):
     """Quem esta inscrito numa trilha, com nome/email do usuario (issue #80).
 
