@@ -1,0 +1,205 @@
+# =====================================================================
+# Backend Treinamento LMS — GKE, namespace `apps`.
+#
+# Modelado a partir de `ge21gt-repo/atendimento-idesp-api` e
+# `ge21gt-repo/geodados-acesso` (padrao da casa).
+#
+# STORAGE: S3 da AWS (STORAGE_BACKEND=s3). A aplicacao NAO grava em disco,
+# entao nao ha PVC nem Recreate — escala com RollingUpdate e HPA.
+#
+# SEGREDOS: criados pela infraestrutura, nao por este manifesto.
+#   db-conn-treinamento       chaves: url        (DATABASE_URL completa,
+#                                   ex.: postgresql+asyncpg://user:pass@host:5432/db)
+#   treinamento-secrets       chaves: secret-key, keycloak-client-secret,
+#                                   s3-access-key, s3-secret-key
+#
+# VARIAVEIS NAO SENSIVEIS ficam como `value:` aqui no Deployment.
+# VARIAVEIS SENSIVEIS vem de `secretKeyRef`.
+#
+# A app le tudo de env var (nao usa .env dentro do container) e escuta a
+# porta 8080.
+# =====================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: treinamento-backend
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: treinamento-backend
+    app.kubernetes.io/part-of: treinamento-idesp
+    app.kubernetes.io/managed-by: jenkins
+spec:
+  # RollingUpdate (sem PVC o pod novo monta enquanto o antigo drena).
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: treinamento-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: treinamento-backend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: treinamento-backend
+          image: IMAGE_URI
+          ports:
+            - name: http
+              containerPort: 8080
+          # --- Variáveis NÃO sensíveis (env direto) ---
+          env:
+            - name: STORAGE_BACKEND
+              value: s3
+            - name: S3_BUCKET
+              value: ge21gt-treinamento-idesp
+            - name: S3_REGION
+              value: us-east-1
+            - name: KEYCLOAK_SERVER
+              value: https://keycloak-stg.idesp.sp.gov.br
+            - name: KEYCLOAK_REALM
+              value: idesp-realm
+            - name: KEYCLOAK_ISSUER
+              value: https://keycloak-stg.idesp.sp.gov.br/realms/idesp-realm
+            - name: KEYCLOAK_CLIENT_ID
+              value: treinamento-front
+            - name: KEYCLOAK_JWKS_URI
+              value: https://keycloak-stg.idesp.sp.gov.br/realms/idesp-realm/protocol/openid-connect/certs
+            - name: KEYCLOAK_PARTICIPANTE_APROVADO
+              value: "true"
+            - name: CORS_ORIGINS
+              value: '["https://treinamento.idesp.sp.gov.br"]'
+            - name: BASE_URL
+              value: https://treinamento.idesp.sp.gov.br/api/v1
+
+            # --- Variáveis SENSÍVEIS (secretKeyRef) ---
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-conn-treinamento
+                  key: url
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: treinamento-secrets
+                  key: secret-key
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: treinamento-secrets
+                  key: keycloak-client-secret
+                  optional: true
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: treinamento-secrets
+                  key: s3-access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: treinamento-secrets
+                  key: s3-secret-key
+
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1024Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: treinamento-backend
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: treinamento-backend
+    app.kubernetes.io/part-of: treinamento-idesp
+    app.kubernetes.io/managed-by: jenkins
+spec:
+  selector:
+    app.kubernetes.io/name: treinamento-backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Entrada da API. Cada aplicacao e dona do proprio Ingress; o certificado do
+# host e declarado no Ingress da interface (mesmo padrao da casa). Sem bloco
+# tls aqui, de proposito.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: treinamento-backend
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: treinamento-backend
+    app.kubernetes.io/part-of: treinamento-idesp
+    app.kubernetes.io/managed-by: jenkins
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/proxy-body-size: 600m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: treinamento.idesp.sp.gov.br
+      http:
+        paths:
+          - path: /(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: treinamento-backend
+                port:
+                  name: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: treinamento-backend
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: treinamento-backend
+    app.kubernetes.io/part-of: treinamento-idesp
+    app.kubernetes.io/managed-by: jenkins
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: treinamento-backend
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
