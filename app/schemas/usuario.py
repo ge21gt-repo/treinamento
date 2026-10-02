@@ -44,6 +44,18 @@ class UsuarioUpdateMe(BaseModel):
     cargo: str | None = None
     avatar_url: str | None = None
 
+    @field_validator("nome_completo")
+    @classmethod
+    def _nome_nao_nulo(cls, v):
+        """Rejeita null/vazio explicito (correcao do dev, issue #94).
+
+        O validador so roda quando o campo vem no corpo, entao PATCH sem
+        nome_completo continua funcionando.
+        """
+        if v is None or not v.strip():
+            raise ValueError("nome_completo nao pode ser vazio")
+        return v
+
 
 class UsuarioRead(UsuarioBase):
     id: uuid.UUID
