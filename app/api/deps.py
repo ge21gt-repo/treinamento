@@ -54,7 +54,15 @@ async def get_current_user(
             roles = mapear_roles_keycloak(kc_payload)
             if await sincronizar_perfis_keycloak(db, user, roles):
                 await db.commit()
-                await db.refresh(user)
+            # Recarrega os perfis (o sync insere/remove UsuarioPerfil sem tocar
+            # na colecao em memoria) para o /usuarios/me devolver o estado novo.
+            result = await db.execute(
+                select(Usuario)
+                .options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil))
+                .where(Usuario.id == user.id)
+                .execution_options(populate_existing=True)
+            )
+            user = result.scalar_one()
             return user
         # Fallback por email (vincula conta existente)
         if email:
@@ -67,8 +75,20 @@ async def get_current_user(
             if user:
                 user.keycloak_sub = str(sub)
                 user.auth_provider = "keycloak"
-                await db.commit()
-                await db.refresh(user)
+                # Sincroniza os perfis ja neste ramo: quem e ligado por e-mail
+                # na primeira requisicao recebe os perfis das roles atuais de
+                # imediato, sem esperar a proxima requisicao (issue #95 ponto 4).
+                roles = mapear_roles_keycloak(kc_payload)
+                if await sincronizar_perfis_keycloak(db, user, roles):
+                    await db.commit()
+                # Recarrega os perfis para devolver o estado sincronizado.
+                result = await db.execute(
+                    select(Usuario)
+                    .options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil))
+                    .where(Usuario.id == user.id)
+                    .execution_options(populate_existing=True)
+                )
+                user = result.scalar_one()
                 if not user.ativo:
                     raise credentials_exception
                 return user

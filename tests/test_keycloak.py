@@ -321,3 +321,89 @@ async def test_get_current_user_keycloak_gestao_aprovado(client):
                 assert user.status_credenciamento == "aprovado"
                 assert user.ativo is True
                 assert [p.perfil.nome for p in user.perfis] == ["administrador_geral"]
+
+
+async def _entrar(sub, email, roles, outros=None):
+    """Helper do dev (issue #95): chama get_current_user com token mockado."""
+    recursos = {"treinamento-front": {"roles": roles}, **(outros or {})}
+    payload = {"sub": sub, "email": email, "name": email,
+               "exp": int(time.time()) + 300, "resource_access": recursos}
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.api.deps import get_current_user
+    from app.database import engine
+    from app.schemas.usuario import UsuarioRead
+
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with maker() as db:
+        with patch("app.api.deps.validar_token_keycloak", return_value=payload):
+            user = await get_current_user(token="x", db=db)
+            return sorted(UsuarioRead.model_validate(user).perfis)
+
+
+async def _criar_usuario_local_participante() -> str:
+    """Cria um usuario local so participante (sem keycloak_sub), retorna o email."""
+    import uuid
+
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.database import engine
+    from app.models.usuario import Perfil, Usuario, UsuarioPerfil
+
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    email = f"local-{uuid.uuid4().hex[:8]}@test.com"
+    async with maker() as db:
+        user = Usuario(email=email, nome_completo="Local", senha_hash="x",
+                       ativo=True, status_credenciamento="aprovado", auth_provider="local")
+        db.add(user)
+        await db.flush()
+        p = (await db.execute(select(Perfil).where(Perfil.nome == "participante"))).scalar_one()
+        db.add(UsuarioPerfil(usuario_id=user.id, perfil_id=p.id))
+        await db.commit()
+    return email
+
+
+@pytest.mark.asyncio
+async def test_todas_as_roles_viram_perfil(db_clean):
+    """Issue #95 ponto 1: todas as roles viram perfil (participante NAO descartado)."""
+    sub = f"kc-{uuid.uuid4().hex[:10]}"
+    assert await _entrar(sub, f"{sub}@t.sp.gov.br", ["TRE_PARTICIPANTE", "TRE_ADM"]) == [
+        "administrador_geral", "participante"]
+    sub = f"kc-{uuid.uuid4().hex[:10]}"
+    assert await _entrar(sub, f"{sub}@t.sp.gov.br", ["TRE_ADM", "TRE_PARTICIPANTE", "TRE_GESTOR", "TRE_INSTRUTOR"]) == [
+        "administrador_geral", "gestor", "instrutor", "participante"]
+
+
+@pytest.mark.asyncio
+async def test_role_de_outro_client_nao_da_perfil(db_clean):
+    """Issue #95 ponto 2: role de outro client nao vira perfil."""
+    sub = f"kc-{uuid.uuid4().hex[:10]}"
+    perfis = await _entrar(sub, f"{sub}@t.sp.gov.br", ["TRE_PARTICIPANTE"],
+                           outros={"outro-sistema": {"roles": ["gestor"]}})
+    assert perfis == ["participante"]
+
+
+@pytest.mark.asyncio
+async def test_vinculo_por_email_ja_traz_os_perfis_novos(db_clean):
+    """Issue #95 ponto 4: vinculo por email ja traz os perfis novos na 1a req."""
+    email = await _criar_usuario_local_participante()
+    sub = f"kc-{uuid.uuid4().hex[:10]}"
+    assert await _entrar(sub, email, ["TRE_GESTOR", "TRE_PARTICIPANTE"]) == ["gestor", "participante"]
+
+
+@pytest.mark.asyncio
+async def test_requisicoes_paralelas_depois_da_promocao(db_clean):
+    """Issue #95 ponto 3: requisicoes paralelas apos promocao nao estouram IntegrityError."""
+    import asyncio
+
+    falhas = []
+    for _ in range(12):
+        sub = f"kc-{uuid.uuid4().hex[:10]}"
+        email = f"{sub}@t.sp.gov.br"
+        await _entrar(sub, email, ["TRE_PARTICIPANTE"])
+        res = await asyncio.gather(
+            *[_entrar(sub, email, ["TRE_GESTOR", "TRE_INSTRUTOR", "TRE_PARTICIPANTE"]) for _ in range(16)],
+            return_exceptions=True)
+        falhas += [type(r).__name__ for r in res if isinstance(r, Exception)]
+    assert not falhas
