@@ -94,21 +94,24 @@ async def validate_mime(file: UploadFile) -> str:
     return file.content_type
 
 
-async def validate_size(file: UploadFile) -> None:
+async def validate_size(file: UploadFile) -> int:
+    """Valida o tamanho e retorna o total de bytes (issue #101)."""
     total = 0
     while chunk := await file.read(8 * 1024 * 1024):
         total += len(chunk)
         if total > settings.MAX_UPLOAD_SIZE:
             raise ValueError(f"Arquivo excede o limite de {settings.MAX_UPLOAD_SIZE // (1024 * 1024)}MB")
     await file.seek(0)
+    return total
 
 
-async def upload_file(file: UploadFile, folder: str) -> str:
+async def upload_file(file: UploadFile, folder: str) -> tuple[str, int]:
+    """Envia o arquivo e retorna (url, tamanho_bytes) (issue #101)."""
     await validate_mime(file)
-    await validate_size(file)
+    tamanho = await validate_size(file)
     if settings.STORAGE_BACKEND == "s3":
-        return await _upload_s3(file, folder)
-    return await _upload_local(file, folder)
+        return await _upload_s3(file, folder), tamanho
+    return await _upload_local(file, folder), tamanho
 
 
 async def _upload_bytes_s3(content: bytes, filename: str, folder: str, content_type: str = "application/octet-stream") -> str:

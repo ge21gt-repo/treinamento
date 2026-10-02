@@ -81,7 +81,7 @@ async def upload_conteudo(
     }
     folder = folder_map.get(tipo_midia, "outros")
     try:
-        url = await upload_file(arquivo, folder)
+        url, tamanho = await upload_file(arquivo, folder)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     conteudo = Conteudo(
@@ -91,6 +91,7 @@ async def upload_conteudo(
         descricao=descricao,
         mime_type=arquivo.content_type,
         url_arquivo=url,
+        tamanho_bytes=tamanho,
         duracao_segundos=duracao_segundos,
         ordem=ordem,
         criado_por=current_user.id,
@@ -168,7 +169,7 @@ async def completar_upload_chunked(
     current_user: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_CRIAR)),
 ):
     try:
-        url = ChunkedUploadTracker.complete_and_store(upload_id)
+        url, tamanho = ChunkedUploadTracker.complete_and_store(upload_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     conteudo = Conteudo(
@@ -177,6 +178,7 @@ async def completar_upload_chunked(
         titulo=titulo,
         descricao=descricao,
         url_arquivo=url,
+        tamanho_bytes=tamanho,
         duracao_segundos=duracao_segundos,
         ordem=ordem,
         criado_por=current_user.id,
@@ -287,7 +289,7 @@ async def upload_material(
     folder_map = {"pdf": "pdfs", "document": "documentos", "video": "videos", "audio": "audios", "image": "imagens"}
     folder = folder_map.get(tipo, "complementares")
     try:
-        url = await upload_file(arquivo, folder)
+        url, _tamanho = await upload_file(arquivo, folder)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     material = MaterialComplementar(
