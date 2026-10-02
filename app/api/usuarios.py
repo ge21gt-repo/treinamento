@@ -21,6 +21,7 @@ from app.schemas.usuario import (
     UsuarioPerfilCreate,
     UsuarioRead,
     UsuarioUpdate,
+    UsuarioUpdateMe,
 )
 from app.services.auth import hash_password
 
@@ -42,6 +43,49 @@ async def me(
             db, request, usuario_id=current_user.id, acao="login", recurso_tipo="/api/v1/usuarios/me"
         )
         await db.commit()
+    return current_user
+
+
+@router.patch("/me", response_model=UsuarioRead)
+async def atualizar_me(
+    payload: UsuarioUpdateMe,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Edita o proprio cadastro (issue #94).
+
+    So aceita campos nao sensiveis (nome, telefone, orgao, cargo, avatar).
+    Email, ativo, cpf e perfis ficam fora (extra=forbid). Unicidade de telefone
+    e checada antes. Audita como `atualizar` em usuarios.
+    """
+    dados = payload.model_dump(exclude_unset=True)
+    if not dados:
+        raise HTTPException(status_code=400, detail="Nenhum campo para atualizar")
+
+    if "telefone" in dados and dados["telefone"]:
+        existing = await db.execute(
+            select(Usuario).where(Usuario.telefone == dados["telefone"], Usuario.id != current_user.id)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Telefone ja cadastrado")
+
+    from app.services.auditoria import _serializar
+
+    dados_antes = _serializar(current_user)
+    for campo, valor in dados.items():
+        setattr(current_user, campo, valor)
+    await db.commit()
+    await db.refresh(current_user)
+
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="usuarios", registro_id=current_user.id, acao="atualizar",
+        dados_anteriores=dados_antes, dados_novos=_serializar(current_user),
+        usuario_id=current_user.id, request=request,
+    )
+    await db.commit()
     return current_user
 
 

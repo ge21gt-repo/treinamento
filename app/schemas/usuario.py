@@ -30,6 +30,21 @@ class UsuarioUpdate(BaseModel):
     ativo: bool | None = None
 
 
+class UsuarioUpdateMe(BaseModel):
+    """Edicao do proprio cadastro (issue #94). So campos nao sensiveis.
+
+    `extra = "forbid"` garante que email, ativo, cpf e perfis nunca passem por
+    aqui, nem por engano.
+    """
+    model_config = {"extra": "forbid"}
+
+    nome_completo: str | None = None
+    telefone: str | None = None
+    orgao_instituicao: str | None = None
+    cargo: str | None = None
+    avatar_url: str | None = None
+
+
 class UsuarioRead(UsuarioBase):
     id: uuid.UUID
     ativo: bool
