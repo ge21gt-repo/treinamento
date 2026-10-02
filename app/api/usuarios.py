@@ -28,7 +28,20 @@ router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
 
 @router.get("/me", response_model=UsuarioRead)
-async def me(current_user: Usuario = Depends(get_current_user)):
+async def me(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    # Issue #100: o Keycloak nao passa por POST /auth/login. Registrar o login
+    # aqui — o front chama /usuarios/me logo apos o callback OIDC.
+    if current_user.auth_provider == "keycloak":
+        from app.services.log_acesso import registrar_log_acesso
+
+        await registrar_log_acesso(
+            db, request, usuario_id=current_user.id, acao="login", recurso_tipo="/api/v1/usuarios/me"
+        )
+        await db.commit()
     return current_user
 
 

@@ -262,36 +262,78 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
 app.add_exception_handler(Exception, _unhandled_exception_handler)
 
 
+# Cache curto em memoria: sub -> usuario.id, para nao ir ao banco a cada
+# requisicao so para resolver o usuario (issue #100). Expira em 5 min.
+_SUB_TO_USUARIO_ID: dict[str, str] = {}
+_SUB_CACHE_AT: float = 0.0
+_SUB_CACHE_TTL = 300
+
+
+async def _resolver_usuario_id_por_token(db, token: str) -> str | None:
+    """Resolve o usuario.id do token (Keycloak RS256 ou HS256 interno).
+
+    Issue #100: antes o middleware so aceitava HS256 (decode_token), entao quem
+    entra pelo Keycloak nao era registrado. Agora tenta Keycloak primeiro
+    (valida RS256 e busca por keycloak_sub) e so depois cai no HS256 interno.
+    """
+    from sqlalchemy import select
+
+    from app.models.usuario import Usuario
+    from app.services.auth import decode_token
+    from app.services.keycloak import validar_token_keycloak
+
+    # 1) Keycloak (RS256)
+    kc_payload = validar_token_keycloak(token)
+    if kc_payload and kc_payload.get("sub"):
+        sub = str(kc_payload["sub"])
+        user = (
+            await db.execute(select(Usuario).where(Usuario.keycloak_sub == sub))
+        ).scalar_one_or_none()
+        if user:
+            return str(user.id)
+        return None
+
+    # 2) HS256 interno
+    payload = decode_token(token)
+    if payload and payload.get("sub"):
+        return str(payload["sub"])
+    return None
+
+
 async def _registrar_acesso_escrita(method: str, path: str, authorization: str) -> None:
-    """Grava log_acesso de operacoes de escrita (T-17.1), sem bloquear a resposta."""
+    """Grava log_acesso de operacoes de escrita (T-17.1), sem bloquear a resposta.
+
+    Resolve o usuario pelo mesmo caminho do get_current_user: Keycloak (RS256,
+    por keycloak_sub) e depois HS256 interno. Usa cache curto sub->id.
+    """
     if method not in ("POST", "PATCH", "DELETE", "PUT"):
         return
     if not authorization or not authorization.startswith("Bearer "):
         return
-    from app.services.auth import decode_token
-
     token = authorization.split(" ", 1)[1]
-    payload = decode_token(token)
-    if not payload or not payload.get("sub"):
-        return
     try:
-        import re
         import uuid
 
         from app.database import async_session
         from app.models.log import LogAcesso
 
-        # Issue #82: gravar o path da rota em recurso_tipo (ex.: /api/v1/cursos/5)
-        # e o id numerico (se houver) em recurso_id, em vez de "route"/None fixos.
-        recurso_id = None
-        m = re.search(r"/(\d+)(?:/|$)", path)
-        if m:
-            recurso_id = int(m.group(1))
-
         async with async_session() as db:
+            usuario_id = await _resolver_usuario_id_por_token(db, token)
+            if not usuario_id:
+                return
+
+            # Issue #82: gravar o path da rota em recurso_tipo (ex.: /api/v1/cursos/5)
+            # e o id numerico (se houver) em recurso_id, em vez de "route"/None fixos.
+            recurso_id = None
+            import re
+
+            m = re.search(r"/(\d+)(?:/|$)", path)
+            if m:
+                recurso_id = int(m.group(1))
+
             db.add(
                 LogAcesso(
-                    usuario_id=uuid.UUID(payload["sub"]),
+                    usuario_id=uuid.UUID(usuario_id),
                     acao=method,
                     recurso_tipo=path[:50],
                     recurso_id=recurso_id,
