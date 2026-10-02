@@ -182,3 +182,73 @@ def mapear_perfil_lms(roles: list[str]) -> str:
             if ROLE_KEYCLOAK_PARA_PERFIL.get(role) == perfil:
                 return perfil
     return "participante"
+
+
+def mapear_perfis_lms(roles: list[str]) -> list[str]:
+    """Converte roles do Keycloak em TODOS os perfis LMS correspondentes.
+
+    Ex.: `TRE_GESTOR` + `TRE_INSTRUTOR` -> `["gestor", "instrutor"]`.
+    `TRE_ADM` + `TRE_PARTICIPANTE` -> `["administrador_geral"]` (descarta o
+    participante quando ja existe um perfil de gestao, que e redundante).
+
+    Role desconhecida ou token sem role -> `["participante"]` (padrão).
+    """
+    perfis: list[str] = []
+    for role in roles:
+        p = ROLE_KEYCLOAK_PARA_PERFIL.get(role)
+        if p and p not in perfis:
+            perfis.append(p)
+    if "participante" in perfis and any(p != "participante" for p in perfis):
+        perfis.remove("participante")
+    return perfis or ["participante"]
+
+
+async def sincronizar_perfis_keycloak(db, user, roles: list[str]) -> bool:
+    """Sincroniza os perfis do usuario com as roles atuais do Keycloak (issue do dev do front).
+
+    Compara os perfis esperados (via `mapear_perfis_lms`) com os `UsuarioPerfil`
+    do usuario:
+    - adiciona perfis que faltam (roles novas)
+    - remove perfis que nao estao mais nas roles (se permitido remover)
+    - se o usuario passou a ter perfil de gestao, atualiza ativo/credenciamento
+
+    Retorna True se algo mudou (o chamador deve commitar).
+    """
+    from sqlalchemy import select
+
+    from app.models.usuario import Perfil, UsuarioPerfil
+
+    esperados = mapear_perfis_lms(roles)
+    atuais = {up.perfil.nome for up in user.perfis}
+
+    mudou = False
+
+    # Adiciona perfis que faltam
+    for nome in esperados:
+        if nome in atuais:
+            continue
+        perfil = (await db.execute(select(Perfil).where(Perfil.nome == nome))).scalar_one_or_none()
+        if perfil:
+            db.add(UsuarioPerfil(usuario_id=user.id, perfil_id=perfil.id))
+            mudou = True
+            atuais.add(nome)
+
+    # Remove perfis que nao estao mais nas roles (somente os de Keycloak).
+    # Mantemos perfis atribuidos manualmente (nao Keycloak) por seguranca —
+    # a remocao so acontece para perfis que o mapeamento conhece.
+    for nome in list(atuais):
+        if nome not in esperados and nome in ROLE_KEYCLOAK_PARA_PERFIL.values():
+            for up in list(user.perfis):
+                if up.perfil.nome == nome:
+                    await db.delete(up)
+                    mudou = True
+                    atuais.discard(nome)
+
+    # Se passou a ter perfil de gestao, garante ativo + aprovado
+    tem_gestao = any(n != "participante" for n in atuais)
+    if tem_gestao and (not user.ativo or user.status_credenciamento != "aprovado"):
+        user.ativo = True
+        user.status_credenciamento = "aprovado"
+        mudou = True
+
+    return mudou

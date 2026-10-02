@@ -11,7 +11,12 @@ from app.database import get_db
 from app.models.credenciamento import SolicitacaoCredenciamento
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.auth import decode_token
-from app.services.keycloak import mapear_perfil_lms, mapear_roles_keycloak, validar_token_keycloak
+from app.services.keycloak import (
+    mapear_perfis_lms,
+    mapear_roles_keycloak,
+    sincronizar_perfis_keycloak,
+    validar_token_keycloak,
+)
 from app.services.rbac import has_permission
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -44,6 +49,12 @@ async def get_current_user(
         if user:
             if not user.ativo:
                 raise credentials_exception
+            # Sincroniza roles/perfis a cada login (issue do dev do front):
+            # se o Wagner mudar a role no Keycloak, o perfil acompanha.
+            roles = mapear_roles_keycloak(kc_payload)
+            if await sincronizar_perfis_keycloak(db, user, roles):
+                await db.commit()
+                await db.refresh(user)
             return user
         # Fallback por email (vincula conta existente)
         if email:
@@ -66,7 +77,8 @@ async def get_current_user(
         # Mapear roles Keycloak -> perfil local (se não mapear, usa participante).
         # Entende as roles do IDESP (TRE_ADM, TRE_GESTOR, ...) e os nomes antigos.
         roles = mapear_roles_keycloak(kc_payload)
-        perfil_nome = mapear_perfil_lms(roles)
+        perfis = mapear_perfis_lms(roles)
+        perfil_nome = perfis[0]
         # Perfis de gestao (role dada pelo IDESP) nascem aprovados direto;
         # participante nasce APROVADO por padrao (KEYCLOAK_PARTICIPANTE_APROVADO),
         # mantendo a opcao reversivel de nascer pendente + solicitacao (fluxo antigo).
@@ -85,10 +97,12 @@ async def get_current_user(
         )
         db.add(user)
         await db.flush()
-        result = await db.execute(select(Perfil).where(Perfil.nome == perfil_nome))
-        perfil = result.scalar_one_or_none()
-        if perfil:
-            db.add(UsuarioPerfil(usuario_id=user.id, perfil_id=perfil.id))
+        # Cria um UsuarioPerfil para cada role (varias roles -> varios perfis).
+        for p_nome in perfis:
+            result = await db.execute(select(Perfil).where(Perfil.nome == p_nome))
+            perfil = result.scalar_one_or_none()
+            if perfil:
+                db.add(UsuarioPerfil(usuario_id=user.id, perfil_id=perfil.id))
         if not aprovado_direto:
             # Participante pendente: cria solicitacao para o admin aprovar (fluxo local).
             db.add(
