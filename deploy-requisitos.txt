@@ -21,6 +21,10 @@ Nao existe script, multistage ou artefato externo; pip permanece na imagem.
 --------------------------------------------------
 Jenkins/GKE: job applications/treinamento-idesp-api (IDESP-CICD).
   - agente python-3.12, container python
+  - antes do build: suite pytest completa em .venv temporario
+  - PostgreSQL 15 efemero no pod; storage local; sem banco real
+  - XML .build/test-results/pytest.xml publicado por junit mesmo em falha
+  - teste reprovado ou relatorio ausente bloqueia publicacao/deploy
   - docker buildx build: Dockerfile instala requirements e roda pip check
   - copia source completo via COPY ., filtrado pelo .dockerignore
   - inclui scripts e documentacao; sem compilador, pip permanece disponivel

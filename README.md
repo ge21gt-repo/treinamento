@@ -33,6 +33,16 @@ a imagem e aplica o manifesto GKE. A instalação de `requirements.txt` pertence
 ao próprio Dockerfile: não há script de preparo, venv externo ou artefato
 pré-compilado no workspace.
 
+Antes do build da imagem, Jenkins executa a suíte pytest completa num `.venv`
+temporário, com PostgreSQL 15 isolado no pod e storage local. Não usa banco
+ou credenciais de produção. A preparação cria schema/metadata Alembic para
+os testes de health; as tabelas são criadas pelas fixtures dos testes.
+Não é uma validação da cadeia de migrations.
+O XML `.build/test-results/pytest.xml` é publicado pelo plugin JUnit do Jenkins
+mesmo quando testes falham, com resultados, duração e histórico no job.
+Falha de teste ou relatório ausente bloqueia publicação/deploy.
+`.venv` e `.build` são temporários e excluídos pelo `.dockerignore`.
+
 ```mermaid
 flowchart LR
     R[treinamento<br/>requirements.txt e app] -->|checkout SOURCE_BRANCH| J[Jenkins<br/>python-3.12]
@@ -78,8 +88,7 @@ Se `treinamento-backend` já estiver no cluster, planejar a troca e retirada
 controlada dos recursos antigos, evitando dois Ingresses para o mesmo host
 e workloads duplicados. Secrets externos mantêm seus nomes atuais.
 
-O job não executa pytest nem migrações em banco de produção. Os testes de
-integração continuam exigindo um PostgreSQL isolado. Antes do deploy, a equipe
+O job não executa testes nem migrações em banco de produção. Antes do deploy, a equipe
 deve reconciliar/aplicar Alembic no banco de destino e conferir
 `/health → checks.migrations`; `create_all()` não substitui migrações.
 
