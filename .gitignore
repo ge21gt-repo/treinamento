@@ -14,4 +14,3 @@ dist/
 uploads/
 venv/
 fly.toml
-.build/

@@ -9,8 +9,7 @@ venv
 screenshots/
 tests/
 .github/
-.build/*
-!.build/venv/
+.build/
 uploads/
 .env.*
 !.env.example

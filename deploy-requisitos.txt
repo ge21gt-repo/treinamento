@@ -13,28 +13,29 @@ Arquivo: requirements.txt (raiz do projeto) — 23 pacotes.
 Principais: FastAPI, SQLAlchemy (async), asyncpg, Alembic,
 pydantic v2, python-jose, passlib.
 
-No Jenkins, scripts/prepare-runtime.sh instala requirements.txt no agente
-python-3.12 e gera .build/venv. O runtime nao instala dependencias.
+O Dockerfile instala requirements.txt com pip em um estágio próprio e copia
+as dependencias para a runtime. Nao existe script ou artefato externo.
 
 --------------------------------------------------
 3. BUILD DA APLICAÇÃO
 --------------------------------------------------
 Jenkins/GKE: job applications/treinamento-idesp-api (IDESP-CICD).
   - agente python-3.12, container python
-  - sh scripts/prepare-runtime.sh (pip check + import smoke, sem banco)
-  - Dockerfile copia .build/venv para /opt/venv, app e arquivos Alembic
+  - docker buildx build: Dockerfile instala requirements e roda pip check
+  - runtime recebe /opt/python, app e arquivos Alembic, sem compilador/pip
   - usuario 10001:10001; uploads/_chunks gravavel; porta 8080
   - CMD: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
   - push GAR idesp-prod-apps/treinamento-backend:<data>-<sha>
   - aplica k8s/treinamento-backend.yaml via kubeconfig-gke-prd
 
-GitHub Actions CI e deploy AWS dev/hom: prepara .build/venv com
-python:3.12-trixie e monta o mesmo Dockerfile com base publica:
+GitHub Actions CI: permanece sem build Docker, apenas validacoes e testes.
+Deploy AWS dev/hom: envia source e monta o mesmo Dockerfile com base publica:
     docker build --build-arg BASE_IMAGE=python:3.12-slim-trixie -t treinamento-backend .
-O workflow AWS envia o venv no tarball; nao precisa ler o GAR.
-No exemplo Fly, preparar o artefato antes de fly deploy.
+O workflow AWS nao precisa ler o GAR nem preparar dependencias no runner.
+No exemplo Fly, a base publica tambem e passada por argumento.
 
-Build local pelo agente e detalhes: README.md, secao Build Jenkins / GKE.
+Build local: docker build -t treinamento-backend .
+Detalhes: README.md, secao Build Jenkins / GKE.
 
 --------------------------------------------------
 4. TESTES

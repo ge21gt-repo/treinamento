@@ -24,12 +24,6 @@ jobs:
             echo "HEALTH_URL=https://api-treinamento-hom.ge21gt.cloud/health" >> "$GITHUB_ENV"
           fi
 
-      - name: Prepara dependencias com Python oficial
-        run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
-            python:3.12-trixie sh scripts/prepare-runtime.sh
-
       - name: Empacota o source
         run: tar czf /tmp/treinamento-backend.tar.gz --exclude=.git .
 
@@ -103,11 +97,3 @@ jobs:
           done
           echo "timeout esperando o backend ficar saudavel"
           exit 1
-
-      - name: Permite limpeza do artefato pelo runner
-        if: always()
-        run: |
-          if [ -d .build ]; then
-            docker run --rm -v "$GITHUB_WORKSPACE:/workspace" \
-              python:3.12-trixie chmod -R a+rwX /workspace/.build
-          fi
