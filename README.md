@@ -33,15 +33,19 @@ a imagem e aplica o manifesto GKE. A instalação de `requirements.txt` pertence
 ao próprio Dockerfile: não há script de preparo, venv externo ou artefato
 pré-compilado no workspace.
 
-Antes do build da imagem, Jenkins executa a suíte pytest completa num `.venv`
-temporário, com PostgreSQL 15 isolado no pod e storage local. Não usa banco
-ou credenciais de produção. A preparação cria schema/metadata Alembic para
+Antes do build da imagem, `Prepare tools` instala requirements diretamente no
+Python do agente, configura Buildx e instala/inicia PostgreSQL 16 temporário
+no mesmo container. Não altera a imagem base nem adiciona container ao pod.
+O servidor roda como usuário `postgres`, escuta somente em loopback e é
+encerrado no cleanup; pacotes e dados são descartados com o pod.
+`Tests` chama pytest na raiz usando o `pytest.ini`, sem venv, com storage local.
+Não usa banco ou credenciais de produção. A preparação cria schema/metadata Alembic para
 os testes de health; as tabelas são criadas pelas fixtures dos testes.
 Não é uma validação da cadeia de migrations.
 O XML `.build/test-results/pytest.xml` é publicado pelo plugin JUnit do Jenkins
 mesmo quando testes falham, com resultados, duração e histórico no job.
 Falha de teste ou relatório ausente bloqueia publicação/deploy.
-`.venv` e `.build` são temporários e excluídos pelo `.dockerignore`.
+Os relatórios `.build` são temporários e excluídos pelo `.dockerignore`.
 
 ```mermaid
 flowchart LR
