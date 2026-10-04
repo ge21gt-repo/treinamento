@@ -70,9 +70,14 @@ spec:
             - name: KEYCLOAK_PARTICIPANTE_APROVADO
               value: "true"
             - name: CORS_ORIGINS
-              value: '["https://treinamento.idesp.sp.gov.br"]'
+              value: '["https://igc.idesp.sp.gov.br"]'
+            # Endereco publico: https://igc.idesp.sp.gov.br/treinamento-api.
+            # O Ingress remove o prefixo; ROOT_PATH so informa a app (OpenAPI,
+            # /docs e tokenUrl). Rotas internas seguem em /api/v1 e /health.
+            - name: ROOT_PATH
+              value: /treinamento-api
             - name: BASE_URL
-              value: https://treinamento.idesp.sp.gov.br/api/v1
+              value: https://igc.idesp.sp.gov.br/treinamento-api/api/v1
 
             # --- Variáveis SENSÍVEIS (secretKeyRef) ---
             - name: DATABASE_URL
@@ -149,9 +154,15 @@ spec:
       port: 80
       targetPort: http
 ---
-# Entrada da API. Cada aplicacao e dona do proprio Ingress; o certificado do
-# host e declarado no Ingress da interface (mesmo padrao da casa). Sem bloco
-# tls aqui, de proposito.
+# MINION do master `edge/igc-host` (F5 NGINX Ingress Controller, host
+# compartilhado). Sem `tls:` (TLS e do master, `igc-tls-prod`) e sem
+# annotations `nginx.ingress.kubernetes.io/*` (o F5 ignora).
+#
+# https://igc.idesp.sp.gov.br/treinamento-api/api/v1/... chega no pod como
+# /api/v1/... : `location /treinamento-api/ { proxy_pass http://upstream/; }`.
+# `/treinamento-api` sem barra recebe 301 do nginx para `/treinamento-api/`.
+# A interface fica em /treinamento (Ingress proprio do front); o prefixo mais
+# longo ganha, entao os dois nao colidem.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -162,18 +173,18 @@ metadata:
     app.kubernetes.io/part-of: treinamento-idesp
     app.kubernetes.io/managed-by: jenkins
   annotations:
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/rewrite-target: /$1
-    nginx.ingress.kubernetes.io/proxy-body-size: 600m
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/rewrites: serviceName=treinamento-idesp-api rewrite=/
+    nginx.org/client-max-body-size: 600m
+    nginx.org/proxy-read-timeout: 300s
 spec:
   ingressClassName: nginx
   rules:
-    - host: treinamento.idesp.sp.gov.br
+    - host: igc.idesp.sp.gov.br
       http:
         paths:
-          - path: /(.*)
-            pathType: ImplementationSpecific
+          - path: /treinamento-api/
+            pathType: Prefix
             backend:
               service:
                 name: treinamento-idesp-api

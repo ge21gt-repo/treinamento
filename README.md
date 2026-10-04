@@ -87,6 +87,11 @@ usam `treinamento-idesp-api`; o arquivo é `k8s/treinamento-idesp-api.yaml`.
 O rollout usa namespace/nome lidos do manifesto e tenta
 rollback em caso de falha.
 
+Endereço público no GKE: `https://igc.idesp.sp.gov.br/treinamento-api`
+(interface em `/treinamento`). O Ingress é minion do master `edge/igc-host` e
+remove o prefixo, então a app continua servindo `/api/v1` e `/health`;
+`ROOT_PATH=/treinamento-api` só ajusta OpenAPI, `/docs` e `tokenUrl`.
+
 Renomear recursos não migra nem remove objetos Kubernetes existentes.
 Se `treinamento-backend` já estiver no cluster, planejar a troca e retirada
 controlada dos recursos antigos, evitando dois Ingresses para o mesmo host
@@ -216,7 +221,8 @@ pytest tests/test_auth.py -x            # para no primeiro erro
 | `SMTP_FROM` | `noreply@lms-idesp.com` | Remetente de emails |
 | `SMTP_TLS` | `true` | TLS no SMTP |
 | `RESET_TOKEN_EXPIRE_MINUTES` | `60` | Expiração do token de redefinição de senha |
-| `BASE_URL` | `http://localhost:8000/api/v1` | URL base para links nos emails |
+| `BASE_URL` | `http://localhost:8000/api/v1` | URL pública da API para links nos emails e no QR Code do certificado |
+| `ROOT_PATH` | `""` | Prefixo público quando um proxy o remove antes da app (GKE: `/treinamento-api`) |
 
 ---
 

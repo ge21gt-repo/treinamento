@@ -83,5 +83,6 @@ KEYCLOAK_CLIENT_ID    (treinamento-front)
 KEYCLOAK_CLIENT_SECRET
 KEYCLOAK_JWKS_URI
 KEYCLOAK_PARTICIPANTE_APROVADO  (true/false)
-CORS_ORIGINS
-BASE_URL
+CORS_ORIGINS          (["https://igc.idesp.sp.gov.br"])
+BASE_URL              (https://igc.idesp.sp.gov.br/treinamento-api/api/v1)
+ROOT_PATH             (/treinamento-api)

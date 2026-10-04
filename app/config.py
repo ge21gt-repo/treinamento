@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     RESET_TOKEN_EXPIRE_MINUTES: int = 60
     BASE_URL: str = "http://localhost:8000/api/v1"
+    # Prefixo publico quando a API fica atras de um proxy que o remove
+    # (ex.: /treinamento-api). Vazio = API na raiz.
+    ROOT_PATH: str = ""
 
     # Fuso para exibir datas em textos formatados no backend (ex.: corpo de
     # notificacao) -- nao vem do front, ver issue 40 para o porque.

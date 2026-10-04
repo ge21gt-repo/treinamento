@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.database import get_db
 from app.models.credenciamento import SolicitacaoCredenciamento
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
@@ -13,7 +14,7 @@ from app.services.auth import decode_token
 from app.services.keycloak import mapear_perfil_lms, mapear_roles_keycloak, validar_token_keycloak
 from app.services.rbac import has_permission
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.ROOT_PATH.rstrip('/')}/api/v1/auth/login")
 
 
 async def get_current_user(
