@@ -38,15 +38,19 @@ flowchart LR
     R[treinamento<br/>requirements.txt e app] -->|checkout SOURCE_BRANCH| J[Jenkins<br/>python-3.12]
     J -->|docker buildx build| D[Dockerfile<br/>pip install + runtime]
     D -->|BuildKit rootless e push| G[(GAR idesp-prod-apps)]
-    J -->|IMAGE_URI e kubeconfig-gke-prd| K[GKE<br/>k8s/treinamento-backend.yaml]
+    J -->|IMAGE_URI e kubeconfig-gke-prd| K[GKE<br/>k8s/treinamento-idesp-api.yaml]
     G -->|pull imagem| K
 ```
 
 O [Dockerfile](Dockerfile) usa `python:3.12-slim-trixie` num único estágio,
 instala os requirements com `pip install --no-cache-dir` e executa `pip check`.
-Depois copia somente `app/`, `alembic/`,
-`alembic.ini` e `requirements.txt`. Não copia `.env`, testes ou arquivos de
-deploy. Executa como UID/GID `10001`, escuta na porta 8080 e mantém
+Depois copia o source completo com `COPY . /app/`, incluindo `scripts/`,
+documentação, Alembic e demais arquivos, respeitando o `.dockerignore`.
+As exclusões ficam centralizadas nele: secrets `.env*` (exceto `.env.example`),
+Git, ambientes virtuais, caches, testes, workflows, artefatos `.build`, uploads
+locais, screenshots e configuração `.devin`. Não há lista de arquivos
+permitidos no Dockerfile; novas exclusões funcionais devem ser avaliadas com
+os desenvolvedores. Executa como UID/GID `10001`, escuta na porta 8080 e mantém
 `/app/uploads/_chunks` gravável: uploads em chunks usam disco temporário mesmo
 com S3. Esse diretório não é persistente nem compartilhado entre réplicas;
 afinidade/persistência de uploads retomáveis é uma decisão de infraestrutura
@@ -63,10 +67,16 @@ o processo final sempre executa como `10001:10001`, inclusive na base oficial.
 
 Parâmetros do job: `SOURCE_BRANCH` (padrão `development`) e `AMBIENTE`
 (`gke-prd`). Faz checkout com `github-repositories`, publica
-`idesp-prod-apps/treinamento-backend:<data>-<sha>` e aplica o manifesto com
-`kubeconfig-gke-prd`. O nome do job não renomeia o Deployment
-`treinamento-backend`. O rollout usa namespace/nome lidos do manifesto e tenta
+`idesp-prod-apps/treinamento-idesp-api:<data>-<sha>` e aplica o manifesto com
+`kubeconfig-gke-prd`. Imagem, container, Deployment, Service, Ingress e HPA
+usam `treinamento-idesp-api`; o arquivo é `k8s/treinamento-idesp-api.yaml`.
+O rollout usa namespace/nome lidos do manifesto e tenta
 rollback em caso de falha.
+
+Renomear recursos não migra nem remove objetos Kubernetes existentes.
+Se `treinamento-backend` já estiver no cluster, planejar a troca e retirada
+controlada dos recursos antigos, evitando dois Ingresses para o mesmo host
+e workloads duplicados. Secrets externos mantêm seus nomes atuais.
 
 O job não executa pytest nem migrações em banco de produção. Os testes de
 integração continuam exigindo um PostgreSQL isolado. Antes do deploy, a equipe
@@ -78,14 +88,14 @@ deve reconciliar/aplicar Alembic no banco de destino e conferir
 Requer Docker e acesso às imagens oficiais e ao índice de pacotes:
 
 ```bash
-docker build -t treinamento-backend:local .
+docker build -t treinamento-idesp-api:local .
 ```
 
 Para substituir explicitamente a base padrão:
 
 ```bash
 docker build --build-arg BASE_IMAGE=python:3.12-slim-trixie \
-  -t treinamento-backend:local .
+  -t treinamento-idesp-api:local .
 ```
 
 Ambos os comandos partem apenas do source; o Docker instala os requirements.
@@ -100,6 +110,9 @@ esse build. O processo da aplicação passa a executar como UID/GID 10001 també
 nesse fluxo; conferir permissões de qualquer volume de uploads existente.
 
 O exemplo Fly usa o mesmo Dockerfile e sua base padrão, sem preparo externo.
+O nome legado `treinamento-backend` no workflow AWS é preservado porque o
+Docker Compose da EC2 é externo a este repositório. A padronização acima
+abrange Jenkins/GAR/GKE; não altera esse contrato do deploy AWS.
 
 Esta branch parte de `feature/k8s-manifesto` e retorna para ela por PR.
 Depois de integrar o manifesto e estas alterações em `development` e a pipeline
@@ -116,10 +129,10 @@ imagens Docker. O build/deploy pertence ao workflow de deploy e ao Jenkins.
 ### Depuração do empacotamento
 
 ```bash
-docker run --rm treinamento-backend:local python -m uvicorn --version
-docker run --rm treinamento-backend:local python -m alembic heads
-kubectl -n apps rollout status deployment/treinamento-backend --timeout=5m
-kubectl -n apps logs deployment/treinamento-backend --tail=100
+docker run --rm treinamento-idesp-api:local python -m uvicorn --version
+docker run --rm treinamento-idesp-api:local python -m alembic heads
+kubectl -n apps rollout status deployment/treinamento-idesp-api --timeout=5m
+kubectl -n apps logs deployment/treinamento-idesp-api --tail=100
 ```
 
 | Sintoma | Causa provável |

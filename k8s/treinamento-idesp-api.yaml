@@ -22,10 +22,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: treinamento-backend
+  name: treinamento-idesp-api
   namespace: apps
   labels:
-    app.kubernetes.io/name: treinamento-backend
+    app.kubernetes.io/name: treinamento-idesp-api
     app.kubernetes.io/part-of: treinamento-idesp
     app.kubernetes.io/managed-by: jenkins
 spec:
@@ -33,18 +33,18 @@ spec:
   replicas: 2
   selector:
     matchLabels:
-      app.kubernetes.io/name: treinamento-backend
+      app.kubernetes.io/name: treinamento-idesp-api
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: treinamento-backend
+        app.kubernetes.io/name: treinamento-idesp-api
     spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
       containers:
-        - name: treinamento-backend
+        - name: treinamento-idesp-api
           image: IMAGE_URI
           ports:
             - name: http
@@ -135,15 +135,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: treinamento-backend
+  name: treinamento-idesp-api
   namespace: apps
   labels:
-    app.kubernetes.io/name: treinamento-backend
+    app.kubernetes.io/name: treinamento-idesp-api
     app.kubernetes.io/part-of: treinamento-idesp
     app.kubernetes.io/managed-by: jenkins
 spec:
   selector:
-    app.kubernetes.io/name: treinamento-backend
+    app.kubernetes.io/name: treinamento-idesp-api
   ports:
     - name: http
       port: 80
@@ -155,10 +155,10 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: treinamento-backend
+  name: treinamento-idesp-api
   namespace: apps
   labels:
-    app.kubernetes.io/name: treinamento-backend
+    app.kubernetes.io/name: treinamento-idesp-api
     app.kubernetes.io/part-of: treinamento-idesp
     app.kubernetes.io/managed-by: jenkins
   annotations:
@@ -176,24 +176,24 @@ spec:
             pathType: ImplementationSpecific
             backend:
               service:
-                name: treinamento-backend
+                name: treinamento-idesp-api
                 port:
                   name: http
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: treinamento-backend
+  name: treinamento-idesp-api
   namespace: apps
   labels:
-    app.kubernetes.io/name: treinamento-backend
+    app.kubernetes.io/name: treinamento-idesp-api
     app.kubernetes.io/part-of: treinamento-idesp
     app.kubernetes.io/managed-by: jenkins
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: treinamento-backend
+    name: treinamento-idesp-api
   minReplicas: 2
   maxReplicas: 6
   metrics:

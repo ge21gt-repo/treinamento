@@ -22,11 +22,14 @@ Nao existe script, multistage ou artefato externo; pip permanece na imagem.
 Jenkins/GKE: job applications/treinamento-idesp-api (IDESP-CICD).
   - agente python-3.12, container python
   - docker buildx build: Dockerfile instala requirements e roda pip check
-  - copia app e arquivos Alembic; sem compilador, pip permanece disponivel
+  - copia source completo via COPY ., filtrado pelo .dockerignore
+  - inclui scripts e documentacao; sem compilador, pip permanece disponivel
   - usuario 10001:10001; uploads/_chunks gravavel; porta 8080
   - CMD: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
-  - push GAR idesp-prod-apps/treinamento-backend:<data>-<sha>
-  - aplica k8s/treinamento-backend.yaml via kubeconfig-gke-prd
+  - push GAR idesp-prod-apps/treinamento-idesp-api:<data>-<sha>
+  - aplica k8s/treinamento-idesp-api.yaml via kubeconfig-gke-prd
+  - Deployment, Service, Ingress, HPA e container: treinamento-idesp-api
+  - se recursos antigos ja existem, planejar retirada; apply nao os remove
 
 GitHub Actions CI: permanece sem build Docker, apenas validacoes e testes.
 Deploy AWS dev/hom: envia source e monta o mesmo Dockerfile com base publica:
@@ -34,7 +37,7 @@ Deploy AWS dev/hom: envia source e monta o mesmo Dockerfile com base publica:
 O workflow AWS nao precisa ler o GAR nem preparar dependencias no runner.
 No exemplo Fly, a base publica tambem e o padrao do Dockerfile.
 
-Build local: docker build -t treinamento-backend .
+Build local: docker build -t treinamento-idesp-api .
 Detalhes: README.md, secao Build Jenkins / GKE.
 
 --------------------------------------------------
