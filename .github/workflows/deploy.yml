@@ -47,7 +47,7 @@ jobs:
           aws s3 cp s3://ge21gt-treinamento-idesp/_build/treinamento-backend-${ENV_NAME}.tar.gz /tmp/deploy-${ENV_NAME}.tar.gz --region us-east-1
           tar xzf /tmp/deploy-${ENV_NAME}.tar.gz -C "\$SRC_DIR"
           cd "\$SRC_DIR"
-          docker build --build-arg BASE_IMAGE=python:3.12-slim-trixie -t treinamento-backend:${ENV_NAME} .
+          docker build -t treinamento-backend:${ENV_NAME} .
           cd /opt/treinamento-idesp
           docker compose up -d backend-${ENV_NAME}
           EOF

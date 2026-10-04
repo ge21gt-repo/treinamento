@@ -42,9 +42,9 @@ flowchart LR
     G -->|pull imagem| K
 ```
 
-O [Dockerfile](Dockerfile) instala os requirements em `/opt/python` num estágio
-`python:3.12-slim-trixie` e executa `pip check`. O estágio final copia somente
-essas dependências, `app/`, `alembic/`,
+O [Dockerfile](Dockerfile) usa `python:3.12-slim-trixie` num único estágio,
+instala os requirements com `pip install --no-cache-dir` e executa `pip check`.
+Depois copia somente `app/`, `alembic/`,
 `alembic.ini` e `requirements.txt`. Não copia `.env`, testes ou arquivos de
 deploy. Executa como UID/GID `10001`, escuta na porta 8080 e mantém
 `/app/uploads/_chunks` gravável: uploads em chunks usam disco temporário mesmo
@@ -53,13 +53,12 @@ afinidade/persistência de uploads retomáveis é uma decisão de infraestrutura
 separada, não resolvida por esta imagem.
 
 O argumento `BASE_IMAGE` aceita outra base Python 3.12 compatível; o padrão é
-`southamerica-east1-docker.pkg.dev/idesp-473218/idesp-base-images/python-runtime:python3.12-slim`.
-O estágio de instalação usa a mesma versão Python e distribuição da runtime.
-O pip e seu cache não são copiados para a runtime GAR; não há compilador no
-estágio final. As dependências atuais têm wheels compatíveis com essa base.
+`python:3.12-slim-trixie`. Não há runtime Python própria no GAR.
+Pip permanece disponível, sem cache de instalação; não há compilador na
+imagem final. As dependências atuais têm wheels compatíveis com essa base.
 Se uma dependência futura precisar de compilação, ferramentas devem ficar
-somente no estágio de instalação, não na runtime.
-O empacotamento usa root apenas para ajustar propriedade dos diretórios;
+fora da imagem final; reavaliar o empacotamento específico dessa dependência.
+O empacotamento usa root para instalar dependências e ajustar os diretórios;
 o processo final sempre executa como `10001:10001`, inclusive na base oficial.
 
 Parâmetros do job: `SOURCE_BRANCH` (padrão `development`) e `AMBIENTE`
@@ -76,13 +75,13 @@ deve reconciliar/aplicar Alembic no banco de destino e conferir
 
 ### Build local com as mesmas bases
 
-Requer Docker e acesso de leitura às imagens privadas do GAR:
+Requer Docker e acesso às imagens oficiais e ao índice de pacotes:
 
 ```bash
 docker build -t treinamento-backend:local .
 ```
 
-Para construir sem acesso ao GAR:
+Para substituir explicitamente a base padrão:
 
 ```bash
 docker build --build-arg BASE_IMAGE=python:3.12-slim-trixie \
@@ -90,17 +89,17 @@ docker build --build-arg BASE_IMAGE=python:3.12-slim-trixie \
 ```
 
 Ambos os comandos partem apenas do source; o Docker instala os requirements.
+Não há leitura de uma base privada do GAR nem multistage.
 
 ### Compatibilidade com deploy AWS / Fly
 
 O [deploy automático AWS](.github/workflows/deploy.yml) de
-`development`/`homologacao` envia o source no tarball, como antes. O build remoto passa
-`BASE_IMAGE=python:3.12-slim-trixie` ao mesmo Dockerfile principal: não precisa
-ler as bases privadas do GAR. O Dockerfile instala as dependências durante
+`development`/`homologacao` envia o source no tarball e executa `docker build`,
+como antes, usando a base oficial padrão. O Dockerfile instala as dependências durante
 esse build. O processo da aplicação passa a executar como UID/GID 10001 também
 nesse fluxo; conferir permissões de qualquer volume de uploads existente.
 
-O exemplo Fly também define esse argumento, sem preparo externo.
+O exemplo Fly usa o mesmo Dockerfile e sua base padrão, sem preparo externo.
 
 Esta branch parte de `feature/k8s-manifesto` e retorna para ela por PR.
 Depois de integrar o manifesto e estas alterações em `development` e a pipeline
@@ -125,12 +124,12 @@ kubectl -n apps logs deployment/treinamento-backend --tail=100
 
 | Sintoma | Causa provável |
 |---|---|
-| `pip install` falha no build | Versões incompatíveis, acesso ao índice de pacotes ou wheel ausente; conferir log do estágio dependencies |
+| `pip install` falha no build | Versões incompatíveis, acesso ao índice de pacotes ou wheel ausente; conferir log do Docker build |
 | Agente em `ImagePullBackOff` | Tag `jenkins-agent-python:python3.12` ausente ou agente JCasC não aplicado |
-| Import de extensão nativa falha | Build/runtime com versões, distribuições ou arquiteturas diferentes |
+| Import de extensão nativa falha | Pacote ou biblioteca do sistema incompatível com Python / distribuição / arquitetura |
 | Upload retorna erro de permissão | Volume montado em `/app/uploads` não permite escrita pelo UID 10001 |
 | Rollout falha | Conferir eventos, Secrets, probes e logs; o rollback não desfaz migrações |
-| Deploy AWS tenta ler o GAR | Argumento `BASE_IMAGE=python:3.12-slim-trixie` não foi passado ao build remoto |
+| Build tenta ler a runtime GAR antiga | Dockerfile desatualizado ou override antigo de `BASE_IMAGE` |
 
 ## Testes
 

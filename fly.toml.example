@@ -6,9 +6,6 @@ primary_region = "gru"
 
 [build]
 
-[build.args]
-  BASE_IMAGE = "python:3.12-slim-trixie"
-
 [env]
   PORT = "8080"
   DATABASE_URL = "postgresql+asyncpg://USER:PASS@HOST:5432/DB"
