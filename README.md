@@ -97,9 +97,12 @@ Se `treinamento-backend` já estiver no cluster, planejar a troca e retirada
 controlada dos recursos antigos, evitando dois Ingresses para o mesmo host
 e workloads duplicados. Secrets externos mantêm seus nomes atuais.
 
-O job não executa testes nem migrações em banco de produção. Antes do deploy, a equipe
-deve reconciliar/aplicar Alembic no banco de destino e conferir
-`/health → checks.migrations`; `create_all()` não substitui migrações.
+As migrações rodam no startup do container: o `CMD` do Dockerfile executa
+`python verify_initial_db.py` antes do uvicorn. Banco vazio recebe `create_all()` +
+`alembic stamp head`; depois sempre roda `alembic upgrade head` (no-op se já está na head),
+com `pg_advisory_lock` para réplicas simultâneas. Banco com tabelas e sem
+`lms.alembic_version` impede o container de subir até ser reconciliado à mão.
+Conferir depois em `/health → checks.migrations`.
 
 ### Build local com as mesmas bases
 

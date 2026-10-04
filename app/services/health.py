@@ -21,8 +21,8 @@ async def check_database(db: AsyncSession) -> dict:
 async def check_migrations(db: AsyncSession) -> dict:
     """Compara a revisao gravada no banco com a head do codigo.
 
-    Existe porque o deploy nao roda `alembic upgrade head` e o `create_all` do
-    startup so cria tabelas que faltam -- nunca adiciona coluna em tabela que ja
+    O `verify_initial_db.py` roda `alembic upgrade head` antes do uvicorn; isto
+    confirma o resultado. O `create_all` do startup so cria tabelas que faltam -- nunca adiciona coluna em tabela que ja
     existe. O resultado e que migration de coluna passa despercebida ate um
     endpoint quebrar com 500 (foi o que aconteceu com `conteudos.disponivel`).
     """

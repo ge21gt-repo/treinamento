@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,7 +12,8 @@ from app.models.base import Base
 
 class Notificacao(Base):
     __tablename__ = "notificacoes"
-    __table_args__ = {"schema": "lms"}
+    # Nome exato da migration 1a7af45bb737.
+    __table_args__ = (Index("ix_notificacoes_usuario_id", "usuario_id"), {"schema": "lms"})
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     usuario_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("lms.usuarios.id"), nullable=False)
