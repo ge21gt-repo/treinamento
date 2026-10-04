@@ -7,3 +7,10 @@ venv
 .gitignore
 *.md
 screenshots/
+tests/
+.github/
+.build/*
+!.build/venv/
+uploads/
+.env.*
+!.env.example

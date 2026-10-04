@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, development, feature/k8s-manifesto]
   pull_request:
-    branches: [main]
+    branches: [main, development, feature/k8s-manifesto]
 
 env:
   DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/lms_idesp
@@ -68,3 +68,61 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -v --tb=short
+
+  build-runtime:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      BUILD_IMAGE: python:3.12-trixie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar dependencias com Python oficial
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
+            "$BUILD_IMAGE" sh scripts/prepare-runtime.sh
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Montar imagem de runtime sem publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          pull: true
+          push: false
+          load: true
+          tags: treinamento-backend:ci
+          build-args: |
+            BASE_IMAGE=python:3.12-slim-trixie
+
+      - name: Validar imports, usuario e arquivos da imagem
+        run: |
+          docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+            -e DATABASE_URL=postgresql+asyncpg://build:build@localhost:5432/build \
+            -e STORAGE_BACKEND=local \
+            treinamento-backend:ci python -c '
+          import importlib.util
+          import os
+          import sys
+          from pathlib import Path
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+          from app.main import app
+          assert sys.version_info[:2] == (3, 12)
+          assert sys.prefix == "/opt/venv"
+          assert os.getuid() == os.getgid() == 10001
+          assert importlib.util.find_spec("pip") is None
+          assert ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+          Path("uploads/_chunks/ci-smoke").write_text("ok")
+          print(f"{len(app.routes)} routes loaded; runtime OK")
+          '
+
+      - name: Permitir limpeza do artefato pelo runner
+        if: always()
+        run: |
+          if [ -d .build ]; then
+            docker run --rm -v "$GITHUB_WORKSPACE:/workspace" \
+              "$BUILD_IMAGE" chmod -R a+rwX /workspace/.build
+          fi

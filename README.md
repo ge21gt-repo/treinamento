@@ -25,6 +25,130 @@ uvicorn app.main:app --reload
 
 > O app também auto-cria tabelas e seeds (perfis, níveis, permissões RBAC) no startup via FastAPI lifespan. O passo `alembic upgrade head` + `init_db.sql` é opcional em dev, mas obrigatório em staging/prod.
 
+## Build Jenkins / GKE
+
+O job `applications/treinamento-idesp-api`, definido em
+`IDESP-CICD/treinamento-idesp-api/Jenkinsfile`, instala dependências no agente
+`python-3.12` (container `python`) e usa o Dockerfile principal apenas para
+empacotar a aplicação. Isso mantém compiladores e ferramentas de CI fora
+da imagem final e preserva Python 3.12, usado pelo projeto.
+
+```mermaid
+flowchart LR
+    R[treinamento<br/>requirements.txt e app] -->|checkout SOURCE_BRANCH| J[Jenkins<br/>python-3.12]
+    J -->|pip install e import smoke| V[venv em /opt/venv]
+    V -->|cópia .build/venv| D[Dockerfile<br/>python-runtime:python3.12-slim]
+    D -->|BuildKit rootless e push| G[(GAR idesp-prod-apps)]
+    J -->|IMAGE_URI e kubeconfig-gke-prd| K[GKE<br/>k8s/treinamento-backend.yaml]
+    G -->|pull imagem| K
+```
+
+[`scripts/prepare-runtime.sh`](scripts/prepare-runtime.sh) cria o venv em
+`/opt/venv`, instala `requirements.txt`, executa `pip check` e verifica os
+imports da aplicação com configuração fictícia, sem acessar banco ou S3.
+Remove pip do venv e copia o artefato para `.build/venv`. O caminho no
+runtime também é `/opt/venv`, preservando os shebangs de uvicorn e Alembic.
+
+O [Dockerfile](Dockerfile) copia somente o venv, `app/`, `alembic/`,
+`alembic.ini` e `requirements.txt`. Não copia `.env`, testes ou arquivos de
+deploy. Executa como UID/GID `10001`, escuta na porta 8080 e mantém
+`/app/uploads/_chunks` gravável: uploads em chunks usam disco temporário mesmo
+com S3. Esse diretório não é persistente nem compartilhado entre réplicas;
+afinidade/persistência de uploads retomáveis é uma decisão de infraestrutura
+separada, não resolvida por esta imagem.
+
+O argumento `BASE_IMAGE` aceita outra base Python 3.12 compatível; o padrão é
+`southamerica-east1-docker.pkg.dev/idesp-473218/idesp-base-images/python-runtime:python3.12-slim`.
+O empacotamento usa root apenas para ajustar propriedade dos diretórios;
+o processo final sempre executa como `10001:10001`, inclusive na base oficial.
+
+Parâmetros do job: `SOURCE_BRANCH` (padrão `development`) e `AMBIENTE`
+(`gke-prd`). Faz checkout com `github-repositories`, publica
+`idesp-prod-apps/treinamento-backend:<data>-<sha>` e aplica o manifesto com
+`kubeconfig-gke-prd`. O nome do job não renomeia o Deployment
+`treinamento-backend`. O rollout usa namespace/nome lidos do manifesto e tenta
+rollback em caso de falha.
+
+O job não executa pytest nem migrações em banco de produção. Os testes de
+integração continuam exigindo um PostgreSQL isolado. Antes do deploy, a equipe
+deve reconciliar/aplicar Alembic no banco de destino e conferir
+`/health → checks.migrations`; `create_all()` não substitui migrações.
+
+### Build local com as mesmas bases
+
+Requer Docker e acesso de leitura às imagens privadas do GAR.
+O primeiro comando instala dependências no agente em um container descartável;
+o segundo apenas monta a imagem final:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" -w /workspace \
+  southamerica-east1-docker.pkg.dev/idesp-473218/idesp-base-images/jenkins-agent-python:python3.12 \
+  sh scripts/prepare-runtime.sh
+docker build -t treinamento-backend:local .
+```
+
+O artefato `.build/venv` deve ser preparado uma única vez por checkout limpo;
+o script falha se ele já existir para não reutilizar dependências antigas.
+O agente e o runtime devem compartilhar versão Python, distribuição e
+arquitetura. Ao atualizar a base, reconstrua as dependências.
+
+### Compatibilidade com deploy AWS / Fly
+
+O [deploy automático AWS](.github/workflows/deploy.yml) de
+`development`/`homologacao` prepara `.build/venv` com `python:3.12-trixie`
+no runner e o inclui no tarball enviado ao EC2. O build remoto passa
+`BASE_IMAGE=python:3.12-slim-trixie` ao mesmo Dockerfile principal: não precisa
+ler as bases privadas do GAR. Não há instalação de dependências na imagem
+final. O processo da aplicação passa a executar como UID/GID 10001 também
+nesse fluxo; conferir permissões de qualquer volume de uploads existente.
+
+O exemplo Fly também define esse argumento. Antes de `fly deploy`,
+prepare o artefato com o script em um container `python:3.12-trixie`.
+Build e runtime precisam usar a mesma arquitetura; não enviar venv compilado
+em ARM para um runtime x86.
+
+Esta branch parte de `feature/k8s-manifesto` e retorna para ela por PR.
+Depois de integrar o manifesto e estas alterações em `development` e a pipeline
+em `IDESP-CICD/master`, executar **Sincronizar pipelines** e iniciar o job real
+manualmente. A execução inicial do sincronizador é cancelada. Antes da integração,
+é possível testar `SOURCE_BRANCH` com a branch do PR da aplicação.
+O merge em `development` ainda dispara deploy AWS; exige as verificações de
+migração e aprovação operacional habituais.
+
+### Build no GitHub Actions
+
+O [CI](.github/workflows/ci.yml) mantém lint, imports e testes de integração
+no job existente e adiciona `build-runtime`, que executa o mesmo script de
+preparação dentro de `python:3.12-trixie`, monta o Dockerfile principal e verifica
+imports, usuário não-root, arquivos Alembic e escrita em uploads. Esse job
+não faz push de imagem nem deploy. Os dois jobs são independentes: um build
+válido não substitui os testes de integração.
+
+O CI roda em pushes/PRs para `main`, `development` e `feature/k8s-manifesto`.
+Passa `BASE_IMAGE=python:3.12-slim-trixie` ao build: não acessa o GAR, não
+precisa de credenciais GCP e pode verificar PRs com as imagens oficiais.
+Build e runtime continuam na mesma versão Python e distribuição Debian.
+No Jenkins, sem override de `BASE_IMAGE`, vale a runtime privada do GAR.
+
+### Depuração do empacotamento
+
+```bash
+docker run --rm treinamento-backend:local python -m uvicorn --version
+docker run --rm treinamento-backend:local python -m alembic heads
+kubectl -n apps rollout status deployment/treinamento-backend --timeout=5m
+kubectl -n apps logs deployment/treinamento-backend --tail=100
+```
+
+| Sintoma | Causa provável |
+|---|---|
+| `COPY .build/venv` falha | Preparação do artefato não executada no agente ou contexto incorreto |
+| Agente em `ImagePullBackOff` | Tag `jenkins-agent-python:python3.12` ausente ou agente JCasC não aplicado |
+| Import de extensão nativa falha | Build/runtime com versões, distribuições ou arquiteturas diferentes |
+| Upload retorna erro de permissão | Volume montado em `/app/uploads` não permite escrita pelo UID 10001 |
+| Rollout falha | Conferir eventos, Secrets, probes e logs; o rollback não desfaz migrações |
+| CI tenta ler o GAR | Argumento `BASE_IMAGE=python:3.12-slim-trixie` não foi passado ao build |
+
 ## Testes
 
 O projeto possui **49 testes de integração** que batem contra **PostgreSQL real** e **S3 real** (ou local storage). Nenhum mock — cada teste cria/consulta/limpa dados de verdade via API HTTP.

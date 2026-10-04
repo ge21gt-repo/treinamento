@@ -24,6 +24,12 @@ jobs:
             echo "HEALTH_URL=https://api-treinamento-hom.ge21gt.cloud/health" >> "$GITHUB_ENV"
           fi
 
+      - name: Prepara dependencias com Python oficial
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
+            python:3.12-trixie sh scripts/prepare-runtime.sh
+
       - name: Empacota o source
         run: tar czf /tmp/treinamento-backend.tar.gz --exclude=.git .
 
@@ -47,7 +53,7 @@ jobs:
           aws s3 cp s3://ge21gt-treinamento-idesp/_build/treinamento-backend-${ENV_NAME}.tar.gz /tmp/deploy-${ENV_NAME}.tar.gz --region us-east-1
           tar xzf /tmp/deploy-${ENV_NAME}.tar.gz -C "\$SRC_DIR"
           cd "\$SRC_DIR"
-          docker build -t treinamento-backend:${ENV_NAME} .
+          docker build --build-arg BASE_IMAGE=python:3.12-slim-trixie -t treinamento-backend:${ENV_NAME} .
           cd /opt/treinamento-idesp
           docker compose up -d backend-${ENV_NAME}
           EOF
@@ -97,3 +103,11 @@ jobs:
           done
           echo "timeout esperando o backend ficar saudavel"
           exit 1
+
+      - name: Permite limpeza do artefato pelo runner
+        if: always()
+        run: |
+          if [ -d .build ]; then
+            docker run --rm -v "$GITHUB_WORKSPACE:/workspace" \
+              python:3.12-trixie chmod -R a+rwX /workspace/.build
+          fi

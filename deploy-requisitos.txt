@@ -4,7 +4,7 @@ BACKEND TREINAMENTO LMS
 --------------------------------------------------
 1. LINGUAGEM E VERSÃO
 --------------------------------------------------
-Python 3.12 (imagem base: python:3.12-slim no Dockerfile)
+Python 3.12 (GAR python-runtime:python3.12-slim no Dockerfile principal)
 
 --------------------------------------------------
 2. DEPENDÊNCIAS
@@ -13,22 +13,28 @@ Arquivo: requirements.txt (raiz do projeto) — 23 pacotes.
 Principais: FastAPI, SQLAlchemy (async), asyncpg, Alembic,
 pydantic v2, python-jose, passlib.
 
-No Dockerfile já roda: pip install -r requirements.txt
+No Jenkins, scripts/prepare-runtime.sh instala requirements.txt no agente
+python-3.12 e gera .build/venv. O runtime nao instala dependencias.
 
 --------------------------------------------------
 3. BUILD DA APLICAÇÃO
 --------------------------------------------------
-Não é Java nem Node — é Python puro.
-O build é o próprio Docker:
+Jenkins/GKE: job applications/treinamento-idesp-api (IDESP-CICD).
+  - agente python-3.12, container python
+  - sh scripts/prepare-runtime.sh (pip check + import smoke, sem banco)
+  - Dockerfile copia .build/venv para /opt/venv, app e arquivos Alembic
+  - usuario 10001:10001; uploads/_chunks gravavel; porta 8080
+  - CMD: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
+  - push GAR idesp-prod-apps/treinamento-backend:<data>-<sha>
+  - aplica k8s/treinamento-backend.yaml via kubeconfig-gke-prd
 
-    docker build -t treinamento-backend .
+GitHub Actions CI e deploy AWS dev/hom: prepara .build/venv com
+python:3.12-trixie e monta o mesmo Dockerfile com base publica:
+    docker build --build-arg BASE_IMAGE=python:3.12-slim-trixie -t treinamento-backend .
+O workflow AWS envia o venv no tarball; nao precisa ler o GAR.
+No exemplo Fly, preparar o artefato antes de fly deploy.
 
-O Dockerfile faz:
-  - instala deps do sistema (gcc, libpq-dev)
-  - copia o código
-  - pip install -r requirements.txt
-  - EXPOSE 8080
-  - CMD: uvicorn app.main:app --host 0.0.0.0 --port 8080
+Build local pelo agente e detalhes: README.md, secao Build Jenkins / GKE.
 
 --------------------------------------------------
 4. TESTES
