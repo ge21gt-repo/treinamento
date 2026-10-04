@@ -8,8 +8,10 @@
 # entao nao ha PVC nem Recreate — escala com RollingUpdate e HPA.
 #
 # SEGREDOS: criados pela infraestrutura, nao por este manifesto.
-#   db-conn-treinamento       chaves: url        (DATABASE_URL completa,
-#                                   ex.: postgresql+asyncpg://user:pass@host:5432/db)
+#   db-conn-treinamento       chaves: host, port, database, schema,
+#                                   username, password, sslmode. Gerada pelo
+#                                   bootstrap do IDESP-devOps
+#                                   (deployments/treinamento/db).
 #   treinamento-secrets       chaves: secret-key, keycloak-client-secret,
 #                                   s3-access-key, s3-secret-key
 #
@@ -80,11 +82,30 @@ spec:
               value: https://igc.idesp.sp.gov.br/treinamento-api/api/v1
 
             # --- Variáveis SENSÍVEIS (secretKeyRef) ---
-            - name: DATABASE_URL
+            # Banco: secret do bootstrap do IDESP-devOps
+            # (deployments/treinamento/db/treinamento.yaml). `$(VAR)` e
+            # interpolado pelo Kubernetes e exige a variavel declarada antes.
+            # A senha do bootstrap e so letras e digitos: segura na URL.
+            - name: DB_NAME
               valueFrom:
                 secretKeyRef:
                   name: db-conn-treinamento
-                  key: url
+                  key: database
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-conn-treinamento
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-conn-treinamento
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql+asyncpg://$(DB_USERNAME):$(DB_PASSWORD)@postgres.databases.svc.cluster.local:5432/$(DB_NAME)
+            # app/config.py remove `?sslmode=` da URL; o asyncpg le o modo daqui.
+            - name: PGSSLMODE
+              value: require
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
