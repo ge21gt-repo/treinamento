@@ -35,15 +35,57 @@ async def me(
     current_user: Usuario = Depends(get_current_user),
 ):
     # Issue #100: o Keycloak nao passa por POST /auth/login. Registrar o login
-    # aqui — o front chama /usuarios/me logo apos o callback OIDC.
+    # aqui — mas so quando a sessao e nova (issue #100, efeito colateral): o
+    # front chama /me a cada F5 e a cada renovacao silenciosa do token, entao
+    # gravar sempre infla o log_acesso e o relatorio "quem acessou".
     if current_user.auth_provider == "keycloak":
-        from app.services.log_acesso import registrar_log_acesso
-
-        await registrar_log_acesso(
-            db, request, usuario_id=current_user.id, acao="login", recurso_tipo="/api/v1/usuarios/me"
-        )
-        await db.commit()
+        await _registrar_login_keycloak_se_novo(db, request, current_user)
     return current_user
+
+
+async def _registrar_login_keycloak_se_novo(
+    db: AsyncSession, request: Request, current_user: Usuario
+) -> None:
+    """Grava acao=login so se a autenticacao Keycloak for nova (issue #100).
+
+    Usa o `auth_time` do token (quando a pessoa de fato se autenticou), que se
+    mantem nas renovacoes. Sem `auth_time`, usa uma janela de 30 min: nao grava
+    se ja houver um login da pessoa nesse intervalo.
+    """
+    from datetime import timedelta
+
+    from app.models.log import LogAcesso
+    from app.services.log_acesso import registrar_log_acesso
+
+    auth_time = None
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        from app.services.keycloak import validar_token_keycloak
+
+        payload = validar_token_keycloak(auth.split(" ", 1)[1]) or {}
+        at = payload.get("auth_time")
+        if at:
+            auth_time = datetime.fromtimestamp(int(at), tz=timezone.utc)
+    if auth_time is None:
+        auth_time = datetime.now(timezone.utc) - timedelta(minutes=30)
+
+    ja = (
+        await db.execute(
+            select(LogAcesso.id)
+            .where(
+                LogAcesso.usuario_id == current_user.id,
+                LogAcesso.acao == "login",
+                LogAcesso.criado_em >= auth_time,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if ja:
+        return
+    await registrar_log_acesso(
+        db, request, usuario_id=current_user.id, acao="login", recurso_tipo="/api/v1/usuarios/me"
+    )
+    await db.commit()
 
 
 @router.patch("/me", response_model=UsuarioRead)
