@@ -19,7 +19,7 @@ from app.services.keycloak import (
 )
 from app.services.rbac import has_permission
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.ROOT_PATH.rstrip('/')}/api/v1/auth/login")
 
 
 async def get_current_user(
