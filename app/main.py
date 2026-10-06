@@ -301,6 +301,19 @@ async def _resolver_usuario_id_por_token(db, token: str) -> str | None:
     return None
 
 
+# Issue #68: as tasks de log_acesso eram "soltas" (fire-and-forget sem referencia).
+# Sob escrita densa, uma delas podia ficar pendurada em "idle in transaction"
+# segurando um lock na tabela, travando outras escritas por minutos. Agora sao
+# rastreadas e o commit tem timeout.
+_LOG_ACESSO_TASKS: set = set()
+
+
+def _disparar_log_acesso(method: str, path: str, authorization: str) -> None:
+    task = asyncio.create_task(_registrar_acesso_escrita(method, path, authorization))
+    _LOG_ACESSO_TASKS.add(task)
+    task.add_done_callback(_LOG_ACESSO_TASKS.discard)
+
+
 async def _registrar_acesso_escrita(method: str, path: str, authorization: str) -> None:
     """Grava log_acesso de operacoes de escrita (T-17.1), sem bloquear a resposta.
 
@@ -340,7 +353,13 @@ async def _registrar_acesso_escrita(method: str, path: str, authorization: str) 
                     recurso_id=recurso_id,
                 )
             )
-            await db.commit()
+            # Issue #68: timeout no commit. Se o commit nao completar num prazo
+            # curto (lock/contencao), cancela e faz rollback para nao deixar a
+            # conexao "idle in transaction" segurando lock.
+            try:
+                await asyncio.wait_for(db.commit(), timeout=10)
+            except Exception:
+                await db.rollback()
     except Exception:
         pass
 
@@ -400,13 +419,11 @@ class LogRequestsMiddleware:
 
         await self.app(scope, receive, send_wrapper)
 
-        import asyncio
-
         auth = b""
         for k, v in scope.get("headers", []):
             if k == b"authorization":
                 auth = v.decode()
-        asyncio.create_task(_registrar_acesso_escrita(scope["method"], scope["path"], auth))
+        _disparar_log_acesso(scope["method"], scope["path"], auth)
 
         duration = (datetime.now(timezone.utc) - start).total_seconds()
         logger.info(
