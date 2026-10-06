@@ -1,0 +1,88 @@
+BACKEND TREINAMENTO LMS
+
+
+--------------------------------------------------
+1. LINGUAGEM E VERSÃO
+--------------------------------------------------
+Python 3.12 (imagem oficial python:3.12-slim-trixie)
+
+--------------------------------------------------
+2. DEPENDÊNCIAS
+--------------------------------------------------
+Arquivo: requirements.txt (raiz do projeto) — 23 pacotes.
+Principais: FastAPI, SQLAlchemy (async), asyncpg, Alembic,
+pydantic v2, python-jose, passlib.
+
+O Dockerfile instala requirements.txt com pip em um unico estagio.
+Nao existe script, multistage ou artefato externo; pip permanece na imagem.
+
+--------------------------------------------------
+3. BUILD DA APLICAÇÃO
+--------------------------------------------------
+Jenkins/GKE: job applications/treinamento-idesp-api (IDESP-CICD).
+  - agente python-3.12, container python
+  - Prepare tools: pip direto no agente, Buildx e install PostgreSQL 16 via PGDG
+  - banco local temporario no mesmo container, sem venv ou container adicional
+  - Tests: pytest na raiz com pytest.ini; storage local; sem banco real
+  - XML .build/test-results/pytest.xml publicado por junit mesmo em falha
+  - teste reprovado ou relatorio ausente bloqueia publicacao/deploy
+  - docker buildx build: Dockerfile instala requirements e roda pip check
+  - copia source completo via COPY ., filtrado pelo .dockerignore
+  - inclui scripts e documentacao; sem compilador, pip permanece disponivel
+  - usuario 10001:10001; uploads/_chunks gravavel; porta 8080
+  - CMD: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
+  - push GAR idesp-prod-apps/treinamento-idesp-api:<data>-<sha>
+  - aplica k8s/treinamento-idesp-api.yaml via kubeconfig-gke-prd
+  - Deployment, Service, Ingress, HPA e container: treinamento-idesp-api
+  - se recursos antigos ja existem, planejar retirada; apply nao os remove
+
+GitHub Actions CI: permanece sem build Docker, apenas validacoes e testes.
+Deploy AWS dev/hom: envia source e monta o mesmo Dockerfile com base publica:
+    docker build -t treinamento-backend .
+O workflow AWS nao precisa ler o GAR nem preparar dependencias no runner.
+No exemplo Fly, a base publica tambem e o padrao do Dockerfile.
+
+Build local: docker build -t treinamento-idesp-api .
+Detalhes: README.md, secao Build Jenkins / GKE.
+
+--------------------------------------------------
+4. TESTES
+--------------------------------------------------
+Não existe "mvn verify" nem "node build" (sem Java/node).
+Testes rodam com pytest e exigem um PostgreSQL de teste
+(variável TEST_DATABASE_URL), então rodam em pipeline com
+banco, não no build da imagem.
+
+Comando: pytest
+
+--------------------------------------------------
+5. HEALTH CHECK (para Kubernetes/GKE)
+--------------------------------------------------
+Liveness:  GET /health/live
+Readiness: GET /health/ready
+
+--------------------------------------------------
+6. PORTA
+--------------------------------------------------
+8080 (já exposta no Dockerfile)
+
+--------------------------------------------------
+7. VARIÁVEIS DE AMBIENTE NECESSÁRIAS
+--------------------------------------------------
+DATABASE_URL          (conexão PostgreSQL, schema lms)
+SECRET_KEY            (assinatura JWT)
+STORAGE_BACKEND       (s3 | local)
+S3_BUCKET             (se s3)
+S3_ACCESS_KEY         (se s3)
+S3_SECRET_KEY         (se s3)
+S3_REGION             (se s3)
+KEYCLOAK_SERVER       (realm idesp-realm)
+KEYCLOAK_REALM
+KEYCLOAK_ISSUER
+KEYCLOAK_CLIENT_ID    (treinamento-front)
+KEYCLOAK_CLIENT_SECRET
+KEYCLOAK_JWKS_URI
+KEYCLOAK_PARTICIPANTE_APROVADO  (true/false)
+CORS_ORIGINS          (["https://igc.idesp.sp.gov.br"])
+BASE_URL              (https://igc.idesp.sp.gov.br/treinamento-api/api/v1)
+ROOT_PATH             (/treinamento-api)

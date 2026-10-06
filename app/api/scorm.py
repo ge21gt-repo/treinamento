@@ -87,7 +87,7 @@ async def upload_scorm(
         pass
 
     try:
-        url = await upload_file(arquivo, "scorm")
+        url, _tamanho = await upload_file(arquivo, "scorm")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     pacote = PacoteScorm(

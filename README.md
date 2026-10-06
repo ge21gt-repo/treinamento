@@ -25,6 +25,146 @@ uvicorn app.main:app --reload
 
 > O app também auto-cria tabelas e seeds (perfis, níveis, permissões RBAC) no startup via FastAPI lifespan. O passo `alembic upgrade head` + `init_db.sql` é opcional em dev, mas obrigatório em staging/prod.
 
+## Build Jenkins / GKE
+
+O job `applications/treinamento-idesp-api`, definido em
+`IDESP-CICD/treinamento-idesp-api/Jenkinsfile`, faz checkout, constrói e publica
+a imagem e aplica o manifesto GKE. A instalação de `requirements.txt` pertence
+ao próprio Dockerfile: não há script de preparo, venv externo ou artefato
+pré-compilado no workspace.
+
+Antes do build da imagem, `Prepare tools` instala requirements diretamente no
+Python do agente, configura Buildx e instala/inicia PostgreSQL 16 temporário
+no mesmo container. Não altera a imagem base nem adiciona container ao pod.
+O servidor roda como usuário `postgres`, escuta somente em loopback e é
+encerrado no cleanup; pacotes e dados são descartados com o pod.
+`Tests` chama pytest na raiz usando o `pytest.ini`, sem venv, com storage local.
+Não usa banco ou credenciais de produção. A preparação cria schema/metadata Alembic para
+os testes de health; as tabelas são criadas pelas fixtures dos testes.
+Não é uma validação da cadeia de migrations.
+O XML `.build/test-results/pytest.xml` é publicado pelo plugin JUnit do Jenkins
+mesmo quando testes falham, com resultados, duração e histórico no job.
+Falha de teste ou relatório ausente bloqueia publicação/deploy.
+Os relatórios `.build` são temporários e excluídos pelo `.dockerignore`.
+
+```mermaid
+flowchart LR
+    R[treinamento<br/>requirements.txt e app] -->|checkout SOURCE_BRANCH| J[Jenkins<br/>python-3.12]
+    J -->|docker buildx build| D[Dockerfile<br/>pip install + runtime]
+    D -->|BuildKit rootless e push| G[(GAR idesp-prod-apps)]
+    J -->|IMAGE_URI e kubeconfig-gke-prd| K[GKE<br/>k8s/treinamento-idesp-api.yaml]
+    G -->|pull imagem| K
+```
+
+O [Dockerfile](Dockerfile) usa `python:3.12-slim-trixie` num único estágio,
+instala os requirements com `pip install --no-cache-dir` e executa `pip check`.
+Depois copia o source completo com `COPY . /app/`, incluindo `scripts/`,
+documentação, Alembic e demais arquivos, respeitando o `.dockerignore`.
+As exclusões ficam centralizadas nele: secrets `.env*` (exceto `.env.example`),
+Git, ambientes virtuais, caches, testes, workflows, artefatos `.build`, uploads
+locais, screenshots e configuração `.devin`. Não há lista de arquivos
+permitidos no Dockerfile; novas exclusões funcionais devem ser avaliadas com
+os desenvolvedores. Executa como UID/GID `10001`, escuta na porta 8080 e mantém
+`/app/uploads/_chunks` gravável: uploads em chunks usam disco temporário mesmo
+com S3. Esse diretório não é persistente nem compartilhado entre réplicas;
+afinidade/persistência de uploads retomáveis é uma decisão de infraestrutura
+separada, não resolvida por esta imagem.
+
+O argumento `BASE_IMAGE` aceita outra base Python 3.12 compatível; o padrão é
+`python:3.12-slim-trixie`. Não há runtime Python própria no GAR.
+Pip permanece disponível, sem cache de instalação; não há compilador na
+imagem final. As dependências atuais têm wheels compatíveis com essa base.
+Se uma dependência futura precisar de compilação, ferramentas devem ficar
+fora da imagem final; reavaliar o empacotamento específico dessa dependência.
+O empacotamento usa root para instalar dependências e ajustar os diretórios;
+o processo final sempre executa como `10001:10001`, inclusive na base oficial.
+
+Parâmetros do job: `SOURCE_BRANCH` (padrão `development`) e `AMBIENTE`
+(`gke-prd`). Faz checkout com `github-repositories`, publica
+`idesp-prod-apps/treinamento-idesp-api:<data>-<sha>` e aplica o manifesto com
+`kubeconfig-gke-prd`. Imagem, container, Deployment, Service, Ingress e HPA
+usam `treinamento-idesp-api`; o arquivo é `k8s/treinamento-idesp-api.yaml`.
+O rollout usa namespace/nome lidos do manifesto e tenta
+rollback em caso de falha.
+
+Endereço público no GKE: `https://igc.idesp.sp.gov.br/treinamento-api`
+(interface em `/treinamento`). O Ingress é minion do master `edge/igc-host` e
+remove o prefixo, então a app continua servindo `/api/v1` e `/health`;
+`ROOT_PATH=/treinamento-api` só ajusta OpenAPI, `/docs` e `tokenUrl`.
+
+Renomear recursos não migra nem remove objetos Kubernetes existentes.
+Se `treinamento-backend` já estiver no cluster, planejar a troca e retirada
+controlada dos recursos antigos, evitando dois Ingresses para o mesmo host
+e workloads duplicados. Secrets externos mantêm seus nomes atuais.
+
+As migrações rodam no startup do container: o `CMD` do Dockerfile executa
+`python verify_initial_db.py` antes do uvicorn. Banco vazio recebe `create_all()` +
+`alembic stamp head`; depois sempre roda `alembic upgrade head` (no-op se já está na head),
+com `pg_advisory_lock` para réplicas simultâneas. Banco com tabelas e sem
+`lms.alembic_version` impede o container de subir até ser reconciliado à mão.
+Conferir depois em `/health → checks.migrations`.
+
+### Build local com as mesmas bases
+
+Requer Docker e acesso às imagens oficiais e ao índice de pacotes:
+
+```bash
+docker build -t treinamento-idesp-api:local .
+```
+
+Para substituir explicitamente a base padrão:
+
+```bash
+docker build --build-arg BASE_IMAGE=python:3.12-slim-trixie \
+  -t treinamento-idesp-api:local .
+```
+
+Ambos os comandos partem apenas do source; o Docker instala os requirements.
+Não há leitura de uma base privada do GAR nem multistage.
+
+### Compatibilidade com deploy AWS / Fly
+
+O [deploy automático AWS](.github/workflows/deploy.yml) de
+`development`/`homologacao` envia o source no tarball e executa `docker build`,
+como antes, usando a base oficial padrão. O Dockerfile instala as dependências durante
+esse build. O processo da aplicação passa a executar como UID/GID 10001 também
+nesse fluxo; conferir permissões de qualquer volume de uploads existente.
+
+O exemplo Fly usa o mesmo Dockerfile e sua base padrão, sem preparo externo.
+O nome legado `treinamento-backend` no workflow AWS é preservado porque o
+Docker Compose da EC2 é externo a este repositório. A padronização acima
+abrange Jenkins/GAR/GKE; não altera esse contrato do deploy AWS.
+
+Esta branch parte de `feature/k8s-manifesto` e retorna para ela por PR.
+Depois de integrar o manifesto e estas alterações em `development` e a pipeline
+em `IDESP-CICD/master`, executar **Sincronizar pipelines** e iniciar o job real
+manualmente. A execução inicial do sincronizador é cancelada. Antes da integração,
+é possível testar `SOURCE_BRANCH` com a branch do PR da aplicação.
+O merge em `development` ainda dispara deploy AWS; exige as verificações de
+migração e aprovação operacional habituais.
+
+O [CI](.github/workflows/ci.yml) permanece no formato original: lint, imports,
+verificações de segurança e pytest para pushes/PRs de `main`. Não constrói
+imagens Docker. O build/deploy pertence ao workflow de deploy e ao Jenkins.
+
+### Depuração do empacotamento
+
+```bash
+docker run --rm treinamento-idesp-api:local python -m uvicorn --version
+docker run --rm treinamento-idesp-api:local python -m alembic heads
+kubectl -n apps rollout status deployment/treinamento-idesp-api --timeout=5m
+kubectl -n apps logs deployment/treinamento-idesp-api --tail=100
+```
+
+| Sintoma | Causa provável |
+|---|---|
+| `pip install` falha no build | Versões incompatíveis, acesso ao índice de pacotes ou wheel ausente; conferir log do Docker build |
+| Agente em `ImagePullBackOff` | Tag `jenkins-agent-python:python3.12` ausente ou agente JCasC não aplicado |
+| Import de extensão nativa falha | Pacote ou biblioteca do sistema incompatível com Python / distribuição / arquitetura |
+| Upload retorna erro de permissão | Volume montado em `/app/uploads` não permite escrita pelo UID 10001 |
+| Rollout falha | Conferir eventos, Secrets, probes e logs; o rollback não desfaz migrações |
+| Build tenta ler a runtime GAR antiga | Dockerfile desatualizado ou override antigo de `BASE_IMAGE` |
+
 ## Testes
 
 O projeto possui **49 testes de integração** que batem contra **PostgreSQL real** e **S3 real** (ou local storage). Nenhum mock — cada teste cria/consulta/limpa dados de verdade via API HTTP.
@@ -84,7 +224,8 @@ pytest tests/test_auth.py -x            # para no primeiro erro
 | `SMTP_FROM` | `noreply@lms-idesp.com` | Remetente de emails |
 | `SMTP_TLS` | `true` | TLS no SMTP |
 | `RESET_TOKEN_EXPIRE_MINUTES` | `60` | Expiração do token de redefinição de senha |
-| `BASE_URL` | `http://localhost:8000/api/v1` | URL base para links nos emails |
+| `BASE_URL` | `http://localhost:8000/api/v1` | URL pública da API para links nos emails e no QR Code do certificado |
+| `ROOT_PATH` | `""` | Prefixo público quando um proxy o remove antes da app (GKE: `/treinamento-api`) |
 
 ---
 

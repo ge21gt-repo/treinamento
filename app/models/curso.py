@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -145,7 +145,11 @@ class MensagemAula(Base):
 
 class AulaSincrona(Base):
     __tablename__ = "aulas_sincronas"
-    __table_args__ = {"schema": "lms", "extend_existing": True}
+    # Nome exato da migration 003.
+    __table_args__ = (
+        Index("ix_aulas_sincronas_codigo_acesso", "codigo_acesso"),
+        {"schema": "lms", "extend_existing": True},
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     curso_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.cursos.id", ondelete="CASCADE"), nullable=False)
@@ -153,7 +157,7 @@ class AulaSincrona(Base):
     descricao: Mapped[str | None] = mapped_column(Text)
     data_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     data_hora_fim: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    codigo_acesso: Mapped[str | None] = mapped_column(String(20), index=True)
+    codigo_acesso: Mapped[str | None] = mapped_column(String(20))
     link_externo: Mapped[str | None] = mapped_column(Text)
     duracao_minutos: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="agendada")
@@ -165,7 +169,8 @@ class AulaSincrona(Base):
 
 class PresencaAula(Base):
     __tablename__ = "presenca_aula"
-    __table_args__ = {"schema": "lms"}
+    # Nome exato da migration 008.
+    __table_args__ = (Index("ix_presenca_aula_aula_id", "aula_id"), {"schema": "lms"})
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     aula_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.aulas_sincronas.id", ondelete="CASCADE"), nullable=False)

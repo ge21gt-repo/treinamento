@@ -92,7 +92,7 @@ class ChunkedUploadTracker:
             shutil.rmtree(chunk_dir)
 
     @staticmethod
-    def complete_and_store(upload_id: str) -> str:
+    def complete_and_store(upload_id: str) -> tuple[str, int]:
         content, filename, folder = ChunkedUploadTracker.assemble(upload_id)
         target_dir = Path("./uploads") / folder
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -101,4 +101,4 @@ class ChunkedUploadTracker:
         path = target_dir / name
         path.write_bytes(content)
         ChunkedUploadTracker.cleanup(upload_id)
-        return f"/uploads/{folder}/{name}"
+        return f"/uploads/{folder}/{name}", len(content)

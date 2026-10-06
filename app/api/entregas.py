@@ -25,7 +25,7 @@ async def criar_entrega(
     current_user: Usuario = Depends(require_permissao(Permissoes.ENTREGA_CRIAR)),
 ):
     try:
-        url = await upload_file(arquivo, "exercicios")
+        url, tamanho = await upload_file(arquivo, "exercicios")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     entrega = EntregaAtividade(
@@ -35,6 +35,7 @@ async def criar_entrega(
         descricao=descricao,
         mime_type=arquivo.content_type,
         url_arquivo=url,
+        tamanho_bytes=tamanho,
     )
     db.add(entrega)
     await db.commit()
