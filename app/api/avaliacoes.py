@@ -581,10 +581,9 @@ async def submeter_avaliacao(
 
     from app.services.avaliacao import calcular_nota
 
-    nota, aprovado = await calcular_nota(
+    nota, aprovado, aguardando_correcao = await calcular_nota(
         db,
         avaliacao,
-        questoes_ids,
         respostas_alternativas,
         usuario_id=current_user.id,
         tentativa_num=tentativa_num,
@@ -623,7 +622,7 @@ async def submeter_avaliacao(
     await db.commit()
     await db.refresh(resultado)
 
-    return {"message": "Avaliacao submetida com sucesso", "resultado_id": resultado.id, "tentativa": tentativa_num, "nota": float(nota), "aprovado": aprovado}
+    return {"message": "Avaliacao submetida com sucesso", "resultado_id": resultado.id, "tentativa": tentativa_num, "nota": float(nota), "aprovado": aprovado, "aguardando_correcao": aguardando_correcao}
 
 
 # --- Respostas ---
@@ -740,6 +739,16 @@ async def obter_resultado_com_feedback(
         await db.execute(select(Questao).where(Questao.avaliacao_id == avaliacao_id).order_by(Questao.ordem))
     ).scalars().all()
 
+    # Issue #90: regra de quando o aluno pode ver o gabarito (correta/comentario).
+    avaliacao = await db.get(Avaliacao, avaliacao_id)
+    pode_ver_gabarito = True
+    if avaliacao is not None:
+        regra = avaliacao.mostrar_gabarito or "sempre"
+        if regra == "apos_aprovacao":
+            pode_ver_gabarito = bool(resultado.aprovado)
+        elif regra == "ao_esgotar_tentativas":
+            pode_ver_gabarito = tentativa >= avaliacao.tentativas_max
+
     respostas_por_questao = {r.questao_id: r for r in respostas}
     questoes_read = []
     for q in questoes:
@@ -758,7 +767,12 @@ async def obter_resultado_com_feedback(
             escolhida = resp is not None and resp.alternativa_id == a.id
             alternativas_read.append(
                 ResultadoFeedbackAlternativa(
-                    id=a.id, texto=a.texto, correta=a.correta, escolhida=escolhida, ordem=a.ordem
+                    id=a.id,
+                    texto=a.texto,
+                    correta=a.correta if pode_ver_gabarito else None,
+                    comentario=a.comentario if pode_ver_gabarito else None,
+                    escolhida=escolhida,
+                    ordem=a.ordem,
                 )
             )
             if escolhida and a.correta:
@@ -785,11 +799,14 @@ async def obter_resultado_com_feedback(
 
     from app.schemas.avaliacao import ResultadoFeedbackRead
 
+    aguardando_correcao = await _tem_correcao_pendente(db, current_user.id, tentativa, avaliacao_id)
+
     return ResultadoFeedbackRead(
         resultado_id=resultado.id,
         avaliacao_id=avaliacao_id,
         nota=resultado.nota,
         aprovado=resultado.aprovado,
+        aguardando_correcao=aguardando_correcao,
         tentativa_num=resultado.tentativa_num,
         tempo_gasto_seg=resultado.tempo_gasto_seg,
         realizado_em=resultado.realizado_em,
@@ -991,11 +1008,6 @@ async def corrigir_resposta_dissertativa(
     if resultado is not None:
         from app.services.avaliacao import calcular_nota
 
-        questoes_db = (
-            await db.execute(select(Questao).where(Questao.avaliacao_id == questao.avaliacao_id))
-        ).scalars().all()
-        questoes_ids = {q.id for q in questoes_db}
-
         respostas_usuario = (
             await db.execute(
                 select(RespostaParticipante).where(
@@ -1010,16 +1022,25 @@ async def corrigir_resposta_dissertativa(
             if r.alternativa_id is not None:
                 respostas_alternativas[r.questao_id] = r.alternativa_id
 
-        nota, aprovado = await calcular_nota(
+        nota, aprovado, aguardando_correcao = await calcular_nota(
             db,
             avaliacao,
-            questoes_ids,
             respostas_alternativas,
             usuario_id=resposta.usuario_id,
             tentativa_num=resposta.tentativa_num,
         )
         resultado.nota = nota
         resultado.aprovado = aprovado
+
+        # Issue #88: ao corrigir a ultima dissertativa pendente, se aprovado,
+        # concluir a unidade (o submeter nao conclui enquanto havia pendencia).
+        if not aguardando_correcao and aprovado and avaliacao and avaliacao.unidade_id:
+            from app.services.progresso import concluir_unidade
+
+            try:
+                await concluir_unidade(db, resposta.usuario_id, avaliacao.unidade_id, 0)
+            except ValueError:
+                pass
 
     await db.commit()
     await db.refresh(resposta)
@@ -1047,23 +1068,36 @@ async def listar_resultados_usuario(
     return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
 
 
+async def _tem_correcao_pendente(
+    db: AsyncSession,
+    usuario_id,
+    tentativa_num: int,
+    avaliacao_id: int,
+) -> bool:
+    """Ha dissertativa desta tentativa ainda sem correcao (issue #88)."""
+    pendentes = await db.scalar(
+        select(func.count(RespostaParticipante.id)).join(
+            Questao, Questao.id == RespostaParticipante.questao_id
+        ).where(
+            RespostaParticipante.usuario_id == usuario_id,
+            RespostaParticipante.tentativa_num == tentativa_num,
+            Questao.avaliacao_id == avaliacao_id,
+            Questao.tipo == "dissertativa",
+            RespostaParticipante.pontuacao_atribuida.is_(None),
+        )
+    )
+    return bool(pendentes)
+
+
 async def _resultado_com_aguardando(
     db: AsyncSession,
     resultado: ResultadoAvaliacao,
 ) -> ResultadoAvaliacaoRead:
     """Preenche aguardando_correcao no ResultadoAvaliacaoRead (issue 11)."""
-    pendentes = await db.scalar(
-        select(func.count(RespostaParticipante.id)).join(
-            Questao, Questao.id == RespostaParticipante.questao_id
-        ).where(
-            RespostaParticipante.usuario_id == resultado.usuario_id,
-            RespostaParticipante.tentativa_num == resultado.tentativa_num,
-            Questao.avaliacao_id == resultado.avaliacao_id,
-            Questao.tipo == "dissertativa",
-            RespostaParticipante.pontuacao_atribuida.is_(None),
-        )
+    aguardando = await _tem_correcao_pendente(
+        db, resultado.usuario_id, resultado.tentativa_num, resultado.avaliacao_id
     )
     return ResultadoAvaliacaoRead(
         **ResultadoAvaliacaoRead.model_validate(resultado).model_dump(exclude={"aguardando_correcao"}),
-        aguardando_correcao=bool(pendentes),
+        aguardando_correcao=aguardando,
     )

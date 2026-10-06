@@ -24,6 +24,40 @@ ALLOWED_MIME_TYPES: dict[str, list[str]] = {
 }
 FLAT_ALLOWED = {mime for group in ALLOWED_MIME_TYPES.values() for mime in group}
 
+# Issue #92: navegadores (principalmente no Windows) mandam variantes de
+# Content-Type para o mesmo tipo. Normaliza para o valor canonico aceito.
+MIME_ALIASES: dict[str, str] = {
+    "application/x-zip-compressed": "application/zip",
+    "application/x-zip": "application/zip",
+    "application/x-pdf": "application/pdf",
+    "application/acrobat": "application/pdf",
+    "application/vnd.pdf": "application/pdf",
+}
+
+# Issue #92: quando o Content-Type vem vazio ou generico
+# (application/octet-stream), infere pelo tipo real da extensao do arquivo.
+EXT_TO_MIME: dict[str, str] = {
+    ".mp4": "video/mp4", ".webm": "video/webm", ".avi": "video/x-msvideo",
+    ".pdf": "application/pdf",
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
+    ".zip": "application/zip",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+def normalizar_mime(content_type: str | None, filename: str | None) -> str | None:
+    """Resolve o Content-Type efetivo (issue #92): aplica aliases e, se vier
+    vazio/octet-stream, infere pela extensao. Retorna None se nao reconhecer."""
+    ct = (content_type or "").split(";")[0].strip().lower()
+    if ct and ct != "application/octet-stream":
+        return MIME_ALIASES.get(ct, ct)
+    ext = Path(filename or "").suffix.lower()
+    return EXT_TO_MIME.get(ext)
+
 
 async def _upload_local(file: UploadFile, folder: str) -> str:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -89,9 +123,12 @@ def _parse_s3_url(url: str) -> tuple[str, str]:
 
 
 async def validate_mime(file: UploadFile) -> str:
-    if file.content_type not in FLAT_ALLOWED:
+    mime = normalizar_mime(file.content_type, file.filename)
+    if mime not in FLAT_ALLOWED:
         raise ValueError(f"Tipo de arquivo não permitido: {file.content_type}")
-    return file.content_type
+    # Normaliza no proprio UploadFile para o storage gravar o ContentType certo.
+    file.content_type = mime
+    return mime
 
 
 async def validate_size(file: UploadFile) -> int:

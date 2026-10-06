@@ -9,15 +9,19 @@ from app.models.avaliacao import Alternativa, Avaliacao, Questao, RespostaPartic
 async def calcular_nota(
     db: AsyncSession,
     avaliacao: Avaliacao,
-    questoes_ids: set[int],
     respostas_alternativas: dict[int, int | None],
     usuario_id=None,
     tentativa_num=None,
-) -> tuple[Decimal, bool]:
+) -> tuple[Decimal, bool, bool]:
+    """Calcula a nota da avaliacao (issue #88).
+
+    O total considera TODAS as questoes da avaliacao, nao apenas as enviadas no
+    payload. A dissertativa ainda sem correcao entra no total e marca
+    `aguardando_correcao`; enquanto houver pendencia a avaliacao nao e aprovada.
+    Retorna (nota, aprovado, aguardando_correcao).
+    """
     questoes = (
-        await db.execute(
-            select(Questao).where(Questao.avaliacao_id == avaliacao.id, Questao.id.in_(questoes_ids))
-        )
+        await db.execute(select(Questao).where(Questao.avaliacao_id == avaliacao.id))
     ).scalars().all()
 
     dissertativas_ids = [q.id for q in questoes if q.tipo == "dissertativa"]
@@ -37,13 +41,15 @@ async def calcular_nota(
 
     pontuacao_total = Decimal("0")
     pontuacao_obtida = Decimal("0")
+    aguardando_correcao = False
     for q in questoes:
         if q.tipo == "dissertativa":
+            pontuacao_total += q.pontuacao
             corrigida = dissertativas_corrigidas.get(q.id)
             if corrigida is None:
-                continue
-            pontuacao_total += q.pontuacao
-            pontuacao_obtida += corrigida.pontuacao_atribuida or Decimal("0")
+                aguardando_correcao = True
+            else:
+                pontuacao_obtida += corrigida.pontuacao_atribuida or Decimal("0")
             continue
         tem_alternativas = await db.scalar(
             select(func.count(Alternativa.id)).where(Alternativa.questao_id == q.id)
@@ -57,9 +63,9 @@ async def calcular_nota(
             if alt and alt.questao_id == q.id and alt.correta:
                 pontuacao_obtida += q.pontuacao
     if pontuacao_total == 0:
-        return (Decimal("0"), False)
+        return (Decimal("0"), False, aguardando_correcao)
 
     nota = (pontuacao_obtida / pontuacao_total) * Decimal("100")
     nota = nota.quantize(Decimal("0.01"))
-    aprovado = nota >= avaliacao.nota_minima
-    return (nota, aprovado)
+    aprovado = nota >= avaliacao.nota_minima and not aguardando_correcao
+    return (nota, aprovado, aguardando_correcao)

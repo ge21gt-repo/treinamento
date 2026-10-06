@@ -22,6 +22,7 @@ class Avaliacao(Base):
     tentativas_max: Mapped[int] = mapped_column(Integer, default=3)
     tempo_limite_min: Mapped[int | None] = mapped_column(Integer)
     ativa: Mapped[bool] = mapped_column(Boolean, default=True)
+    mostrar_gabarito: Mapped[str] = mapped_column(String(30), server_default="sempre", default="sempre")
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     questoes: Mapped[list["Questao"]] = relationship(back_populates="avaliacao", cascade="all, delete-orphan")
@@ -62,6 +63,7 @@ class Alternativa(Base):
     questao_id: Mapped[int] = mapped_column(Integer, ForeignKey("lms.questoes.id", ondelete="CASCADE"), nullable=False)
     texto: Mapped[str] = mapped_column(Text, nullable=False)
     correta: Mapped[bool] = mapped_column(Boolean, default=False)
+    comentario: Mapped[str | None] = mapped_column(Text)
     ordem: Mapped[int] = mapped_column(Integer, default=0)
 
     questao: Mapped["Questao"] = relationship(back_populates="alternativas")
