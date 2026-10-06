@@ -80,6 +80,8 @@ class Unidade(Base):
     ordem: Mapped[int] = mapped_column(Integer, default=0)
     duracao_estimada: Mapped[int | None] = mapped_column(Integer)
     conteudo_url: Mapped[str | None] = mapped_column(Text)
+    conteudo_texto: Mapped[str | None] = mapped_column(Text)
+    formato_texto: Mapped[str] = mapped_column(String(10), server_default="texto", default="texto")
     url_externa: Mapped[str | None] = mapped_column(Text)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

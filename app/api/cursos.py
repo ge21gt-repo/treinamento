@@ -360,7 +360,15 @@ async def criar_unidade(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.CURSO_UNIDADE_CRIAR)),
 ):
-    unidade = Unidade(**payload.model_dump())
+    data = payload.model_dump()
+    if data.get("formato_texto") == "html" and data.get("conteudo_texto"):
+        from app.services.sanitize import sanitizar_html
+
+        try:
+            data["conteudo_texto"] = sanitizar_html(data["conteudo_texto"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+    unidade = Unidade(**data)
     db.add(unidade)
     await db.commit()
     await db.refresh(unidade)
@@ -393,7 +401,16 @@ async def atualizar_unidade(
     unidade = result.scalar_one_or_none()
     if not unidade:
         raise HTTPException(status_code=404, detail="Unidade nao encontrada")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    formato = data.get("formato_texto", unidade.formato_texto)
+    if formato == "html" and data.get("conteudo_texto"):
+        from app.services.sanitize import sanitizar_html
+
+        try:
+            data["conteudo_texto"] = sanitizar_html(data["conteudo_texto"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+    for field, value in data.items():
         setattr(unidade, field, value)
     await db.commit()
     await db.refresh(unidade)
@@ -935,6 +952,8 @@ async def consumo_curso(
                     "tipo": u.tipo,
                     "ordem": u.ordem,
                     "conteudo_url": u.conteudo_url,
+                    "conteudo_texto": u.conteudo_texto,
+                    "formato_texto": u.formato_texto,
                     "url_externa": u.url_externa,
                     "conteudos": [
                         {

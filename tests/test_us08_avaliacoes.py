@@ -43,9 +43,9 @@ async def _setup_avaliacao_mista(client, nota_minima=50):
 
 
 class TestBugNotaDissertativa:
-    """Issue #46 — dissertativa pendente nao pode inflar o denominador"""
+    """Issue #88 (substitui o #46) — a dissertativa pendente entra no total"""
 
-    async def test_dissertativa_pendente_nao_penaliza_objetivas(self, client):
+    async def test_dissertativa_pendente_entra_no_total_e_nao_aprova(self, client):
         setup = await _setup_avaliacao_mista(client)
         r = await client.post(
             f"/api/v1/avaliacoes/{setup['av_id']}/submeter",
@@ -58,8 +58,11 @@ class TestBugNotaDissertativa:
         )
         assert r.status_code == status.HTTP_201_CREATED
         data = r.json()
-        assert data["aprovado"] is True
-        assert data["nota"] == 100.0, f"Esperava 100 com dissertativa pendente, veio {data['nota']}"
+        # 10 de 20 pontos: a dissertativa pendente conta no denominador e a
+        # aprovacao fica bloqueada ate a correcao.
+        assert data["nota"] == 50.0, f"Esperava 50 com dissertativa pendente, veio {data['nota']}"
+        assert data["aprovado"] is False
+        assert data["aguardando_correcao"] is True
 
     async def test_dissertativa_pendente_sem_objetiva_certa_zerada(self, client):
         setup = await _setup_avaliacao_mista(client)
