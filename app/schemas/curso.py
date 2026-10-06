@@ -103,6 +103,8 @@ class UnidadeBase(BaseModel):
     ordem: int = 0
     duracao_estimada: int | None = None
     conteudo_url: str | None = None
+    conteudo_texto: str | None = None
+    formato_texto: str = "texto"
     url_externa: str | None = None
 
 
@@ -116,6 +118,8 @@ class UnidadeUpdate(BaseModel):
     ordem: int | None = None
     duracao_estimada: int | None = None
     conteudo_url: str | None = None
+    conteudo_texto: str | None = None
+    formato_texto: str | None = None
     url_externa: str | None = None
 
 

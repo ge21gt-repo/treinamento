@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_permissao
 from app.database import get_db
 from app.models.conteudo import Conteudo, MaterialComplementar
-from app.models.usuario import Usuario
+from app.models.curso import Curso, Modulo, Unidade
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.services.paginacao import apply_search, count_query
 from app.schemas.conteudo import (
     ConteudoCreate,
@@ -19,10 +20,49 @@ from app.schemas.conteudo import (
     UploadChunkedStatusResponse,
 )
 from app.services.chunked_upload import ChunkedUploadTracker
-from app.services.rbac import Permissoes
+from app.services.rbac import Permissoes, has_permission
 from app.services.storage import delete_file, upload_file
 
 router = APIRouter(prefix="/conteudos", tags=["Conteudos"])
+
+
+async def _pode_gerenciar_conteudo(db: AsyncSession, usuario: Usuario) -> bool:
+    """Quem tem permissao de criar conteudo ve tambem curso rascunho (issue #102)."""
+    perfis = (
+        await db.execute(
+            select(Perfil).join(UsuarioPerfil).where(UsuarioPerfil.usuario_id == usuario.id)
+        )
+    ).scalars().all()
+    return any(has_permission(p.nome, Permissoes.CONTEUDO_CRIAR) for p in perfis)
+
+
+async def _curso_do_conteudo(db: AsyncSession, conteudo: Conteudo) -> Curso | None:
+    if conteudo.unidade_id is None:
+        return None
+    return (
+        await db.execute(
+            select(Curso)
+            .join(Modulo, Modulo.curso_id == Curso.id)
+            .join(Unidade, Unidade.modulo_id == Modulo.id)
+            .where(Unidade.id == conteudo.unidade_id)
+        )
+    ).scalar_one_or_none()
+
+
+async def _conteudo_visivel(db: AsyncSession, conteudo: Conteudo, usuario: Usuario) -> None:
+    """404 se o conteudo for de curso ainda nao publicado e o usuario nao o gerencia."""
+    curso = await _curso_do_conteudo(db, conteudo)
+    if curso is not None and not curso.publicado:
+        if not await _pode_gerenciar_conteudo(db, usuario):
+            raise HTTPException(status_code=404, detail="Conteudo nao encontrado")
+
+
+def _conteudo_read(conteudo: Conteudo, curso: Curso | None, unidade: Unidade | None) -> ConteudoRead:
+    read = ConteudoRead.model_validate(conteudo)
+    read.curso_id = curso.id if curso else None
+    read.curso_titulo = curso.titulo if curso else None
+    read.unidade_titulo = unidade.titulo if unidade else None
+    return read
 
 
 @router.get("", response_model=list[ConteudoRead])
@@ -33,17 +73,24 @@ async def listar_conteudos(
     q: str | None = Query(None, description="Busca textual por titulo ou descricao"),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_VISUALIZAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_VISUALIZAR)),
 ):
-    query = select(Conteudo)
+    query = (
+        select(Conteudo, Curso, Unidade)
+        .outerjoin(Unidade, Unidade.id == Conteudo.unidade_id)
+        .outerjoin(Modulo, Modulo.id == Unidade.modulo_id)
+        .outerjoin(Curso, Curso.id == Modulo.curso_id)
+    )
     if unidade_id is not None:
         query = query.where(Conteudo.unidade_id == unidade_id)
     query = apply_search(query, [Conteudo.titulo, Conteudo.descricao], q)
+    # Issue #102: quem nao gerencia conteudo so ve material de curso publicado.
+    if not await _pode_gerenciar_conteudo(db, current_user):
+        query = query.where(or_(Conteudo.unidade_id.is_(None), Curso.publicado.is_(True)))
     total = await count_query(db, query)
     result = await db.execute(query.order_by(Conteudo.ordem).offset(skip).limit(limit))
-    items = result.scalars().all()
     response.headers["X-Total-Count"] = str(total)
-    return items
+    return [_conteudo_read(c, curso, unidade) for (c, curso, unidade) in result.all()]
 
 
 @router.post("", response_model=ConteudoRead, status_code=status.HTTP_201_CREATED)
@@ -193,12 +240,13 @@ async def completar_upload_chunked(
 async def obter_conteudo(
     conteudo_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_VISUALIZAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_VISUALIZAR)),
 ):
     result = await db.execute(select(Conteudo).where(Conteudo.id == conteudo_id))
     conteudo = result.scalar_one_or_none()
     if not conteudo:
         raise HTTPException(status_code=404, detail="Conteudo nao encontrado")
+    await _conteudo_visivel(db, conteudo, current_user)
     return conteudo
 
 
@@ -206,12 +254,13 @@ async def obter_conteudo(
 async def player_conteudo(
     conteudo_id: int,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_VISUALIZAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_VISUALIZAR)),
 ):
     result = await db.execute(select(Conteudo).where(Conteudo.id == conteudo_id))
     conteudo = result.scalar_one_or_none()
     if not conteudo:
         raise HTTPException(status_code=404, detail="Conteudo nao encontrado")
+    await _conteudo_visivel(db, conteudo, current_user)
     return conteudo
 
 

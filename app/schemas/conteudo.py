@@ -37,6 +37,10 @@ class ConteudoRead(ConteudoBase):
     criado_por: uuid.UUID | None = None
     criado_em: datetime
     disponivel: bool = True
+    # Issue #102: contexto para a busca levar a pessoa ate o conteudo.
+    curso_id: int | None = None
+    curso_titulo: str | None = None
+    unidade_titulo: str | None = None
 
     @computed_field
     @property

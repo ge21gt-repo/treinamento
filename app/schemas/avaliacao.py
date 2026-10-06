@@ -5,6 +5,7 @@ from decimal import Decimal
 from pydantic import BaseModel, field_serializer, field_validator
 
 TIPOS_QUESTAO = {"multipla_escolha", "verdadeiro_falso", "dissertativa"}
+MOSTRAR_GABARITO = {"sempre", "apos_aprovacao", "ao_esgotar_tentativas"}
 
 
 class AvaliacaoBase(BaseModel):
@@ -16,6 +17,14 @@ class AvaliacaoBase(BaseModel):
     tentativas_max: int = 3
     tempo_limite_min: int | None = None
     ativa: bool = True
+    mostrar_gabarito: str = "sempre"
+
+    @field_validator("mostrar_gabarito")
+    @classmethod
+    def validar_mostrar_gabarito(cls, v: str) -> str:
+        if v not in MOSTRAR_GABARITO:
+            raise ValueError(f"mostrar_gabarito deve ser um de: {', '.join(sorted(MOSTRAR_GABARITO))}")
+        return v
 
 
 class AvaliacaoCreate(AvaliacaoBase):
@@ -30,6 +39,14 @@ class AvaliacaoUpdate(BaseModel):
     tentativas_max: int | None = None
     tempo_limite_min: int | None = None
     ativa: bool | None = None
+    mostrar_gabarito: str | None = None
+
+    @field_validator("mostrar_gabarito")
+    @classmethod
+    def validar_mostrar_gabarito(cls, v: str | None) -> str | None:
+        if v is not None and v not in MOSTRAR_GABARITO:
+            raise ValueError(f"mostrar_gabarito deve ser um de: {', '.join(sorted(MOSTRAR_GABARITO))}")
+        return v
 
 
 class AvaliacaoRead(AvaliacaoBase):
@@ -85,6 +102,7 @@ class AlternativaBase(BaseModel):
     questao_id: int
     texto: str
     correta: bool = False
+    comentario: str | None = None
     ordem: int = 0
 
 
@@ -101,6 +119,7 @@ class AlternativaRead(AlternativaBase):
 class AlternativaUpdate(BaseModel):
     texto: str | None = None
     correta: bool | None = None
+    comentario: str | None = None
     ordem: int | None = None
 
 
@@ -256,7 +275,8 @@ class EstatisticaQuestaoRead(BaseModel):
 class ResultadoFeedbackAlternativa(BaseModel):
     id: int
     texto: str
-    correta: bool
+    correta: bool | None = None
+    comentario: str | None = None
     escolhida: bool
     ordem: int = 0
 
@@ -284,7 +304,12 @@ class ResultadoFeedbackRead(BaseModel):
     avaliacao_id: int
     nota: Decimal
     aprovado: bool
+    aguardando_correcao: bool = False
     tentativa_num: int
     tempo_gasto_seg: int | None = None
     realizado_em: datetime
     questoes: list[ResultadoFeedbackQuestao] = []
+
+    @field_serializer("nota")
+    def _serializar_nota(self, v: Decimal) -> float:
+        return float(v)
