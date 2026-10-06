@@ -332,6 +332,7 @@ class InscricaoTrilhaTurmaRead(BaseModel):
 
 
 class TrilhaProgressoRead(BaseModel):
+    inscricao_id: int | None = None
     trilha_id: int
     titulo: str
     nivel: str

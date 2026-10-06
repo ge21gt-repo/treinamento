@@ -20,6 +20,9 @@ class Settings(BaseSettings):
 
     RESET_TOKEN_EXPIRE_MINUTES: int = 60
     BASE_URL: str = "http://localhost:8000/api/v1"
+    # Prefixo publico quando a API fica atras de um proxy que o remove
+    # (ex.: /treinamento-api). Vazio = API na raiz.
+    ROOT_PATH: str = ""
 
     # Fuso para exibir datas em textos formatados no backend (ex.: corpo de
     # notificacao) -- nao vem do front, ver issue 40 para o porque.
@@ -54,6 +57,11 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_ID: str = ""
     KEYCLOAK_CLIENT_SECRET: str = ""
     KEYCLOAK_JWKS_URI: str = ""
+
+    # Se True (padrao), o participante provisionado via Keycloak nasce APROVADO
+    # (ativo) — comportamento original. Se False, nasce pendente + solicitacao
+    # de credenciamento para o admin aprovar (fluxo antigo). Reversivel via .env.
+    KEYCLOAK_PARTICIPANTE_APROVADO: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

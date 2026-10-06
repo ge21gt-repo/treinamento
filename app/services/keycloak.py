@@ -123,21 +123,17 @@ def validar_token_keycloak(token: str) -> dict | None:
 
 
 def mapear_roles_keycloak(payload: dict) -> list[str]:
-    """Extrai roles de `realm_access` e de qualquer client em `resource_access`.
+    """Extrai as roles TRE_* do client do LMS (`treinamento-front`) no token.
 
-    Aceita roles de qualquer client (ex.: `treinamento-front` no browser e
-    `treinamento-testes` via API) — o que importa é o que o crachá diz, não de
-    qual porta ele veio.
+    So le `resource_access[KEYCLOAK_CLIENT_ID]` — ignora `realm_access` e roles
+    de outros clients (ex.: `gestor` de outro sistema nao vira perfil aqui).
     """
+    client = settings.KEYCLOAK_CLIENT_ID
     roles: set[str] = set()
-    realm = payload.get("realm_access", {}) or {}
-    for r in realm.get("roles", []) or []:
-        roles.add(str(r))
     res = payload.get("resource_access", {}) or {}
-    for _client, entry in res.items():
-        entry = entry or {}
-        for r in entry.get("roles", []) or []:
-            roles.add(str(r))
+    entry = res.get(client) or {}
+    for r in entry.get("roles", []) or []:
+        roles.add(str(r))
     return sorted(roles)
 
 
@@ -182,3 +178,84 @@ def mapear_perfil_lms(roles: list[str]) -> str:
             if ROLE_KEYCLOAK_PARA_PERFIL.get(role) == perfil:
                 return perfil
     return "participante"
+
+
+def mapear_perfis_lms(roles: list[str]) -> list[str]:
+    """Converte roles do Keycloak em TODOS os perfis LMS correspondentes.
+
+    Ex.: `TRE_GESTOR` + `TRE_INSTRUTOR` -> `["gestor", "instrutor"]`.
+    `TRE_ADM` + `TRE_PARTICIPANTE` -> `["administrador_geral"]` (descarta o
+    participante quando ja existe um perfil de gestao, que e redundante).
+
+    Role desconhecida ou token sem role -> `["participante"]` (padrão).
+    """
+    perfis: list[str] = []
+    for role in roles:
+        p = ROLE_KEYCLOAK_PARA_PERFIL.get(role)
+        if p and p not in perfis:
+            perfis.append(p)
+    # Decisao de produto (01/10/2026): o LMS espelha TODAS as roles. Quem e
+    # TRE_ADM + TRE_PARTICIPANTE tem acesso as duas visoes (admin e participante).
+    # Nao descartar o participante quando ha outro perfil.
+    return perfis or ["participante"]
+
+
+async def sincronizar_perfis_keycloak(db, user, roles: list[str]) -> bool:
+    """Sincroniza os perfis do usuario com as roles atuais do Keycloak (issue do dev do front).
+
+    Compara os perfis esperados (via `mapear_perfis_lms`) com os `UsuarioPerfil`
+    do usuario:
+    - adiciona perfis que faltam (roles novas)
+    - remove perfis que nao estao mais nas roles (se permitido remover)
+    - se o usuario passou a ter perfil de gestao, atualiza ativo/credenciamento
+
+    Retorna True se algo mudou (o chamador deve commitar).
+    """
+    from sqlalchemy import select
+
+    from app.models.usuario import Perfil, UsuarioPerfil
+
+    esperados = mapear_perfis_lms(roles)
+    atuais = {up.perfil.nome for up in user.perfis}
+
+    mudou = False
+
+    # Adiciona perfis que faltam. Usa INSERT ... ON CONFLICT DO NOTHING para
+    # ser seguro sob concorrencia: se duas requisicoes paralelas leem o usuario
+    # sem o perfil novo e tentam inserir o mesmo (usuario_id, perfil_id), uma
+    # ganha e a outra nao estoura IntegrityError (issue #95 ponto 3).
+    for nome in esperados:
+        if nome in atuais:
+            continue
+        perfil = (await db.execute(select(Perfil).where(Perfil.nome == nome))).scalar_one_or_none()
+        if perfil:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            stmt = (
+                pg_insert(UsuarioPerfil)
+                .values(usuario_id=user.id, perfil_id=perfil.id)
+                .on_conflict_do_nothing()
+            )
+            await db.execute(stmt)
+            mudou = True
+            atuais.add(nome)
+
+    # Remove perfis que nao estao mais nas roles. O Keycloak e a fonte da
+    # verdade (decisao 3): toda conta sem role TRE_* vira so participante,
+    # inclusive contas locais ligadas por e-mail. Idempotente.
+    for nome in list(atuais):
+        if nome not in esperados and nome in ROLE_KEYCLOAK_PARA_PERFIL.values():
+            for up in list(user.perfis):
+                if up.perfil.nome == nome:
+                    await db.delete(up)
+                    mudou = True
+                    atuais.discard(nome)
+
+    # Se passou a ter perfil de gestao, garante ativo + aprovado
+    tem_gestao = any(n != "participante" for n in atuais)
+    if tem_gestao and (not user.ativo or user.status_credenciamento != "aprovado"):
+        user.ativo = True
+        user.status_credenciamento = "aprovado"
+        mudou = True
+
+    return mudou

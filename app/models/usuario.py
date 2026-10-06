@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,7 +12,11 @@ from app.models.base import Base
 
 class Usuario(Base):
     __tablename__ = "usuarios"
-    __table_args__ = {"schema": "lms"}
+    # Nome exato da migration 21145d4bb9be.
+    __table_args__ = (
+        Index("ix_lms_usuarios_keycloak_sub", "keycloak_sub", unique=True),
+        {"schema": "lms"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     nome_completo: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -36,7 +40,7 @@ class Usuario(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     silenciado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    keycloak_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    keycloak_sub: Mapped[str | None] = mapped_column(String(255), nullable=True)
     auth_provider: Mapped[str] = mapped_column(String(20), default="local", nullable=False, server_default="local")
 
     perfis: Mapped[list["UsuarioPerfil"]] = relationship(

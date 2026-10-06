@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Integer, String, Text, func
+from sqlalchemy import DDL, Date, DateTime, Integer, String, Text, event, func
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +36,36 @@ class LogAuditoria(Base):
     dados_novos: Mapped[dict | None] = mapped_column(JSONB)
     ip_address: Mapped[str | None] = mapped_column(INET)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# Mesmo trigger da migration 179fc9c3ac09: o banco criado por create_all
+# (baseline do app.migrate e testes) nasce com log_auditoria imutavel.
+# TRUNCATE nao dispara BEFORE DELETE, entao o db_clean dos testes segue igual.
+event.listen(
+    LogAuditoria.__table__,
+    "after_create",
+    DDL(
+        """
+        CREATE OR REPLACE FUNCTION lms.prevent_log_auditoria_modify()
+        RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION 'log_auditoria e imutavel: UPDATE/DELETE nao permitido';
+        END;
+        $$ LANGUAGE plpgsql
+        """
+    ),
+)
+event.listen(
+    LogAuditoria.__table__,
+    "after_create",
+    DDL(
+        """
+        CREATE TRIGGER trg_log_auditoria_immutable
+        BEFORE UPDATE OR DELETE ON lms.log_auditoria
+        FOR EACH ROW EXECUTE FUNCTION lms.prevent_log_auditoria_modify()
+        """
+    ),
+)
 
 
 class MetricaEngajamento(Base):

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
@@ -14,12 +14,14 @@ from app.models.curso import (
     Curso,
     Inscricao,
     InscricaoTrilha,
+    MensagemCurso,
     Modulo,
     PresencaAula,
     ProgressoUnidade,
     TrilhaAprendizagem,
     Unidade,
 )
+from app.models.avaliacao import ResultadoAvaliacao
 from app.models.gamificacao import Nivel, PontosXP
 from app.models.log import LogAcesso, MetricaEngajamento
 from app.models.sessao import SessaoAoVivo
@@ -127,6 +129,85 @@ async def metricas_usuario(
         .limit(limit)
     )
     return result.scalars().all()
+
+
+@router.get("/metricas/{usuario_id}/totais")
+async def metricas_totais(
+    usuario_id: uuid.UUID,
+    de: datetime | None = Query(None, description="Inicio do periodo (ISO)"),
+    ate: datetime | None = Query(None, description="Fim do periodo (ISO)"),
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_METRICAS)),
+):
+    """Totais de engajamento calculados na hora (issue #98).
+
+    Conta nas tabelas de origem (ProgressoUnidade, ResultadoAvaliacao,
+    MensagemCurso, PresencaAula, PontosXP) com periodo `de`/`ate` — sem
+    depender do consolidado diario. Sem `de`/`ate`, o periodo inteiro.
+    """
+    inicio = de or datetime.min.replace(tzinfo=timezone.utc)
+    fim = ate or datetime.now(timezone.utc)
+
+    conteudos = (
+        await db.execute(
+            select(func.count(ProgressoUnidade.id)).where(
+                ProgressoUnidade.usuario_id == usuario_id,
+                ProgressoUnidade.concluido_em >= inicio,
+                ProgressoUnidade.concluido_em <= fim,
+            )
+        )
+    ).scalar() or 0
+
+    avaliacoes = (
+        await db.execute(
+            select(func.count(ResultadoAvaliacao.id)).where(
+                ResultadoAvaliacao.usuario_id == usuario_id,
+                ResultadoAvaliacao.realizado_em >= inicio,
+                ResultadoAvaliacao.realizado_em <= fim,
+            )
+        )
+    ).scalar() or 0
+
+    mensagens = (
+        await db.execute(
+            select(func.count(MensagemCurso.id)).where(
+                MensagemCurso.usuario_id == usuario_id,
+                MensagemCurso.criado_em >= inicio,
+                MensagemCurso.criado_em <= fim,
+            )
+        )
+    ).scalar() or 0
+
+    sessoes = (
+        await db.execute(
+            select(func.count(PresencaAula.id)).where(
+                PresencaAula.usuario_id == usuario_id,
+                PresencaAula.hora_entrada >= inicio,
+                PresencaAula.hora_entrada <= fim,
+            )
+        )
+    ).scalar() or 0
+
+    xp = (
+        await db.execute(
+            select(func.coalesce(func.sum(PontosXP.quantidade), 0)).where(
+                PontosXP.usuario_id == usuario_id,
+                PontosXP.criado_em >= inicio,
+                PontosXP.criado_em <= fim,
+            )
+        )
+    ).scalar() or 0
+
+    return {
+        "usuario_id": str(usuario_id),
+        "de": inicio.isoformat(),
+        "ate": fim.isoformat(),
+        "conteudos_acessados": conteudos,
+        "avaliacoes_realizadas": avaliacoes,
+        "mensagens_enviadas": mensagens,
+        "sessoes_assistidas": sessoes,
+        "xp_ganho": xp,
+    }
 
 
 @router.get("/relatorios/conteudos-acessados")
@@ -322,13 +403,14 @@ def _pdf_simples(titulo: str, colunas: list[str], linhas: list[dict]) -> Streami
 async def relatorio_desempenho(
     curso_id: int | None = Query(None, description="Filtra por curso"),
     trilha_id: int | None = Query(None, description="Filtra por trilha"),
+    ativo: bool | None = Query(None, description="Filtra cursos ativos (publicados) ou inativos (issue #93)"),
     data_inicio: datetime | None = Query(None),
     data_fim: datetime | None = Query(None),
     formato: str = Query("json", pattern="^(json|csv|pdf)$"),
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_RELATORIOS)),
 ):
-    """Relatorio de desempenho por curso ou trilha (T-16.4)."""
+    """Relatorio de desempenho por curso ou trilha (T-16.4), com status ativo/inativo (issue #93)."""
     if curso_id is None and trilha_id is None:
         raise HTTPException(status_code=400, detail="Informe curso_id ou trilha_id")
 
@@ -337,6 +419,8 @@ async def relatorio_desempenho(
         filtro.append(Inscricao.curso_id == curso_id)
     if trilha_id is not None:
         filtro.append(Curso.trilha_id == trilha_id)
+    if ativo is not None:
+        filtro.append(Curso.publicado.is_(ativo))
     if data_inicio is not None:
         filtro.append(Inscricao.data_inscricao >= data_inicio)
     if data_fim is not None:
@@ -347,11 +431,12 @@ async def relatorio_desempenho(
             Curso.id.label("curso_id"),
             Curso.titulo.label("curso"),
             Curso.trilha_id,
+            Curso.publicado.label("ativo"),
             func.count(Inscricao.id).label("inscritos"),
             func.count(Inscricao.id).filter(Inscricao.status == "concluido").label("concluidos"),
             func.avg(Inscricao.nota_final).filter(Inscricao.nota_final.isnot(None)).label("nota_media"),
         )
-        .join(Inscricao, Inscricao.curso_id == Curso.id)
+        .outerjoin(Inscricao, Inscricao.curso_id == Curso.id)
         .where(*filtro)
         .group_by(Curso.id)
         .order_by(Curso.id)
@@ -365,6 +450,7 @@ async def relatorio_desempenho(
                 "curso_id": row.curso_id,
                 "curso": row.curso,
                 "trilha_id": row.trilha_id,
+                "ativo": bool(row.ativo),
                 "inscritos": inscritos,
                 "concluidos": concluidos,
                 "evasao_pct": round((inscritos - concluidos) / inscritos * 100, 2) if inscritos else 0.0,
@@ -393,16 +479,93 @@ async def relatorio_desempenho(
 
     if formato == "csv":
         return _csv_stream(
-            ["curso_id", "curso", "inscritos", "concluidos", "evasao_pct", "taxa_conclusao_pct", "nota_media"],
+            ["curso_id", "curso", "ativo", "inscritos", "concluidos", "evasao_pct", "taxa_conclusao_pct", "nota_media"],
             cursos,
         )
     if formato == "pdf":
         return _pdf_simples(
             "Desempenho por Curso",
-            ["curso", "inscritos", "concluidos", "evasao_pct", "taxa_conclusao_pct", "nota_media"],
+            ["curso", "ativo", "inscritos", "concluidos", "evasao_pct", "taxa_conclusao_pct", "nota_media"],
             cursos,
         )
     return {"cursos": cursos, "trilha": trilha}
+
+
+@router.get("/relatorios/acessos")
+async def relatorio_acessos_plataforma(
+    data_inicio: datetime | None = Query(None),
+    data_fim: datetime | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    formato: str = Query("json", pattern="^(json|csv|pdf)$"),
+    db: AsyncSession = Depends(get_db),
+    response: Response = None,
+    _: Usuario = Depends(require_permissao(Permissoes.DASHBOARD_RELATORIOS)),
+):
+    """Relatorio de quem acessou a plataforma, agregado por usuario (issue #93).
+
+    Agrupa `lms.log_acesso` por usuario: total de acessos, ultimo acesso e
+    acao mais recente. Complementa o `GET /dashboard/logs` (log cru) com uma
+    visao consolidada para o gestor.
+    """
+    filtro = []
+    if data_inicio is not None:
+        filtro.append(LogAcesso.criado_em >= data_inicio)
+    if data_fim is not None:
+        filtro.append(LogAcesso.criado_em <= data_fim)
+
+    base = (
+        select(LogAcesso.usuario_id, func.count(LogAcesso.id).label("total_acessos"),
+               func.max(LogAcesso.criado_em).label("ultimo_acesso"))
+        .where(*filtro)
+        .group_by(LogAcesso.usuario_id)
+        .subquery()
+    )
+    total = await db.execute(
+        select(func.count()).select_from(select(base.c.usuario_id).subquery())
+    )
+    total_acessos = total.scalar() or 0
+
+    linhas = await db.execute(
+        select(
+            base.c.usuario_id.label("usuario_id"),
+            Usuario.nome_completo.label("nome"),
+            Usuario.email.label("email"),
+            base.c.total_acessos,
+            base.c.ultimo_acesso,
+        )
+        .join(Usuario, Usuario.id == base.c.usuario_id)
+        .order_by(base.c.total_acessos.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    itens = [
+        {
+            "usuario_id": str(r.usuario_id),
+            "nome": r.nome,
+            "email": r.email,
+            "total_acessos": r.total_acessos,
+            "ultimo_acesso": r.ultimo_acesso.isoformat() if r.ultimo_acesso else None,
+        }
+        for r in linhas.all()
+    ]
+    response.headers["X-Total-Count"] = str(total_acessos)
+
+    if formato == "csv":
+        return _csv_stream(
+            ["usuario_id", "nome", "email", "total_acessos", "ultimo_acesso"], itens
+        )
+    if formato == "pdf":
+        return _pdf_simples(
+            "Acessos a Plataforma",
+            ["nome", "email", "total_acessos", "ultimo_acesso"], itens
+        )
+    return {
+        "data_inicio": data_inicio.isoformat() if data_inicio else None,
+        "data_fim": data_fim.isoformat() if data_fim else None,
+        "total_usuarios": total_acessos,
+        "acessos": itens,
+    }
 
 
 @router.get("/graficos/temporal")
@@ -433,13 +596,63 @@ async def grafico_temporal(
     elif periodo == "mes":
         expr = func.date_trunc("month", LogAcesso.criado_em)
 
-    acessos = await db.execute(
-        select(expr.label("bucket"), func.count(LogAcesso.id))
-        .where(LogAcesso.criado_em >= data_inicio, LogAcesso.criado_em <= data_fim)
-        .group_by(expr)
-        .order_by(expr)
-    )
-    serie_acessos = [{"bucket": b.isoformat(), "total": t} for b, t in acessos.all()]
+    # Issue #97: quando ha curso_id/trilha_id, a serie "acessos" nao deve mostrar
+    # o total da plataforma inteira. log_acesso nao guarda curso/trilha, entao
+    # passamos a contar ATIVIDADE real do recorte (progresso de unidade +
+    # mensagens do curso + presencas), via modulos.curso_id. Sem filtro, mantem
+    # o log_acesso normal (acessos reais).
+    if curso_id is not None or trilha_id is not None:
+        curso_filtro = []
+        if curso_id is not None:
+            curso_filtro.append(Modulo.curso_id == curso_id)
+        if trilha_id is not None:
+            curso_filtro.append(Curso.trilha_id == trilha_id)
+
+        # Cada fonte tem a propria coluna de data, entao o bucket sai da propria tabela (correcao do dev, issue #97)
+        trunc = {"dia": "day", "semana": "week", "mes": "month"}[periodo]
+        recorte = []
+        if curso_id is not None:
+            recorte.append(Curso.id == curso_id)
+        if trilha_id is not None:
+            recorte.append(Curso.trilha_id == trilha_id)
+
+        b1 = func.date_trunc(trunc, ProgressoUnidade.concluido_em)
+        q1 = (
+            select(b1.label("bucket"), func.count(ProgressoUnidade.id).label("total"))
+            .join(Unidade, Unidade.id == ProgressoUnidade.unidade_id)
+            .join(Modulo, Modulo.id == Unidade.modulo_id)
+            .join(Curso, Curso.id == Modulo.curso_id)
+            .where(ProgressoUnidade.concluido_em >= data_inicio, ProgressoUnidade.concluido_em <= data_fim, *recorte)
+            .group_by(b1)
+        )
+        b2 = func.date_trunc(trunc, MensagemCurso.criado_em)
+        q2 = (
+            select(b2.label("bucket"), func.count(MensagemCurso.id).label("total"))
+            .join(Curso, Curso.id == MensagemCurso.curso_id)
+            .where(MensagemCurso.criado_em >= data_inicio, MensagemCurso.criado_em <= data_fim, *recorte)
+            .group_by(b2)
+        )
+        b3 = func.date_trunc(trunc, PresencaAula.hora_entrada)
+        q3 = (
+            select(b3.label("bucket"), func.count(PresencaAula.id).label("total"))
+            .join(AulaSincrona, AulaSincrona.id == PresencaAula.aula_id)
+            .join(Curso, Curso.id == AulaSincrona.curso_id)
+            .where(PresencaAula.hora_entrada >= data_inicio, PresencaAula.hora_entrada <= data_fim, *recorte)
+            .group_by(b3)
+        )
+        fontes = union_all(q1, q2, q3).subquery()
+        acessos = await db.execute(
+            select(fontes.c.bucket, func.sum(fontes.c.total)).group_by(fontes.c.bucket).order_by(fontes.c.bucket)
+        )
+        serie_acessos = [{"bucket": b.isoformat(), "total": int(t)} for b, t in acessos.all()]
+    else:
+        acessos = await db.execute(
+            select(expr.label("bucket"), func.count(LogAcesso.id))
+            .where(LogAcesso.criado_em >= data_inicio, LogAcesso.criado_em <= data_fim)
+            .group_by(expr)
+            .order_by(expr)
+        )
+        serie_acessos = [{"bucket": b.isoformat(), "total": t} for b, t in acessos.all()]
 
     expr_insc = func.date_trunc("day", Inscricao.data_inscricao)
     if periodo == "semana":

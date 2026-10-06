@@ -30,6 +30,33 @@ class UsuarioUpdate(BaseModel):
     ativo: bool | None = None
 
 
+class UsuarioUpdateMe(BaseModel):
+    """Edicao do proprio cadastro (issue #94). So campos nao sensiveis.
+
+    `extra = "forbid"` garante que email, ativo, cpf e perfis nunca passem por
+    aqui, nem por engano.
+    """
+    model_config = {"extra": "forbid"}
+
+    nome_completo: str | None = None
+    telefone: str | None = None
+    orgao_instituicao: str | None = None
+    cargo: str | None = None
+    avatar_url: str | None = None
+
+    @field_validator("nome_completo")
+    @classmethod
+    def _nome_nao_nulo(cls, v):
+        """Rejeita null/vazio explicito (correcao do dev, issue #94).
+
+        O validador so roda quando o campo vem no corpo, entao PATCH sem
+        nome_completo continua funcionando.
+        """
+        if v is None or not v.strip():
+            raise ValueError("nome_completo nao pode ser vazio")
+        return v
+
+
 class UsuarioRead(UsuarioBase):
     id: uuid.UUID
     ativo: bool
