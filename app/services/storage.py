@@ -79,7 +79,7 @@ async def _delete_local(url: str) -> None:
         path.unlink()
 
 
-async def _upload_s3(file: UploadFile, folder: str) -> str:
+async def _upload_s3(file: UploadFile, folder: str, content_type: str | None = None) -> str:
     try:
         import aioboto3
     except ImportError:
@@ -94,7 +94,12 @@ async def _upload_s3(file: UploadFile, folder: str) -> str:
     )
     async with session.client("s3", endpoint_url=settings.S3_ENDPOINT or None) as s3:
         # Stream in chunks to avoid loading entire file in memory
-        await s3.upload_fileobj(file.file, settings.S3_BUCKET, key, ExtraArgs={"ContentType": file.content_type})
+        await s3.upload_fileobj(
+            file.file,
+            settings.S3_BUCKET,
+            key,
+            ExtraArgs={"ContentType": content_type or file.content_type},
+        )
     endpoint = settings.S3_ENDPOINT or f"https://{settings.S3_BUCKET}.s3.{settings.S3_REGION}.amazonaws.com"
     return f"{endpoint}/{key}"
 
@@ -126,8 +131,6 @@ async def validate_mime(file: UploadFile) -> str:
     mime = normalizar_mime(file.content_type, file.filename)
     if mime not in FLAT_ALLOWED:
         raise ValueError(f"Tipo de arquivo não permitido: {file.content_type}")
-    # Normaliza no proprio UploadFile para o storage gravar o ContentType certo.
-    file.content_type = mime
     return mime
 
 
@@ -144,10 +147,10 @@ async def validate_size(file: UploadFile) -> int:
 
 async def upload_file(file: UploadFile, folder: str) -> tuple[str, int]:
     """Envia o arquivo e retorna (url, tamanho_bytes) (issue #101)."""
-    await validate_mime(file)
+    mime = await validate_mime(file)
     tamanho = await validate_size(file)
     if settings.STORAGE_BACKEND == "s3":
-        return await _upload_s3(file, folder), tamanho
+        return await _upload_s3(file, folder, content_type=mime), tamanho
     return await _upload_local(file, folder), tamanho
 
 
