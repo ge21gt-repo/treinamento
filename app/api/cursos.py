@@ -956,12 +956,17 @@ async def consumo_curso(
                     "conteudo_texto": u.conteudo_texto,
                     "formato_texto": u.formato_texto,
                     "url_externa": u.url_externa,
+                    # Este dicionario e montado a mao, fora do ConteudoRead, entao
+                    # precisa repetir a regra da issue 46: conteudo cujo arquivo nao
+                    # existe mais nao recebe URL, e a tela precisa saber disso para
+                    # nao mostrar o erro cru do armazenamento (issue #111).
                     "conteudos": [
                         {
                             "id": c.id,
                             "tipo_midia": c.tipo_midia,
                             "titulo": c.titulo,
-                            "url_arquivo": resolve_file_url(c.url_arquivo),
+                            "disponivel": c.disponivel,
+                            "url_arquivo": resolve_file_url(c.url_arquivo) if c.disponivel else None,
                         }
                         for c in cts
                     ],

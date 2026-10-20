@@ -115,3 +115,74 @@ class TestIssue107HigienizacaoPeloFormatoFinal:
             json={"formato_texto": "texto", "conteudo_texto": "a" * (MAX_TEXTO + 1)},
         )
         assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+async def _marcar_indisponivel(conteudo_id: int):
+    """`disponivel` nao e exposto por nenhuma rota de escrita (a issue 46 marca por
+    fora), entao o teste grava direto. Engine propria, como as fixtures do conftest."""
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.config import settings
+
+    engine = create_async_engine(settings.TEST_DATABASE_URL or settings.DATABASE_URL)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE lms.conteudos SET disponivel = false WHERE id = :i"),
+                {"i": conteudo_id},
+            )
+    finally:
+        await engine.dispose()
+
+
+class TestIssue111ConsumoRespeitaDisponivel:
+    """#111 — /cursos/{id}/consumo monta o conteudo a mao e ignorava `disponivel`."""
+
+    async def _curso_com_conteudos(self, client):
+        r = await client.post(
+            "/api/v1/cursos",
+            json={"titulo": "C111", "descricao": "x", "ordem": 0, "publicado": True},
+        )
+        cid = r.json()["id"]
+        r = await client.post(
+            "/api/v1/cursos/modulos",
+            json={"curso_id": cid, "titulo": "M", "descricao": "x", "ordem": 0},
+        )
+        mid = r.json()["id"]
+        r = await client.post(
+            "/api/v1/cursos/unidades",
+            json={"modulo_id": mid, "titulo": "U", "tipo": "conteudo", "ordem": 0},
+        )
+        uid = r.json()["id"]
+        ids = {}
+        for nome, url in (("vivo", "https://x/ok.pdf"), ("morto", "https://x/sumiu.pdf")):
+            r = await client.post(
+                "/api/v1/conteudos",
+                json={
+                    "unidade_id": uid,
+                    "tipo_midia": "pdf",
+                    "titulo": nome,
+                    "url_arquivo": url,
+                    "ordem": 0,
+                },
+            )
+            assert r.status_code in (200, 201), r.text
+            ids[nome] = r.json()["id"]
+        await _marcar_indisponivel(ids["morto"])
+        return cid, ids
+
+    async def test_consumo_devolve_disponivel_e_nao_gera_url_do_arquivo_morto(self, client):
+        cid, ids = await self._curso_com_conteudos(client)
+        r = await client.get(f"/api/v1/cursos/{cid}/consumo")
+        assert r.status_code == status.HTTP_200_OK, r.text
+        conteudos = {c["id"]: c for m in r.json()["modulos"] for u in m["unidades"] for c in u["conteudos"]}
+        vivo = conteudos[ids["vivo"]]
+        morto = conteudos[ids["morto"]]
+
+        assert vivo["disponivel"] is True
+        assert vivo["url_arquivo"] == "https://x/ok.pdf"
+
+        # Antes da #111 este vinha com a URL, e a tela mostrava o NoSuchBucket cru.
+        assert morto["disponivel"] is False
+        assert morto["url_arquivo"] is None
