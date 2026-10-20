@@ -28,6 +28,7 @@ from app.schemas.avaliacao import (
     EstatisticaQuestaoRead,
     EstatisticasAvaliacaoRead,
     QuestaoCreate,
+    QuestaoReorderItem,
     QuestaoRead,
     QuestaoUpdate,
     RespostaParticipanteCreate,
@@ -290,6 +291,37 @@ async def criar_questao(
     await db.commit()
     await db.refresh(questao)
     return questao
+
+
+@router.patch("/questoes/reorder", status_code=status.HTTP_204_NO_CONTENT)
+async def reordenar_questoes(
+    payload: list[QuestaoReorderItem],
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EDITAR)),
+):
+    """Issue #108: aplica a ordem de varias questoes numa transacao so.
+
+    Antes disso o front mandava um PATCH por questao: se um falhasse no meio, a
+    avaliacao ficava com a ordem parcialmente aplicada. Declarada antes de
+    /questoes/{questao_id} para "reorder" nao cair no path param.
+    """
+    if not payload:
+        return
+    ids = [item.id for item in payload]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status_code=422, detail="Ha id repetido no corpo")
+    result = await db.execute(select(Questao).where(Questao.id.in_(ids)))
+    questoes = {q.id: q for q in result.scalars().all()}
+    faltando = sorted(set(ids) - set(questoes))
+    if faltando:
+        raise HTTPException(status_code=422, detail=f"Questao nao encontrada: {faltando}")
+    # O reordenar_unidades (molde desta rota) nao confere o modulo; aqui conferimos,
+    # para nao aplicar meia ordem com questao de outra avaliacao no meio.
+    if len({q.avaliacao_id for q in questoes.values()}) > 1:
+        raise HTTPException(status_code=422, detail="Todas as questoes devem ser da mesma avaliacao")
+    for item in payload:
+        questoes[item.id].ordem = item.ordem
+    await db.commit()
 
 
 @router.patch("/questoes/{questao_id}", response_model=QuestaoRead)
@@ -783,17 +815,22 @@ async def obter_resultado_com_feedback(
 
         from app.schemas.avaliacao import ResultadoFeedbackQuestao
 
+        # Issue #109: esconder so `correta`/`comentario` nao bastava. A explicacao
+        # da questao normalmente cita a alternativa certa, e a pontuacao por questao
+        # entrega o acerto (zero = errou; em verdadeiro_falso, revela por exclusao).
+        # A dissertativa mantem a pontuacao: ali e correcao do instrutor, nao gabarito.
+        objetiva = q.tipo in ("multipla_escolha", "verdadeiro_falso")
         questoes_read.append(
             ResultadoFeedbackQuestao(
                 id=q.id,
                 enunciado=q.enunciado,
                 tipo=q.tipo,
                 pontuacao=q.pontuacao,
-                pontuacao_obtida=pontuacao_obtida,
+                pontuacao_obtida=None if (objetiva and not pode_ver_gabarito) else pontuacao_obtida,
                 resposta_texto=resp.resposta_texto if resp is not None else None,
                 pontuacao_atribuida=resp.pontuacao_atribuida if resp is not None else None,
                 alternativas=alternativas_read,
-                explicacao=q.explicacao,
+                explicacao=q.explicacao if pode_ver_gabarito else None,
             )
         )
 
