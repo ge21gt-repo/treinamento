@@ -361,13 +361,12 @@ async def criar_unidade(
     _: Usuario = Depends(require_permissao(Permissoes.CURSO_UNIDADE_CRIAR)),
 ):
     data = payload.model_dump()
-    if data.get("formato_texto") == "html" and data.get("conteudo_texto"):
-        from app.services.sanitize import sanitizar_html
+    from app.services.sanitize import preparar_conteudo_texto
 
-        try:
-            data["conteudo_texto"] = sanitizar_html(data["conteudo_texto"])
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
+    try:
+        data["conteudo_texto"] = preparar_conteudo_texto(data.get("conteudo_texto"), data.get("formato_texto"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     unidade = Unidade(**data)
     db.add(unidade)
     await db.commit()
@@ -402,14 +401,16 @@ async def atualizar_unidade(
     if not unidade:
         raise HTTPException(status_code=404, detail="Unidade nao encontrada")
     data = payload.model_dump(exclude_unset=True)
-    formato = data.get("formato_texto", unidade.formato_texto)
-    if formato == "html" and data.get("conteudo_texto"):
-        from app.services.sanitize import sanitizar_html
+    from app.services.sanitize import preparar_conteudo_texto
 
-        try:
-            data["conteudo_texto"] = sanitizar_html(data["conteudo_texto"])
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
+    # Higieniza sobre os valores FINAIS da unidade: trocar so o formato para "html",
+    # sem reenviar o texto, deixava passar o que foi gravado como texto puro (issue #85).
+    formato = data.get("formato_texto", unidade.formato_texto)
+    texto = data.get("conteudo_texto", unidade.conteudo_texto)
+    try:
+        data["conteudo_texto"] = preparar_conteudo_texto(texto, formato)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     for field, value in data.items():
         setattr(unidade, field, value)
     await db.commit()

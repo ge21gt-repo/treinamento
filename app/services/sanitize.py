@@ -63,3 +63,22 @@ def sanitizar_html(texto: str | None) -> str | None:
     while parser.abertas:
         parser.out.append(f"</{parser.abertas.pop()}>")
     return "".join(parser.out)
+
+
+FORMATOS_TEXTO = {"texto", "html"}
+
+
+def preparar_conteudo_texto(texto: str | None, formato: str | None) -> str | None:
+    """Aplica o limite de tamanho sempre e higieniza quando o formato final e html (issue #85).
+
+    Deve ser chamada com os valores *finais* da unidade: trocar so o `formato_texto`
+    para "html", sem reenviar o texto, promovia a HTML um texto que nunca passou
+    pela higienizacao.
+    """
+    if texto is None:
+        return None
+    if len(texto) > MAX_TEXTO:
+        raise ValueError(f"conteudo_texto excede o limite de {MAX_TEXTO} caracteres")
+    if formato == "html":
+        return sanitizar_html(texto)
+    return texto

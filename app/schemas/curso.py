@@ -108,11 +108,26 @@ class UnidadeBase(BaseModel):
     url_externa: str | None = None
 
 
-class UnidadeCreate(UnidadeBase):
+class _ValidaFormatoTexto(BaseModel):
+    """Issue #85: formato_texto era str livre, o que permitia promover texto nao
+    higienizado a HTML. So nos schemas de entrada: UnidadeRead nao valida, para
+    nao quebrar a leitura de linha antiga gravada com outro valor."""
+
+    @field_validator("formato_texto", check_fields=False)
+    @classmethod
+    def _formato_permitido(cls, v):
+        from app.services.sanitize import FORMATOS_TEXTO
+
+        if v is not None and v not in FORMATOS_TEXTO:
+            raise ValueError(f"formato_texto deve ser um de {sorted(FORMATOS_TEXTO)}")
+        return v
+
+
+class UnidadeCreate(UnidadeBase, _ValidaFormatoTexto):
     pass
 
 
-class UnidadeUpdate(BaseModel):
+class UnidadeUpdate(_ValidaFormatoTexto):
     titulo: str | None = None
     tipo: str | None = None
     ordem: int | None = None
