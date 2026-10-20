@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
@@ -97,6 +97,37 @@ async def meus_resultados(
     return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
 
 
+def _subq_ultima_tentativa():
+    """Ultima tentativa (max tentativa_num) de cada usuario em cada avaliacao.
+
+    Issue #105: so a ultima tentativa vai para correcao. O max olha todas as
+    respostas, nao so as pendentes - senao uma tentativa 1 pendente voltaria
+    para a fila depois de a 2 ter sido corrigida.
+    """
+    return (
+        select(
+            RespostaParticipante.usuario_id.label("usuario_id"),
+            Questao.avaliacao_id.label("avaliacao_id"),
+            func.max(RespostaParticipante.tentativa_num).label("ultima"),
+        )
+        .join(Questao, Questao.id == RespostaParticipante.questao_id)
+        .group_by(RespostaParticipante.usuario_id, Questao.avaliacao_id)
+        .subquery()
+    )
+
+
+def _so_ultima_tentativa(stmt, subq):
+    """Mantem apenas as respostas da ultima tentativa (issue #105)."""
+    return stmt.join(Questao, Questao.id == RespostaParticipante.questao_id).join(
+        subq,
+        and_(
+            subq.c.usuario_id == RespostaParticipante.usuario_id,
+            subq.c.avaliacao_id == Questao.avaliacao_id,
+            subq.c.ultima == RespostaParticipante.tentativa_num,
+        ),
+    )
+
+
 @router.get("/correcoes-pendentes", response_model=list[CorrecaoPendenteInboxRead])
 async def listar_correcoes_pendentes_agregado(
     db: AsyncSession = Depends(get_db),
@@ -117,7 +148,7 @@ async def listar_correcoes_pendentes_agregado(
 
     respostas = (
         await db.execute(
-            select(RespostaParticipante)
+            _so_ultima_tentativa(select(RespostaParticipante), _subq_ultima_tentativa())
             .where(
                 RespostaParticipante.questao_id.in_(questoes_por_id.keys()),
                 RespostaParticipante.pontuacao_atribuida.is_(None),
@@ -779,7 +810,16 @@ async def obter_resultado_com_feedback(
         if regra == "apos_aprovacao":
             pode_ver_gabarito = bool(resultado.aprovado)
         elif regra == "ao_esgotar_tentativas":
-            pode_ver_gabarito = tentativa >= avaliacao.tentativas_max
+            # Issue #109: a regra e sobre a pessoa ter esgotado as tentativas,
+            # nao sobre qual tentativa esta aberta. Quem gastou todas ja nao
+            # pode tentar de novo, logo ve o gabarito de qualquer uma delas.
+            feitas = await db.scalar(
+                select(func.count()).where(
+                    ResultadoAvaliacao.avaliacao_id == avaliacao_id,
+                    ResultadoAvaliacao.usuario_id == current_user.id,
+                )
+            )
+            pode_ver_gabarito = (feitas or 0) >= avaliacao.tentativas_max
 
     respostas_por_questao = {r.questao_id: r for r in respostas}
     questoes_read = []
@@ -974,7 +1014,7 @@ async def listar_correcoes_pendentes(
 
     respostas = (
         await db.execute(
-            select(RespostaParticipante)
+            _so_ultima_tentativa(select(RespostaParticipante), _subq_ultima_tentativa())
             .where(
                 RespostaParticipante.questao_id.in_(dissertativas.keys()),
                 RespostaParticipante.pontuacao_atribuida.is_(None),
@@ -1111,7 +1151,23 @@ async def _tem_correcao_pendente(
     tentativa_num: int,
     avaliacao_id: int,
 ) -> bool:
-    """Ha dissertativa desta tentativa ainda sem correcao (issue #88)."""
+    """Ha dissertativa desta tentativa ainda sem correcao (issue #88).
+
+    Issue #105: tentativa que nao e a ultima do participante nesta avaliacao
+    nao pende mais - foi substituida pela seguinte. A nota dela fica como
+    estava, e o que o instrutor ja corrigiu nela continua valendo.
+    """
+    ultima = await db.scalar(
+        select(func.max(RespostaParticipante.tentativa_num))
+        .join(Questao, Questao.id == RespostaParticipante.questao_id)
+        .where(
+            RespostaParticipante.usuario_id == usuario_id,
+            Questao.avaliacao_id == avaliacao_id,
+        )
+    )
+    if ultima is not None and tentativa_num != ultima:
+        return False
+
     pendentes = await db.scalar(
         select(func.count(RespostaParticipante.id)).join(
             Questao, Questao.id == RespostaParticipante.questao_id
