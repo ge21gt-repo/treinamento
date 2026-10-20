@@ -91,6 +91,13 @@ class QuestaoUpdate(BaseModel):
         return v
 
 
+class QuestaoReorderItem(BaseModel):
+    """Issue #108: reordenar as questoes de uma avaliacao em lote, numa transacao."""
+
+    id: int
+    ordem: int
+
+
 class QuestaoRead(QuestaoBase):
     id: int
     criado_em: datetime
@@ -288,7 +295,10 @@ class ResultadoFeedbackQuestao(BaseModel):
     enunciado: str
     tipo: str
     pontuacao: Decimal = Decimal("1.00")
-    pontuacao_obtida: Decimal = Decimal("0")
+    # Issue #109: com o gabarito oculto vem null nas objetivas - numa questao de
+    # multipla escolha, zero diz "errou", e em verdadeiro_falso isso entrega a
+    # resposta certa por exclusao.
+    pontuacao_obtida: Decimal | None = Decimal("0")
     resposta_texto: str | None = None
     pontuacao_atribuida: Decimal | None = None
     alternativas: list[ResultadoFeedbackAlternativa] = []
