@@ -1,6 +1,8 @@
 """Testes das issues #106 (devolutiva sem nota), #107 (higienizacao da unidade),
 #110 (curso_publicado na busca) e #111 (conteudo indisponivel no /consumo)."""
 
+import io as _io
+
 from fastapi import status
 
 from app.services.sanitize import MAX_TEXTO, preparar_conteudo_texto
@@ -186,3 +188,121 @@ class TestIssue111ConsumoRespeitaDisponivel:
         # Antes da #111 este vinha com a URL, e a tela mostrava o NoSuchBucket cru.
         assert morto["disponivel"] is False
         assert morto["url_arquivo"] is None
+
+
+class TestIssue110CursoPublicadoNaBusca:
+    """#110 — a busca precisa dizer se o curso do conteudo esta em rascunho."""
+
+    async def _conteudo(self, client, publicado, titulo_curso):
+        r = await client.post(
+            "/api/v1/cursos",
+            json={"titulo": titulo_curso, "descricao": "x", "ordem": 0, "publicado": publicado},
+        )
+        cid = r.json()["id"]
+        r = await client.post(
+            "/api/v1/cursos/modulos",
+            json={"curso_id": cid, "titulo": "M", "descricao": "x", "ordem": 0},
+        )
+        mid = r.json()["id"]
+        r = await client.post(
+            "/api/v1/cursos/unidades",
+            json={"modulo_id": mid, "titulo": "U", "tipo": "conteudo", "ordem": 0},
+        )
+        uid = r.json()["id"]
+        r = await client.post(
+            "/api/v1/conteudos",
+            json={
+                "unidade_id": uid,
+                "tipo_midia": "pdf",
+                "titulo": "ZZ marcador110",
+                "url_arquivo": "https://x/a.pdf",
+                "ordem": 0,
+            },
+        )
+        return r.json()["id"]
+
+    async def test_curso_em_rascunho_devolve_false(self, client):
+        await self._conteudo(client, publicado=False, titulo_curso="C110 rascunho")
+        r = await client.get("/api/v1/conteudos", params={"q": "marcador110"})
+        assert r.status_code == status.HTTP_200_OK
+        assert r.json()[0]["curso_publicado"] is False
+
+    async def test_curso_publicado_devolve_true(self, client):
+        await self._conteudo(client, publicado=True, titulo_curso="C110 publicado")
+        r = await client.get("/api/v1/conteudos", params={"q": "marcador110"})
+        assert r.json()[0]["curso_publicado"] is True
+
+    async def test_conteudo_sem_unidade_devolve_none(self, client):
+        r = await client.post(
+            "/api/v1/conteudos",
+            json={
+                "unidade_id": None,
+                "tipo_midia": "pdf",
+                "titulo": "ZZ marcador110 solto",
+                "url_arquivo": "https://x/a.pdf",
+                "ordem": 0,
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+        r = await client.get("/api/v1/conteudos", params={"q": "marcador110 solto"})
+        assert r.json()[0]["curso_publicado"] is None
+
+
+class TestIssue106CorrigirSemNota:
+    """#106 — nota opcional, devolutiva obrigatoria."""
+
+    async def _entrega(self, client, titulo):
+        r = await client.post("/api/v1/cursos", json={"titulo": titulo, "descricao": "x", "ordem": 0})
+        cid = r.json()["id"]
+        r = await client.post(
+            "/api/v1/cursos/modulos",
+            json={"curso_id": cid, "titulo": "M", "descricao": "x", "ordem": 0},
+        )
+        mid = r.json()["id"]
+        r = await client.post(
+            "/api/v1/cursos/unidades",
+            json={"modulo_id": mid, "titulo": "U", "tipo": "atividade", "ordem": 0},
+        )
+        uid = r.json()["id"]
+        r = await client.post(
+            f"/api/v1/entregas/upload?unidade_id={uid}&titulo=E&descricao=x",
+            files={"arquivo": ("ex.pdf", _io.BytesIO(b"data"), "application/pdf")},
+        )
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+        return r.json()["id"]
+
+    async def test_corrige_so_com_devolutiva(self, client):
+        eid = await self._entrega(client, "C106a")
+        r = await client.patch(
+            f"/api/v1/entregas/{eid}/corrigir",
+            json={"feedback": "Recebido, nao vale nota."},
+        )
+        assert r.status_code == status.HTTP_200_OK, r.text
+        corpo = r.json()
+        assert corpo["status"] == "corrigido"
+        assert corpo["nota"] is None
+        assert corpo["feedback"] == "Recebido, nao vale nota."
+
+    async def test_com_nota_continua_funcionando(self, client):
+        eid = await self._entrega(client, "C106b")
+        r = await client.patch(
+            f"/api/v1/entregas/{eid}/corrigir",
+            json={"nota": 9.5, "feedback": "Otimo"},
+        )
+        assert r.status_code == status.HTTP_200_OK
+        assert r.json()["nota"] == 9.5
+        assert r.json()["status"] == "corrigido"
+
+    async def test_devolutiva_vazia_recusada(self, client):
+        eid = await self._entrega(client, "C106c")
+        for feedback in ("", "   "):
+            r = await client.patch(
+                f"/api/v1/entregas/{eid}/corrigir",
+                json={"nota": 7, "feedback": feedback},
+            )
+            assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, feedback
+
+    async def test_sem_devolutiva_recusada(self, client):
+        eid = await self._entrega(client, "C106d")
+        r = await client.patch(f"/api/v1/entregas/{eid}/corrigir", json={"nota": 7})
+        assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
