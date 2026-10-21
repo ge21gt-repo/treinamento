@@ -62,6 +62,7 @@ def _conteudo_read(conteudo: Conteudo, curso: Curso | None, unidade: Unidade | N
     read.curso_id = curso.id if curso else None
     read.curso_titulo = curso.titulo if curso else None
     read.unidade_titulo = unidade.titulo if unidade else None
+    read.curso_publicado = curso.publicado if curso else None
     return read
 
 
