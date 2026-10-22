@@ -139,3 +139,60 @@ class TestIssue114PatchUsuario:
         assert (await client.get(f"/api/v1/usuarios/{b}")).json()["ativo"] is False
         assert (await client.get(f"/api/v1/usuarios/{a}")).json()["ativo"] == antes[a]
         assert (await client.get(f"/api/v1/usuarios/{c}")).json()["ativo"] == antes[c]
+
+
+class TestPatchUsuarioUnicidade:
+    """Lacuna encontrada na mesma rota: email/telefone repetido virava 500.
+
+    O unique do banco existe em usuarios.email e usuarios.telefone, mas o PATCH
+    nao checava nada antes do UPDATE, entao a violacao subia como erro generico.
+    """
+
+    async def test_email_duplicado_devolve_409(self, client):
+        await _criar_usuario(client, "Dono Email", "dono.email114@test.com", "11944440010")
+        outro = await _criar_usuario(client, "Outro Email", "outro.email114@test.com", "11944440011")
+
+        r = await client.patch(
+            f"/api/v1/usuarios/{outro}", json={"email": "dono.email114@test.com"}
+        )
+        assert r.status_code == status.HTTP_409_CONFLICT, r.text
+
+    async def test_telefone_duplicado_devolve_409(self, client):
+        await _criar_usuario(client, "Dono Fone", "dono.fone114@test.com", "11944440012")
+        outro = await _criar_usuario(client, "Outro Fone", "outro.fone114@test.com", "11944440013")
+
+        r = await client.patch(f"/api/v1/usuarios/{outro}", json={"telefone": "11944440012"})
+        assert r.status_code == status.HTTP_409_CONFLICT, r.text
+
+    async def test_reenviar_o_proprio_email_continua_200(self, client):
+        """O 409 nao pode pegar a propria linha: PATCH idempotente segue valido."""
+        uid = await _criar_usuario(client, "Mesmo", "mesmo114@test.com", "11944440014")
+
+        r = await client.patch(
+            f"/api/v1/usuarios/{uid}",
+            json={"email": "mesmo114@test.com", "telefone": "11944440014", "cargo": "Tecnico"},
+        )
+        assert r.status_code == status.HTTP_200_OK, r.text
+        assert r.json()["cargo"] == "Tecnico"
+
+    async def test_email_livre_e_aceito(self, client):
+        uid = await _criar_usuario(client, "Troca", "troca114@test.com", "11944440015")
+
+        r = await client.patch(f"/api/v1/usuarios/{uid}", json={"email": "trocado114@test.com"})
+        assert r.status_code == status.HTTP_200_OK, r.text
+        assert r.json()["email"] == "trocado114@test.com"
+
+    async def test_recusa_nao_grava_nada(self, client):
+        """O 409 tem de abortar a edicao inteira, nao so o campo duplicado."""
+        await _criar_usuario(client, "Dono Final", "dono.final114@test.com", "11944440016")
+        outro = await _criar_usuario(client, "Outro Final", "outro.final114@test.com", "11944440017")
+
+        r = await client.patch(
+            f"/api/v1/usuarios/{outro}",
+            json={"email": "dono.final114@test.com", "cargo": "Nao Deve Gravar"},
+        )
+        assert r.status_code == status.HTTP_409_CONFLICT, r.text
+
+        atual = (await client.get(f"/api/v1/usuarios/{outro}")).json()
+        assert atual["email"] == "outro.final114@test.com"
+        assert atual["cargo"] != "Nao Deve Gravar"

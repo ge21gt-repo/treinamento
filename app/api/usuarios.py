@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -175,6 +176,25 @@ async def obter_usuario(
     return user
 
 
+async def _checar_unicidade_edicao(db: AsyncSession, usuario_id: uuid.UUID, dados: dict):
+    """Valida unicidade de email e telefone numa edicao, ignorando a propria linha.
+
+    O check_unique_fields de auth.py serve ao cadastro: nao exclui usuario
+    nenhum, entao reenviar o mesmo email no PATCH daria 409 indevido. Sem esta
+    checagem o valor repetido violava o unique do banco e subia como 500 -
+    a convencao do projeto e validar antes do UPDATE e devolver 4xx.
+    """
+    for campo, rotulo in (("email", "Email"), ("telefone", "Telefone")):
+        valor = dados.get(campo)
+        if not valor:
+            continue
+        existente = await db.scalar(
+            select(Usuario.id).where(getattr(Usuario, campo) == valor, Usuario.id != usuario_id)
+        )
+        if existente:
+            raise HTTPException(status_code=409, detail=f"{rotulo} ja cadastrado")
+
+
 @router.patch("/{usuario_id}", response_model=UsuarioRead)
 async def atualizar_usuario(
     usuario_id: uuid.UUID,
@@ -194,7 +214,9 @@ async def atualizar_usuario(
     dados_antes.pop("senha_hash", None)
     dados_antes.pop("cpf", None)
     dados_antes.pop("telefone", None)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    dados = payload.model_dump(exclude_unset=True)
+    await _checar_unicidade_edicao(db, usuario_id, dados)
+    for field, value in dados.items():
         setattr(user, field, value)
     from app.services.auditoria import registrar_auditoria
 
@@ -212,7 +234,13 @@ async def atualizar_usuario(
         dados_anteriores=dados_antes, dados_novos=dados_novos,
         usuario_id=current_user.id, request=request,
     )
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Corrida entre a checagem acima e o commit (duas edicoes simultaneas
+        # para o mesmo email/telefone). Sem isto a violacao de unique sobe 500.
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Email ou telefone ja cadastrado")
     result = await db.execute(
         select(Usuario).options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil)).where(Usuario.id == usuario_id)
     )
