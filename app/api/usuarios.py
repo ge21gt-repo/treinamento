@@ -196,9 +196,13 @@ async def atualizar_usuario(
     dados_antes.pop("telefone", None)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(user, field, value)
-    await db.commit()
     from app.services.auditoria import registrar_auditoria
 
+    # Issue #114: o snapshot e montado ANTES do commit. Serializar depois tocava
+    # atributo expirado e disparava IO sincrono em contexto async
+    # (MissingGreenlet), virando 500 com o UPDATE ja gravado. Pelo mesmo motivo
+    # o UPDATE e a auditoria agora vao num commit unico: erro na auditoria nao
+    # deixa mais a alteracao gravada sem registro.
     dados_novos = _serializar(user)
     dados_novos.pop("senha_hash", None)
     dados_novos.pop("cpf", None)
@@ -233,10 +237,11 @@ async def excluir_usuario(
     dados_antes.pop("senha_hash", None)
     dados_antes.pop("cpf", None)
     dados_antes.pop("telefone", None)
-    await db.delete(user)
-    await db.commit()
     from app.services.auditoria import registrar_auditoria
 
+    # Issue #114: delete e auditoria no mesmo commit. Antes eram dois, e uma
+    # falha no segundo apagava o usuario sem deixar linha de auditoria.
+    await db.delete(user)
     await registrar_auditoria(
         db, tabela="usuarios", registro_id=usuario_id, acao="excluir",
         dados_anteriores=dados_antes, usuario_id=current_user.id, request=request,
