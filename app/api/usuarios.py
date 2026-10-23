@@ -11,7 +11,7 @@ from app.api.auth import check_unique_fields
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.credenciamento import AprovacaoHierarquica, SolicitacaoCredenciamento
-from app.models.usuario import Perfil, Usuario, UsuarioPerfil
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil, UsuarioPreferencias
 from app.services.paginacao import apply_search, count_query
 from app.services.rbac import Permissoes, can_create_perfil
 from app.schemas.usuario import (
@@ -19,10 +19,13 @@ from app.schemas.usuario import (
     PerfilCreate,
     PerfilRead,
     PerfilUpdate,
+    PreferenciasRead,
+    PreferenciasUpdate,
     UsuarioPerfilCreate,
     UsuarioRead,
     UsuarioUpdate,
     UsuarioUpdateMe,
+    validar_preferencias,
 )
 from app.services.auth import hash_password
 
@@ -130,6 +133,107 @@ async def atualizar_me(
     )
     await db.commit()
     return current_user
+
+
+async def _ler_preferencias(db: AsyncSession, usuario_id: uuid.UUID) -> PreferenciasRead:
+    """Le a linha de preferencias como colunas, nao como objeto ORM (issue #124).
+
+    Colunas e nao ORM de proposito: depois de um commit os atributos do objeto
+    ficam expirados, e serializar um deles dispara IO sincrono em contexto
+    async - o MissingGreenlet que virava 500 na issue #114.
+    """
+    linha = (
+        await db.execute(
+            select(UsuarioPreferencias.dados, UsuarioPreferencias.atualizado_em).where(
+                UsuarioPreferencias.usuario_id == usuario_id
+            )
+        )
+    ).first()
+    if linha is None:
+        return PreferenciasRead(dados={}, atualizado_em=None)
+    return PreferenciasRead(dados=linha[0] or {}, atualizado_em=linha[1])
+
+
+@router.get("/me/preferencias", response_model=PreferenciasRead)
+async def minhas_preferencias(
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Preferencias de interface do proprio usuario (issue #124).
+
+    Quem nunca gravou recebe dados vazio e atualizado_em nulo, e nenhuma linha
+    e criada: o front le isto a cada entrada, e criar linha na leitura encheria
+    a tabela de linhas vazias de quem nunca mexeu em preferencia alguma.
+
+    So o proprio usuario le as suas: o id sai do token, nao do caminho, logo
+    nao existe forma de pedir as preferencias de outra pessoa.
+    """
+    return await _ler_preferencias(db, current_user.id)
+
+
+@router.patch("/me/preferencias", response_model=PreferenciasRead)
+async def atualizar_minhas_preferencias(
+    payload: PreferenciasUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Mescla rasa nas preferencias do proprio usuario (issue #124).
+
+    Mescla, e nao substituicao: duas abas ou dois dispositivos gravando
+    preferencias diferentes nao apagam a escolha um do outro, o que um PUT do
+    objeto inteiro faria. Chave com valor null e removida.
+
+    Sem auditoria, como a issue pede: e preferencia de interface, nao dado
+    cadastral, e o front grava a cada mudanca - a auditoria viraria ruido.
+    """
+    for tentativa in (1, 2):
+        # FOR UPDATE: sem o lock, duas gravacoes simultaneas leem o mesmo
+        # estado e a ultima a gravar apaga a chave da outra - exatamente o que
+        # a mescla existe para evitar.
+        pref = (
+            await db.execute(
+                select(UsuarioPreferencias)
+                .where(UsuarioPreferencias.usuario_id == current_user.id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+        atual = dict(pref.dados or {}) if pref is not None else {}
+        for chave, valor in payload.dados.items():
+            if valor is None:
+                atual.pop(chave, None)
+            else:
+                atual[chave] = valor
+
+        # O limite vale para o que fica guardado, nao so para o corpo: duas
+        # gravacoes de 10 KB passariam uma a uma e deixariam 20 KB na linha.
+        try:
+            validar_preferencias(atual)
+        except ValueError as erro:
+            raise HTTPException(status_code=422, detail=str(erro)) from erro
+
+        if pref is None:
+            db.add(UsuarioPreferencias(usuario_id=current_user.id, dados=atual))
+        else:
+            # Dict novo, nao mutacao no lugar: o JSONB nao e MutableDict, e
+            # alterar o dict existente nao marca o atributo como sujo - o
+            # UPDATE nao sairia.
+            pref.dados = atual
+
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Primeira gravacao simultanea de duas abas: as duas encontram a
+            # linha inexistente e as duas tentam inserir. Relendo, a segunda
+            # mescla sobre o que a primeira gravou em vez de devolver erro e
+            # perder a preferencia.
+            await db.rollback()
+            if tentativa == 2:
+                raise
+            continue
+        break
+
+    return await _ler_preferencias(db, current_user.id)
 
 
 @router.get("", response_model=list[UsuarioRead])

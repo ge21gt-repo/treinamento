@@ -1,3 +1,5 @@
+import json
+import re
 import uuid
 from datetime import datetime
 
@@ -74,6 +76,62 @@ class UsuarioRead(UsuarioBase):
         if v and isinstance(v, list) and v and hasattr(v[0], "perfil"):
             return [up.perfil.nome for up in v]
         return v or []
+
+
+# Issue #124: limites das preferencias. O corpo nao e interpretado pelo
+# servidor, entao o unico freio e forma e tamanho - sem isso o JSONB cresce sem
+# limite com o que o front decidir mandar.
+PREFERENCIAS_MAX_BYTES = 16 * 1024
+PREFERENCIAS_MAX_CHAVES = 100
+PREFERENCIAS_CHAVE_TAMANHO = 64
+_PREFERENCIAS_CHAVE_RE = re.compile(r"^[A-Za-z0-9.:_-]{1,%d}$" % PREFERENCIAS_CHAVE_TAMANHO)
+
+
+def validar_preferencias(dados: dict) -> None:
+    """Valida forma e tamanho de um objeto de preferencias (issue #124).
+
+    Fora do schema porque a rota precisa validar tambem o resultado da mescla,
+    nao so o corpo recebido: duas gravacoes de 10 KB passariam uma a uma e
+    deixariam 20 KB guardados.
+    """
+    if len(dados) > PREFERENCIAS_MAX_CHAVES:
+        raise ValueError(f"maximo de {PREFERENCIAS_MAX_CHAVES} chaves em dados (recebido {len(dados)})")
+    for chave in dados:
+        if not isinstance(chave, str) or not _PREFERENCIAS_CHAVE_RE.match(chave):
+            raise ValueError(
+                f"chave invalida: {chave!r}. Use ate {PREFERENCIAS_CHAVE_TAMANHO} caracteres "
+                "entre letras, numeros, ponto, hifen, sublinhado e dois-pontos"
+            )
+    tamanho = len(json.dumps(dados, ensure_ascii=False).encode("utf-8"))
+    if tamanho > PREFERENCIAS_MAX_BYTES:
+        raise ValueError(f"dados acima de {PREFERENCIAS_MAX_BYTES} bytes (recebido {tamanho})")
+
+
+class PreferenciasUpdate(BaseModel):
+    """Corpo do PATCH /usuarios/me/preferencias (issue #124).
+
+    A mescla e rasa e feita na rota; aqui so se valida o que chegou. Valor
+    `null` numa chave e pedido de remocao, por isso o dict aceita None.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    dados: dict
+
+    @field_validator("dados")
+    @classmethod
+    def _validar(cls, v):
+        validar_preferencias(v)
+        return v
+
+
+class PreferenciasRead(BaseModel):
+    """Issue #124: quem nunca gravou recebe dados vazio e atualizado_em nulo."""
+
+    dados: dict = {}
+    atualizado_em: datetime | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class PerfilBase(BaseModel):

@@ -100,3 +100,27 @@ class UsuarioPerfil(Base):
 
     usuario: Mapped["Usuario"] = relationship(back_populates="perfis", foreign_keys=[usuario_id])
     perfil: Mapped["Perfil"] = relationship(back_populates="usuarios")
+
+
+class UsuarioPreferencias(Base):
+    """Preferencias de interface, uma linha por usuario (issue #124).
+
+    O conteudo e um JSONB sem esquema fixo: o front e dono do significado das
+    chaves (tours vistos, menu recolhido, papel inicial). O servidor so valida
+    forma e tamanho. Por isso nao ha coluna por preferencia - cada tour novo
+    exigiria migration.
+
+    PK = usuario_id: uma linha por pessoa, e o ON DELETE CASCADE leva as
+    preferencias junto quando o usuario sai.
+    """
+
+    __tablename__ = "usuario_preferencias"
+    __table_args__ = {"schema": "lms"}
+
+    usuario_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("lms.usuarios.id", ondelete="CASCADE"), primary_key=True
+    )
+    dados: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
