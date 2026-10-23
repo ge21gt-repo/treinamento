@@ -11,6 +11,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.log import LogAuditoria
+from app.services.log_acesso import _detectar_dispositivo, _ip_cliente
 
 
 def _serializar(obj) -> dict | None:
@@ -48,10 +49,17 @@ async def registrar_auditoria(
     request: Request | None = None,
 ) -> LogAuditoria:
     """Grava um registro de auditoria em log_auditoria (T-17.2)."""
+    # Issue #120: alem do IP, guardar user_agent e dispositivo, para a aba de
+    # Alteracoes mostrar as mesmas colunas da aba de Acessos. O IP passou a sair
+    # de _ip_cliente, a mesma funcao que log_acesso usa: era logica duplicada,
+    # e as duas abas tem de concordar sobre o IP da mesma requisicao.
     ip_address = None
+    user_agent = None
+    dispositivo = None
     if request:
-        xff = request.headers.get("x-forwarded-for", "")
-        ip_address = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
+        ip_address = _ip_cliente(request)
+        user_agent = request.headers.get("user-agent") or None
+        dispositivo = _detectar_dispositivo(user_agent or "")
     log = LogAuditoria(
         usuario_id=usuario_id,
         acao=acao,
@@ -60,6 +68,8 @@ async def registrar_auditoria(
         dados_anteriores=dados_anteriores,
         dados_novos=dados_novos,
         ip_address=ip_address,
+        user_agent=user_agent,
+        dispositivo=dispositivo,
     )
     db.add(log)
     return log
