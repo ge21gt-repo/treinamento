@@ -282,8 +282,24 @@ class TestIssue119RotaDeAceite:
         assert depois == antes + 1
 
     async def test_versao_longa_recusada(self, cliente_real):
-        r = await cliente_real.post(_ACEITE, json={"versao_termo": "v" * 21})
+        r = await cliente_real.post(_ACEITE, json={"versao_termo": "v" * 51})
         assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, r.text
+
+    async def test_o_formato_do_front_e_aceito(self, cliente_real):
+        """O formato definido no comentario do Caua, de 23/10, tem 21 caracteres.
+
+        Com a coluna em varchar(20) - como eu havia dimensionado - esta string
+        levava 422 e nao caberia no banco. O teste existe para ninguem estreitar
+        a coluna de novo.
+        """
+        versao = "provisoria-2026-10-22"
+        assert len(versao) == 21
+
+        r = await cliente_real.post(_ACEITE, json={"versao_termo": versao})
+        assert r.status_code == status.HTTP_200_OK, r.text
+        assert r.json()["versao_termo_lgpd"] == versao
+
+        assert (await _linha_lgpd("admin@test.com"))["versao_termo_lgpd"] == versao
 
     async def test_campo_fora_do_schema_recusado(self, cliente_real):
         r = await cliente_real.post(_ACEITE, json={"aceite_lgpd": True})

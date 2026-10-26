@@ -35,7 +35,7 @@ class Usuario(Base):
     # nunca casa com a versao em vigor, e a data do aceite anterior continua
     # gravada. O historico completo fica em log_auditoria, que tem trigger de
     # imutabilidade - e o que serve como prova de consentimento.
-    versao_termo_lgpd: Mapped[str | None] = mapped_column(String(20))
+    versao_termo_lgpd: Mapped[str | None] = mapped_column(String(50))
     ip_aceite_lgpd: Mapped[str | None] = mapped_column(INET)
     ultimo_acesso: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status_credenciamento: Mapped[str] = mapped_column(String(20), default="pendente")

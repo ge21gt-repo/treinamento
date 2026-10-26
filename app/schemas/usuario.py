@@ -165,8 +165,10 @@ class AceiteLgpdRequest(BaseModel):
     @field_validator("versao_termo")
     @classmethod
     def _versao_curta(cls, v):
-        if v is not None and (not v.strip() or len(v) > 20):
-            raise ValueError("versao_termo deve ter de 1 a 20 caracteres")
+        # 50, e nao 20: o formato definido pelo front (`provisoria-2026-10-22`)
+        # tem 21 caracteres. Com 20 a versao oficial era recusada com 422.
+        if v is not None and (not v.strip() or len(v) > 50):
+            raise ValueError("versao_termo deve ter de 1 a 50 caracteres")
         return v.strip() if v else v
 
 

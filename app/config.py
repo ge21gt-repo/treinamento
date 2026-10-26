@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     # nunca aceitou - precisa aceitar de novo. E por aqui que o re-aceite
     # decidido em produto alcanca quem ja existia, sem apagar o aceite antigo:
     # as linhas antigas tem versao nula, que nunca casa com esta.
-    VERSAO_TERMO_LGPD: str = "1.0"
+    VERSAO_TERMO_LGPD: str = "provisoria-2026-10-22"
 
     # Issue #119, item 4 (opcional na issue): recusar com 403 as rotas que nao
     # sejam /usuarios/me, o aceite e o logout enquanto o aceite esta pendente.
