@@ -69,7 +69,8 @@ async def registrar(request: Request, payload: UsuarioCreate, db: AsyncSession =
 
     await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
 
-    solicitacao = await criar_solicitacao_credenciamento(payload, db)
+    # Issue #119: o request vai adiante para gravar o IP do aceite.
+    solicitacao = await criar_solicitacao_credenciamento(payload, db, request)
 
     return {
         "message": "Solicitacao de credenciamento criada com sucesso",

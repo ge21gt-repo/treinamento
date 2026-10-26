@@ -14,7 +14,10 @@ from app.models.credenciamento import AprovacaoHierarquica, SolicitacaoCredencia
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil, UsuarioPreferencias
 from app.services.paginacao import apply_search, count_query
 from app.services.rbac import Permissoes, can_create_perfil
+from app.config import settings
 from app.schemas.usuario import (
+    AceiteLgpdRead,
+    AceiteLgpdRequest,
     CriarSubordinadoRequest,
     PerfilCreate,
     PerfilRead,
@@ -28,6 +31,8 @@ from app.schemas.usuario import (
     validar_preferencias,
 )
 from app.services.auth import hash_password
+from app.services.lgpd import aceite_pendente
+from app.services.log_acesso import _ip_cliente
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
@@ -234,6 +239,60 @@ async def atualizar_minhas_preferencias(
         break
 
     return await _ler_preferencias(db, current_user.id)
+
+
+@router.post("/me/aceite-lgpd", response_model=AceiteLgpdRead)
+async def aceitar_lgpd(
+    request: Request,
+    payload: AceiteLgpdRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Registra o aceite do termo pelo proprio usuario (issue #119).
+
+    Idempotente: aceitar de novo a MESMA versao nao mexe na data do primeiro
+    aceite. A data e o fato que interessa - sobrescreve-la a cada chamada do
+    front apagaria quando a pessoa de fato consentiu. Aceitar uma versao nova
+    grava data, IP e versao novos.
+
+    So o proprio usuario: o id sai do token, nao do corpo nem do caminho.
+    """
+    versao = (payload.versao_termo if payload and payload.versao_termo else None) or settings.VERSAO_TERMO_LGPD
+
+    ja_aceito = current_user.aceite_lgpd and (current_user.versao_termo_lgpd or "") == versao
+    if not ja_aceito:
+        from app.services.auditoria import _serializar, registrar_auditoria
+
+        dados_antes = _serializar(current_user)
+        current_user.aceite_lgpd = True
+        current_user.data_aceite_lgpd = datetime.now(timezone.utc)
+        current_user.versao_termo_lgpd = versao
+        current_user.ip_aceite_lgpd = _ip_cliente(request)
+
+        # Snapshot montado antes do commit e auditoria na mesma transacao, pelo
+        # motivo da #114. Aqui a auditoria nao e ruido como nas preferencias
+        # (#124): consentimento e fato juridico, e log_auditoria tem trigger de
+        # imutabilidade - e o que da o historico dos aceites, que a linha do
+        # usuario nao da, porque guarda so o ultimo.
+        dados_novos = _serializar(current_user)
+        await registrar_auditoria(
+            db,
+            tabela="usuarios",
+            registro_id=current_user.id,
+            acao="aceite_lgpd",
+            dados_anteriores=dados_antes,
+            dados_novos=dados_novos,
+            usuario_id=current_user.id,
+            request=request,
+        )
+        await db.commit()
+
+    return AceiteLgpdRead(
+        aceite_lgpd=True,
+        data_aceite_lgpd=current_user.data_aceite_lgpd,
+        versao_termo_lgpd=current_user.versao_termo_lgpd,
+        aceite_lgpd_pendente=aceite_pendente(True, current_user.versao_termo_lgpd),
+    )
 
 
 @router.get("", response_model=list[UsuarioRead])
@@ -487,9 +546,10 @@ async def criar_subordinado(
             detail=f"Seu perfil não tem permissão para criar usuários do perfil '{payload.perfil}'",
         )
 
-    # Validar aceite LGPD
-    if not payload.aceite_lgpd:
-        raise HTTPException(status_code=422, detail="Aceite dos termos LGPD é obrigatorio")
+    # Issue #119 item 1: o aceite deixou de ser exigido aqui. Quem cria a conta
+    # nao pode consentir pelo outro - a propria pessoa aceita no primeiro
+    # acesso, pela rota POST /usuarios/me/aceite-lgpd. O campo aceite_lgpd
+    # continua aceito no corpo, para nao quebrar quem ja chama, mas e ignorado.
 
     # Verificar unicidade de email, CPF e telefone
     await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
@@ -506,8 +566,9 @@ async def criar_subordinado(
         ativo=True,
         status_credenciamento="aprovado",
         criado_por=current_user.id,
-        aceite_lgpd=True,
-        data_aceite_lgpd=datetime.now(timezone.utc),
+        # Issue #119 item 1: nasce sem aceite, como o usuario do Keycloak.
+        aceite_lgpd=False,
+        data_aceite_lgpd=None,
     )
     db.add(subordinado)
     await db.flush()

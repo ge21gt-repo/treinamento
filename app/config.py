@@ -63,6 +63,19 @@ class Settings(BaseSettings):
     # de credenciamento para o admin aprovar (fluxo antigo). Reversivel via .env.
     KEYCLOAK_PARTICIPANTE_APROVADO: bool = True
 
+    # Issue #119: versao do termo em vigor. Quem aceitou outra versao - ou
+    # nunca aceitou - precisa aceitar de novo. E por aqui que o re-aceite
+    # decidido em produto alcanca quem ja existia, sem apagar o aceite antigo:
+    # as linhas antigas tem versao nula, que nunca casa com esta.
+    VERSAO_TERMO_LGPD: str = "1.0"
+
+    # Issue #119, item 4 (opcional na issue): recusar com 403 as rotas que nao
+    # sejam /usuarios/me, o aceite e o logout enquanto o aceite esta pendente.
+    # Nasce DESLIGADO de proposito: ligar antes de a tela de primeiro acesso
+    # existir no front trancaria todo mundo fora da plataforma, porque pelo
+    # re-aceite todos os usuarios de hoje comecam pendentes.
+    LGPD_BLOQUEIO_ATIVO: bool = False
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")

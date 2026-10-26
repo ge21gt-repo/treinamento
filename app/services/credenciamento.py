@@ -1,13 +1,16 @@
 import uuid
 from datetime import datetime, timezone
 
+from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.credenciamento import AprovacaoHierarquica, SolicitacaoCredenciamento
 from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.schemas.usuario import UsuarioCreate
 from app.services.auth import hash_password
+from app.services.log_acesso import _ip_cliente
 
 # Regras de autorização hierárquica
 #
@@ -63,10 +66,18 @@ async def perfis_do_usuario(db: AsyncSession, usuario_id: uuid.UUID) -> list[str
     return [p.nome for p in result.scalars().all()] or ["participante"]
 
 
-async def criar_solicitacao_credenciamento(payload: UsuarioCreate, db: AsyncSession) -> SolicitacaoCredenciamento:
+async def criar_solicitacao_credenciamento(
+    payload: UsuarioCreate, db: AsyncSession, request: Request | None = None
+) -> SolicitacaoCredenciamento:
     """
     Cria uma solicitacao de credenciamento pendente
     Em vez de criar usuario ativo, cria solicitacao que precisa ser aprovada
+
+    Issue #119: o aceite da LGPD passou a ser gravado aqui. A rota /auth/registro
+    exigia payload.aceite_lgpd (422 sem ele) e este bloco descartava o valor, de
+    modo que o usuario nascia com o default False do modelo: a pessoa marcava o
+    termo no cadastro e a tela de Privacidade mostrava "pendente". Era o primeiro
+    relato da Tatiana, que a issue dava como sem causa no codigo.
     """
     # Criar usuario com status_credenciamento='pendente'
     usuario = Usuario(
@@ -80,6 +91,10 @@ async def criar_solicitacao_credenciamento(payload: UsuarioCreate, db: AsyncSess
         avatar_url=payload.avatar_url,
         ativo=False,  # Usuario fica inativo até aprovação
         status_credenciamento="pendente",  # Status de credenciamento pendente
+        aceite_lgpd=payload.aceite_lgpd,
+        data_aceite_lgpd=datetime.now(timezone.utc) if payload.aceite_lgpd else None,
+        versao_termo_lgpd=settings.VERSAO_TERMO_LGPD if payload.aceite_lgpd else None,
+        ip_aceite_lgpd=_ip_cliente(request) if request and payload.aceite_lgpd else None,
     )
     db.add(usuario)
     await db.flush()

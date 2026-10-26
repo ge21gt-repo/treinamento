@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,15 +17,38 @@ from app.services.keycloak import (
     sincronizar_perfis_keycloak,
     validar_token_keycloak,
 )
+from app.services.lgpd import aceite_pendente, rota_liberada
 from app.services.rbac import has_permission
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.ROOT_PATH.rstrip('/')}/api/v1/auth/login")
 
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> Usuario:
+    """Resolve o usuario do token e aplica o bloqueio de LGPD (issue #119).
+
+    O bloqueio fica aqui, num ponto so, e nao numa dependencia por rota:
+    require_credenciamento nao e usada por rota nenhuma e 47 rotas dependem
+    de get_current_user direto, entao qualquer outro lugar deixaria parte da
+    API aberta. Nasce desligado (LGPD_BLOQUEIO_ATIVO).
+    """
+    user = await _resolver_usuario(token, db)
+    if (
+        settings.LGPD_BLOQUEIO_ATIVO
+        and aceite_pendente(user.aceite_lgpd, user.versao_termo_lgpd)
+        and not rota_liberada(request.url.path)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Aceite do termo de uso e da politica de privacidade pendente.",
+        )
+    return user
+
+
+async def _resolver_usuario(token: str, db: AsyncSession) -> Usuario:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Token invalido ou expirado",
@@ -111,7 +134,11 @@ async def get_current_user(
             senha_hash=None,
             ativo=aprovado_direto,
             status_credenciamento="aprovado" if aprovado_direto else "pendente",
-            aceite_lgpd=True,
+            # Issue #119: nascia True, ou seja, a plataforma registrava um
+            # consentimento que a pessoa nunca deu - era o segundo relato da
+            # Tatiana. Quem chega pelo Keycloak (inclusive gov.br) nasce sem
+            # aceite e aceita pela rota POST /usuarios/me/aceite-lgpd.
+            aceite_lgpd=False,
             keycloak_sub=str(sub),
             auth_provider="keycloak",
         )

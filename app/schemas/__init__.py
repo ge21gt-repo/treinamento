@@ -80,6 +80,8 @@ from app.schemas.scorm import (
     TrackingScormRead,
 )
 from app.schemas.usuario import (
+    AceiteLgpdRead,
+    AceiteLgpdRequest,
     CriarSubordinadoRequest,
     EsqueciSenhaRequest,
     GestorBase,
@@ -130,6 +132,8 @@ __all__ = [
     "ResultadoFeedbackQuestao",
     "ResultadoFeedbackRead",
     "SubmeterAvaliacaoRequest",
+    "AceiteLgpdRead",
+    "AceiteLgpdRequest",
     "UsuarioBase",
     "UsuarioCreate",
     "UsuarioUpdate",
