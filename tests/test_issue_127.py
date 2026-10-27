@@ -200,10 +200,21 @@ class TestIssue127MarcarDisponibilidade:
         """Nao regride: a conferencia do arquivo so vale quando se marca true.
 
         `disponivel` ja nasce true por default no modelo, entao um conteudo sem
-        url_arquivo tendo o titulo editado nao pode comecar a levar 422.
+        url_arquivo tendo o titulo editado nao pode comecar a levar 422. Por
+        isso a conferencia olha o que o PEDIDO manda, e nao o estado final do
+        objeto.
+
+        O assert do PATCH de preparacao nao e enfeite: sem ele, a versao
+        ingenua da regra fazia justamente esse PATCH virar 422, o conteudo
+        continuava com arquivo, o PATCH seguinte passava e o teste ficava
+        verde escondendo a quebra.
         """
         _, cid = await _curso_com_conteudo(client, "C127h")
-        await client.patch(f"/api/v1/conteudos/{cid}", json={"url_arquivo": ""})
+        preparo = await client.patch(f"/api/v1/conteudos/{cid}", json={"url_arquivo": ""})
+        assert preparo.status_code == status.HTTP_200_OK, preparo.text
+        assert preparo.json()["url_arquivo"] == ""
+        # Fica sem arquivo E disponivel - e o estado que a regra nao pode punir.
+        assert preparo.json()["disponivel"] is True
 
         r = await client.patch(f"/api/v1/conteudos/{cid}", json={"titulo": "Outro titulo"})
         assert r.status_code == status.HTTP_200_OK, r.text
