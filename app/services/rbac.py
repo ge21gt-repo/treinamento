@@ -88,6 +88,9 @@ class Permissoes:
     DASHBOARD_GRAFICOS = "dashboard:graficos"
     DASHBOARD_RELATORIOS = "dashboard:relatorios"
     AUDITORIA_VISUALIZAR = "auditoria:visualizar"
+    # Issue #125: le o resumo de uso dos tours de ajuda. So os dois perfis
+    # de administracao, como a issue pede.
+    AJUDA_METRICAS = "ajuda:metricas"
     DASHBOARD_METRICAS_USUARIO = "dashboard:metricas_usuario"
 
     GAMIFICACAO_GERENCIAR = "gamificacao:gerenciar"
@@ -118,6 +121,7 @@ class Permissoes:
 PERFIL_PERMISSOES = {
     "administrador_geral": [
         # Todas as permissões
+        Permissoes.AJUDA_METRICAS,
         Permissoes.AVALIACAO_CRIAR,
         Permissoes.AVALIACAO_RESPONDER,
         Permissoes.AVALIACAO_EDITAR,
@@ -207,6 +211,7 @@ PERFIL_PERMISSOES = {
         Permissoes.CHAT_VISUALIZAR,
     ],
     "administrador": [
+        Permissoes.AJUDA_METRICAS,  # issue #125
         # Todas exceto auditoria (mesmo de admin_geral por enquanto)
         Permissoes.AVALIACAO_CRIAR,
         Permissoes.AVALIACAO_RESPONDER,

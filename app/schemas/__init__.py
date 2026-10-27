@@ -202,3 +202,10 @@ __all__ = [
 ]
 
 from app.schemas.notificacao import NotificacaoRead, NotificacoesListaRead
+from app.schemas.tour import (  # noqa: F401  (issue #125)
+    TourEventoIn,
+    TourEventosLote,
+    TourResumoItem,
+    TourResumoRead,
+    TourResumoTour,
+)

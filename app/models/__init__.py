@@ -77,4 +77,5 @@ __all__ = [
 ]
 
 from app.models.notificacao import Notificacao
+from app.models.tour import TourEvento  # noqa: F401  (issue #125)
 from app.models.usuario import UsuarioAulaSilenciado
