@@ -268,6 +268,33 @@ class TestIssue126OutrasRotas:
         marcadas = {n: r["substituida"] for n, r in (await _por_tentativa(client, av_id, rota)).items()}
         assert marcadas == {1: True, 2: False}
 
+    async def test_registrar_resultado_tambem_marca(self, client):
+        """A quarta rota com esse schema: POST /avaliacoes/resultados.
+
+        Ela devolvia o objeto do ORM direto, com `substituida` sempre falso
+        pelo default do schema. E o corpo aceita `tentativa_num` do cliente,
+        entao o falso podia ser mentira - como aqui, registrando a tentativa 1
+        de quem ja respondeu a 2.
+        """
+        _, av_id = await _avaliacao(client, "C126k")
+        q_id = await _dissertativa(client, av_id)
+        await _submeter(client, av_id, [{"questao_id": q_id, "resposta_texto": "R"}])
+        await _submeter(client, av_id, [{"questao_id": q_id, "resposta_texto": "R"}])
+
+        r = await client.post(
+            "/api/v1/avaliacoes/resultados",
+            json={
+                "usuario_id": "00000000-0000-0000-0000-000000000000",
+                "avaliacao_id": av_id,
+                "nota": 70,
+                "aprovado": True,
+                "tentativa_num": 1,
+            },
+        )
+        assert r.status_code == status.HTTP_201_CREATED, r.text
+        assert r.json()["tentativa_num"] == 1
+        assert r.json()["substituida"] is True
+
     async def test_resultados_de_um_usuario(self, client, admin_user):
         _, av_id = await _avaliacao(client, "C126j")
         q_id = await _dissertativa(client, av_id)

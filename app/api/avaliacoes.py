@@ -768,7 +768,13 @@ async def registrar_resultado(
 
     await db.commit()
     await db.refresh(resultado)
-    return resultado
+    # Issue #126: ResultadoAvaliacaoRead sai por quatro rotas, e esta devolvia o
+    # objeto do ORM direto - `substituida` e `aguardando_correcao` saiam sempre
+    # falsos, pelo default do schema. Como o corpo aceita `tentativa_num` do
+    # cliente, esse falso podia ser mentira: registrar a tentativa 1 de quem ja
+    # esta na 2. O refresh acima deixa os atributos carregados, entao serializar
+    # aqui depois do commit nao dispara IO sincrono (o MissingGreenlet da #114).
+    return await _resultado_com_aguardando(db, resultado)
 
 
 @router.get("/{avaliacao_id}/resultado/{tentativa}", response_model=ResultadoFeedbackRead)
