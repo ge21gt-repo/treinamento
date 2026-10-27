@@ -385,3 +385,37 @@ class TestIssue119Bloqueio:
 
             r = await client.get(_PREFERENCIAS, headers=cabecalho)
             assert r.status_code == status.HTTP_200_OK, "depois de aceitar nao se bloqueia mais"
+
+class TestIssue119AuditoriaSemSegredo:
+    """A auditoria do aceite nao pode gravar senha nem CPF.
+
+    `_serializar` copia TODA coluna da tabela, e log_auditoria tem trigger de
+    imutabilidade: o que entra ali nao sai. Esta rota gravava `senha_hash`,
+    `cpf` e `telefone` em claro nos dois snapshots - justamente a rota feita
+    para cumprir a LGPD. As outras rotas de usuario ja limpavam (issue #81);
+    esta, que eu escrevi depois, nao. Agora passa por `sem_dados_sensiveis`.
+    """
+
+    async def test_o_snapshot_do_aceite_nao_tem_senha_nem_cpf(self, cliente_real):
+        # Versao inedita de proposito: aceitar a MESMA versao e idempotente e
+        # nao grava auditoria nenhuma, e o teste nao teria o que conferir.
+        versao = "auditoria-119"
+        r = await cliente_real.post(_ACEITE, json={"versao_termo": versao})
+        assert r.status_code == status.HTTP_200_OK, r.text
+
+        linha = await _consultar(
+            "SELECT dados_anteriores, dados_novos FROM lms.log_auditoria "
+            "WHERE tabela_afetada = 'usuarios' AND acao = 'aceite_lgpd' "
+            "ORDER BY id DESC LIMIT 1"
+        )
+        assert linha is not None, "a auditoria do aceite nao foi gravada"
+
+        for nome, snapshot in (("anteriores", linha[0]), ("novos", linha[1])):
+            assert snapshot is not None, nome
+            for campo in ("senha_hash", "cpf", "telefone"):
+                assert campo not in snapshot, (nome, campo, sorted(snapshot))
+
+        # A limpeza nao pode ter esvaziado o que a auditoria existe para guardar.
+        assert linha[1]["aceite_lgpd"] is True
+        assert linha[1]["versao_termo_lgpd"] == versao
+        assert "aceite_lgpd" in linha[0]
