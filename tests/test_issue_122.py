@@ -309,3 +309,49 @@ class TestIssue122LimiteDeTaxa:
         for nome in sorted(esperadas):
             limites = [str(limite.limit) for limite in limiter._route_limits[nome]]
             assert limites == ["30 per 1 minute"], (nome, limites)
+
+@pytest.mark.asyncio
+class TestIssue122CriterioHttp:
+    """O critério de aceite fala em 401, e não em "a função devolve None".
+
+    Os testes de audiencia acima param na funcao. Estes vao ate a resposta,
+    com o token RS256 de verdade e o JWKS trocado - entao exercitam a cadeia
+    toda: validar_token_keycloak recusa, o fluxo cai no fallback do JWT
+    interno, que nao decodifica um RS256, e a dependencia levanta 401.
+    """
+
+    async def _resposta(self, token):
+        from fastapi import HTTPException
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from app.api.deps import get_current_user
+
+        eng = create_async_engine(_URL)
+        try:
+            maker = async_sessionmaker(eng, class_=AsyncSession, expire_on_commit=False)
+            async with maker() as db:
+                try:
+                    await get_current_user(_request_falso(), token=token, db=db)
+                    return 200
+                except HTTPException as e:
+                    return e.status_code
+        finally:
+            await eng.dispose()
+
+    async def test_token_de_outro_client_responde_401(self, client):
+        privada, publica = _gen_keypair()
+        token = _token(privada, aud="account", azp="outro-sistema")
+        with _JwksFalso(publica):
+            assert await self._resposta(token) == 401
+
+    async def test_token_do_client_da_plataforma_nao_da_401(self, client):
+        """A outra direcao: o mesmo caminho aceita o token certo.
+
+        Sem isto, o teste acima passaria tambem se a dependencia recusasse
+        TODO token do Keycloak.
+        """
+        privada, publica = _gen_keypair()
+        sub = f"kc-122-http-{uuid.uuid4().hex[:8]}"
+        token = _token(privada, sub=sub, email=f"{sub}@test.com", email_verified=True)
+        with _JwksFalso(publica):
+            assert await self._resposta(token) == 200
