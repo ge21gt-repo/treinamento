@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_ID: str = ""
     KEYCLOAK_CLIENT_SECRET: str = ""
     KEYCLOAK_JWKS_URI: str = ""
+    # Issue #122: clients do realm aceitos ALEM do KEYCLOAK_CLIENT_ID, separados
+    # por virgula. Vazio em producao: so o client da plataforma entra. Existe
+    # para o `treinamento-testes` (teste pela API, Direct Access), que era a
+    # justificativa de a checagem de audiencia estar desligada.
+    KEYCLOAK_CLIENTS_EXTRA: str = ""
+    # Issue #122 item 2: o vinculo de conta existente pelo e-mail exige
+    # email_verified no token. Desligar isto reabre a porta de assumir uma conta
+    # so declarando o e-mail - existe so para o caso de o realm nao preencher a claim.
+    KEYCLOAK_EXIGIR_EMAIL_VERIFICADO: bool = True
 
     # Se True (padrao), o participante provisionado via Keycloak nasce APROVADO
     # (ativo) — comportamento original. Se False, nasce pendente + solicitacao

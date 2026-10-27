@@ -96,6 +96,21 @@ async def _resolver_usuario(token: str, db: AsyncSession) -> Usuario:
             )
             user = result.scalar_one_or_none()
             if user:
+                # Issue #122 item 2: so liga a conta se o e-mail do token
+                # estiver verificado. Sem isso, quem conseguisse um token do
+                # realm declarando o e-mail de outra pessoa assumia a conta
+                # dela - e os perfis dela. Claim ausente conta como nao
+                # verificada: `is True` e deliberado, nao `truthy`.
+                #
+                # A recusa fica AQUI, e nao na entrada do `if email`: la, pular
+                # o vinculo fazia o fluxo seguir para o provisionamento logo
+                # abaixo, que tentava criar outro usuario com o mesmo e-mail e
+                # estourava a unicidade - 500 em vez de 401.
+                if (
+                    settings.KEYCLOAK_EXIGIR_EMAIL_VERIFICADO
+                    and kc_payload.get("email_verified") is not True
+                ):
+                    raise credentials_exception
                 user.keycloak_sub = str(sub)
                 user.auth_provider = "keycloak"
                 # Sincroniza os perfis ja neste ramo: quem e ligado por e-mail

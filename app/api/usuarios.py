@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.auth import check_unique_fields
+from app.api.rate_limit import limiter
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
 from app.models.credenciamento import AprovacaoHierarquica, SolicitacaoCredenciamento
@@ -361,7 +362,10 @@ async def _checar_unicidade_edicao(db: AsyncSession, usuario_id: uuid.UUID, dado
             raise HTTPException(status_code=409, detail=f"{rotulo} ja cadastrado")
 
 
+# Issue #122 item 3: limite de taxa nas rotas de administracao de usuario.
+# 30/minuto e folgado para quem administra pela tela e corta um script.
 @router.patch("/{usuario_id}", response_model=UsuarioRead)
+@limiter.limit("30/minute")
 async def atualizar_usuario(
     usuario_id: uuid.UUID,
     payload: UsuarioUpdate,
@@ -413,7 +417,10 @@ async def atualizar_usuario(
     return result.scalar_one()
 
 
+# Issue #122 item 3: limite de taxa nas rotas de administracao de usuario.
+# 30/minuto e folgado para quem administra pela tela e corta um script.
 @router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
 async def excluir_usuario(
     usuario_id: uuid.UUID,
     request: Request,
@@ -468,8 +475,12 @@ async def criar_perfil(
     return perfil
 
 
+# Issue #122 item 3: limite de taxa nas rotas de administracao de usuario.
+# 30/minuto e folgado para quem administra pela tela e corta um script.
 @router.post("/perfis/atribuir", status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 async def atribuir_perfil(
+    request: Request,
     payload: UsuarioPerfilCreate,
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.PERFIL_ATRIBUIR)),
@@ -525,7 +536,10 @@ async def excluir_perfil(
     await db.commit()
 
 
+# Issue #122 item 3: limite de taxa nas rotas de administracao de usuario.
+# 30/minuto e folgado para quem administra pela tela e corta um script.
 @router.post("/criar-subordinado", response_model=UsuarioRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 async def criar_subordinado(
     payload: CriarSubordinadoRequest,
     request: Request,

@@ -354,7 +354,11 @@ async def test_get_current_user_keycloak_gestao_aprovado(client):
 async def _entrar(sub, email, roles, outros=None):
     """Helper do dev (issue #95): chama get_current_user com token mockado."""
     recursos = {"treinamento-front": {"roles": roles}, **(outros or {})}
-    payload = {"sub": sub, "email": email, "name": email,
+    # email_verified: a issue #122 passou a exigir a claim para LIGAR uma conta
+    # existente pelo e-mail. Um token real de pessoa com e-mail verificado tras
+    # isso; este payload simulado nao tinha. `outros` sobrescreve, para um teste
+    # poder mandar False de proposito.
+    payload = {"sub": sub, "email": email, "name": email, "email_verified": True,
                "exp": int(time.time()) + 300, "resource_access": recursos}
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
