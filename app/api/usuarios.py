@@ -261,9 +261,12 @@ async def aceitar_lgpd(
 
     ja_aceito = current_user.aceite_lgpd and (current_user.versao_termo_lgpd or "") == versao
     if not ja_aceito:
-        from app.services.auditoria import _serializar, registrar_auditoria
+        from app.services.auditoria import _serializar, registrar_auditoria, sem_dados_sensiveis
 
-        dados_antes = _serializar(current_user)
+        # LGPD: nao gravar senha/cpf/telefone em claro no snapshot de auditoria.
+        # Seria contraditorio justamente aqui, e log_auditoria tem trigger de
+        # imutabilidade - o que entra nao sai.
+        dados_antes = sem_dados_sensiveis(_serializar(current_user))
         current_user.aceite_lgpd = True
         current_user.data_aceite_lgpd = datetime.now(timezone.utc)
         current_user.versao_termo_lgpd = versao
@@ -274,7 +277,7 @@ async def aceitar_lgpd(
         # (#124): consentimento e fato juridico, e log_auditoria tem trigger de
         # imutabilidade - e o que da o historico dos aceites, que a linha do
         # usuario nao da, porque guarda so o ultimo.
-        dados_novos = _serializar(current_user)
+        dados_novos = sem_dados_sensiveis(_serializar(current_user))
         await registrar_auditoria(
             db,
             tabela="usuarios",

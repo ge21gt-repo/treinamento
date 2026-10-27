@@ -13,6 +13,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.log import LogAuditoria
 from app.services.log_acesso import _detectar_dispositivo, _ip_cliente
 
+CAMPOS_SENSIVEIS = ("senha_hash", "cpf", "telefone")
+
+
+def sem_dados_sensiveis(dados: dict | None) -> dict | None:
+    """Remove senha, CPF e telefone de um snapshot de usuario.
+
+    `_serializar` copia TODA coluna da tabela, e `log_auditoria` tem trigger de
+    imutabilidade (`prevent_log_auditoria_modify`): o que entra ali nao sai.
+    As rotas de usuario ja faziam isso com `pop` repetido - aqui fica num ponto
+    so, para uma rota nova nao esquecer. Foi o que aconteceu na #119.
+    """
+    if dados is None:
+        return None
+    return {k: v for k, v in dados.items() if k not in CAMPOS_SENSIVEIS}
+
 
 def _serializar(obj) -> dict | None:
     """Serializa um objeto SQLAlchemy para dict (para snapshot)."""
