@@ -10,6 +10,34 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from app.config import settings
 
 
+def _request_falso(caminho="/api/v1/usuarios/me"):
+    """Request minimo para chamar get_current_user fora da injecao do FastAPI.
+
+    A dependencia passou a receber o Request na issue #119, para poder liberar
+    as rotas do proprio aceite da LGPD quando o bloqueio esta ligado. Pela
+    rota o FastAPI injeta o Request pelo tipo anotado; aqui, chamando a funcao
+    direto, e preciso passar um.
+
+    O parametro nao pode ser `Request | None`: o FastAPI tenta tratar o tipo
+    opcional como campo Pydantic e se recusa a montar o app.
+
+    Nestes testes o bloqueio nem roda - LGPD_BLOQUEIO_ATIVO e falso por
+    default - mas o caminho usado e um dos liberados, para o dia em que
+    alguem ligar a flag e rodar a suite.
+    """
+    from starlette.requests import Request
+
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": caminho,
+            "headers": [],
+            "query_string": b"",
+        }
+    )
+
+
 def _gen_keypair():
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     private_pem = private_key.private_bytes(
@@ -130,7 +158,7 @@ async def test_get_current_user_keycloak_provisiona(client):
                     "resource_access": {settings.KEYCLOAK_CLIENT_ID: {"roles": ["participante"]}},
                 },
             ):
-                user = await get_current_user(token=token, db=db)
+                user = await get_current_user(_request_falso(), token=token, db=db)
                 assert user.email == email
                 assert user.keycloak_sub == sub
                 assert user.auth_provider == "keycloak"
@@ -180,7 +208,7 @@ async def test_get_current_user_keycloak_participante_pendente(client):
                     "resource_access": {"treinamento-front": {"roles": ["participante"]}},
                 },
             ):
-                user = await get_current_user(token=token, db=db)
+                user = await get_current_user(_request_falso(), token=token, db=db)
                 assert user.email == email
                 assert user.keycloak_sub == sub
                 assert user.auth_provider == "keycloak"
@@ -237,7 +265,7 @@ async def test_get_current_user_keycloak_participante_aprovado_padrao(client):
                     "resource_access": {"treinamento-front": {"roles": ["participante"]}},
                 },
             ):
-                user = await get_current_user(token=token, db=db)
+                user = await get_current_user(_request_falso(), token=token, db=db)
                 assert user.email == email
                 assert user.status_credenciamento == "aprovado"
                 assert user.ativo is True
@@ -316,7 +344,7 @@ async def test_get_current_user_keycloak_gestao_aprovado(client):
                     "resource_access": {"treinamento-front": {"roles": ["administrador_geral"]}},
                 },
             ):
-                user = await get_current_user(token=token, db=db)
+                user = await get_current_user(_request_falso(), token=token, db=db)
                 assert user.email == email
                 assert user.status_credenciamento == "aprovado"
                 assert user.ativo is True
@@ -326,7 +354,11 @@ async def test_get_current_user_keycloak_gestao_aprovado(client):
 async def _entrar(sub, email, roles, outros=None):
     """Helper do dev (issue #95): chama get_current_user com token mockado."""
     recursos = {"treinamento-front": {"roles": roles}, **(outros or {})}
-    payload = {"sub": sub, "email": email, "name": email,
+    # email_verified: a issue #122 passou a exigir a claim para LIGAR uma conta
+    # existente pelo e-mail. Um token real de pessoa com e-mail verificado tras
+    # isso; este payload simulado nao tinha. `outros` sobrescreve, para um teste
+    # poder mandar False de proposito.
+    payload = {"sub": sub, "email": email, "name": email, "email_verified": True,
                "exp": int(time.time()) + 300, "resource_access": recursos}
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -337,7 +369,7 @@ async def _entrar(sub, email, roles, outros=None):
     maker = async_sessionmaker(engine, expire_on_commit=False)
     async with maker() as db:
         with patch("app.api.deps.validar_token_keycloak", return_value=payload):
-            user = await get_current_user(token="x", db=db)
+            user = await get_current_user(_request_falso(), token="x", db=db)
             return sorted(UsuarioRead.model_validate(user).perfis)
 
 

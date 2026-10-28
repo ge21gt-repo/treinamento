@@ -300,12 +300,28 @@ async def reordenar_modulos(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.CURSO_MODULO_EDITAR)),
 ):
+    """Issue #128: confere antes de aplicar, como a rota de questoes (#108).
+
+    Antes aceitava id repetido (o ultimo valor vencia), id inexistente
+    (ignorado em silencio, com 204 - o front achava que reordenou tudo) e
+    modulos de cursos diferentes, renumerando como se fossem do mesmo curso.
+    As conferencias vem todas antes do primeiro `setattr`: ou aplica tudo, ou
+    nao aplica nada.
+    """
+    if not payload:
+        return
     ids = [item.id for item in payload]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status_code=422, detail="Ha id repetido no corpo")
     result = await db.execute(select(Modulo).where(Modulo.id.in_(ids)))
     modulos = {m.id: m for m in result.scalars().all()}
+    faltando = sorted(set(ids) - set(modulos))
+    if faltando:
+        raise HTTPException(status_code=422, detail=f"Modulo nao encontrado: {faltando}")
+    if len({m.curso_id for m in modulos.values()}) > 1:
+        raise HTTPException(status_code=422, detail="Todos os modulos devem ser do mesmo curso")
     for item in payload:
-        if item.id in modulos:
-            modulos[item.id].ordem = item.ordem
+        modulos[item.id].ordem = item.ordem
     await db.commit()
 
 
@@ -380,12 +396,25 @@ async def reordenar_unidades(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.CURSO_UNIDADE_EDITAR)),
 ):
+    """Issue #128: confere antes de aplicar, como a rota de questoes (#108).
+
+    Mesmo buraco do reordenar_modulos. Conferir o modulo ja cobre o curso:
+    unidades do mesmo modulo sao, por construcao, do mesmo curso.
+    """
+    if not payload:
+        return
     ids = [item.id for item in payload]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status_code=422, detail="Ha id repetido no corpo")
     result = await db.execute(select(Unidade).where(Unidade.id.in_(ids)))
     unidades = {u.id: u for u in result.scalars().all()}
+    faltando = sorted(set(ids) - set(unidades))
+    if faltando:
+        raise HTTPException(status_code=422, detail=f"Unidade nao encontrada: {faltando}")
+    if len({u.modulo_id for u in unidades.values()}) > 1:
+        raise HTTPException(status_code=422, detail="Todas as unidades devem ser do mesmo modulo")
     for item in payload:
-        if item.id in unidades:
-            unidades[item.id].ordem = item.ordem
+        unidades[item.id].ordem = item.ordem
     await db.commit()
 
 

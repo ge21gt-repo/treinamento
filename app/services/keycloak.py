@@ -73,53 +73,77 @@ def _get_jwks_client(force: bool = False) -> PyJWKClient | None:
         return None
 
 
-def validar_token_keycloak(token: str) -> dict | None:
-    """Valida JWT RS256 do Keycloak via JWKS.
+def clientes_aceitos() -> set[str]:
+    """O client da plataforma, mais os extras configurados (issue #122)."""
+    extras = {c.strip() for c in (settings.KEYCLOAK_CLIENTS_EXTRA or "").split(",") if c.strip()}
+    return {settings.KEYCLOAK_CLIENT_ID} | extras
 
-    Checa: assinatura (kid), iss, aud (treinamento-front), exp/nbf.
-    Retorna payload se válido, None se inválido/expirado/config ausente.
+
+def audiencia_confere(payload: dict) -> bool:
+    """O token foi emitido para um client aceito? (issue #122)
+
+    Confere `aud` E `azp`, nesta ordem, porque os dois casos reais sao
+    diferentes: o token do browser (PKCE) traz o client em `aud`, e o do
+    `treinamento-testes` (Direct Access) traz `aud=account` e o client em
+    `azp`. Exigir so `aud` recusaria o de teste mesmo quando ele esta
+    liberado; exigir so `azp` deixaria passar token sem `azp`.
     """
-    if not token or not _issuer() or not settings.KEYCLOAK_CLIENT_ID:
-        return None
-    jwks_client = _get_jwks_client()
-    if not jwks_client:
-        return None
+    aceitos = clientes_aceitos()
+    aud = payload.get("aud")
+    if isinstance(aud, str):
+        aud = [aud]
+    if any(a in aceitos for a in (aud or [])):
+        return True
+    return payload.get("azp") in aceitos
+
+
+def _decodificar(token: str, jwks_client) -> dict | None:
+    """Assinatura, issuer e validade. A audiencia e conferida fora.
+
+    `verify_aud` segue False no PyJWT de proposito: ele so olha `aud`, e
+    precisamos aceitar tambem o client vindo em `azp` (ver audiencia_confere).
+    """
     try:
         signing_key = jwks_client.get_signing_key_from_jwt(token)
-        payload = jwt.decode(
+        return jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256"],
             issuer=_issuer(),
             options={"verify_signature": True, "verify_iss": True, "verify_aud": False, "verify_exp": True},
         )
-        # Audiência flexível: aceita tanto treinamento-front (browser PKCE) quanto
-        # treinamento-testes (teste via API com Direct Access) — ambos do mesmo realm.
-        # Se quiser restringir, descomente a checagem abaixo.
-        # aud = payload.get("aud"); azp = payload.get("azp")
-        # if isinstance(aud, str):
-        #     aud = [aud]
-        # if settings.KEYCLOAK_CLIENT_ID not in (aud or []) and azp != settings.KEYCLOAK_CLIENT_ID:
-        #     # Para teste, aceita qualquer aud do mesmo issuer (ex.: treinamento-testes tem aud=account)
-        #     pass
-        return payload
     except jwt.PyJWTError:
-        # Tentativa com refresh de JWKS (rotação de chaves)
+        return None
+
+
+def validar_token_keycloak(token: str) -> dict | None:
+    """Valida JWT RS256 do Keycloak via JWKS.
+
+    Checa assinatura (kid), iss, exp/nbf e, desde a issue #122, a audiencia.
+
+    Antes da #122 a audiencia estava DESLIGADA e a checagem ficava comentada
+    logo abaixo do decode, com a justificativa de aceitar tambem o client de
+    teste. Na pratica, qualquer token valido do realm, emitido para qualquer
+    client, entrava como se fosse da plataforma. O docstring daqui chegava a
+    dizer que conferia `aud (treinamento-front)`, e nao conferia.
+
+    Retorna payload se valido, None se invalido/expirado/config ausente.
+    """
+    if not token or not _issuer() or not settings.KEYCLOAK_CLIENT_ID:
+        return None
+    jwks_client = _get_jwks_client()
+    if not jwks_client:
+        return None
+    payload = _decodificar(token, jwks_client)
+    if payload is None:
+        # Rotacao de chaves: refaz o JWKS e tenta de novo.
         jwks_client = _get_jwks_client(force=True)
         if not jwks_client:
             return None
-        try:
-            signing_key = jwks_client.get_signing_key_from_jwt(token)
-            payload = jwt.decode(
-                token,
-                signing_key.key,
-                algorithms=["RS256"],
-                issuer=_issuer(),
-                options={"verify_signature": True, "verify_iss": True, "verify_aud": False, "verify_exp": True},
-            )
-            return payload
-        except jwt.PyJWTError:
-            return None
+        payload = _decodificar(token, jwks_client)
+    if payload is None or not audiencia_confere(payload):
+        return None
+    return payload
 
 
 def mapear_roles_keycloak(payload: dict) -> list[str]:

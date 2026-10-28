@@ -29,6 +29,7 @@ from app.api import (
     sandbox,
     scorm,
     sessoes,
+    tours,
     trilhas,
     usuarios,
 )
@@ -322,6 +323,13 @@ async def _registrar_acesso_escrita(method: str, path: str, authorization: str) 
     """
     if method not in ("POST", "PATCH", "DELETE", "PUT"):
         return
+    # Issue #125: a rota de eventos de tour fica fora do log_acesso. O front
+    # manda lote de poucos em poucos segundos, por aba aberta: seria uma linha
+    # aqui por lote, com usuario_id, IP e user-agent, numa tabela feita para
+    # escrita de CRUD - e justamente o oposto da decisao de produto da #125,
+    # que e medir o uso dos tours sem ligar nada a pessoa.
+    if path.rstrip("/").endswith("/tours/eventos"):
+        return
     if not authorization or not authorization.startswith("Bearer "):
         return
     token = authorization.split(" ", 1)[1]
@@ -456,3 +464,4 @@ app.include_router(certificados.router, prefix=PREFIX)
 app.include_router(dashboard.router, prefix=PREFIX)
 app.include_router(sandbox.router, prefix=PREFIX)
 app.include_router(credenciamento.router, prefix=PREFIX)
+app.include_router(tours.router, prefix=PREFIX)
