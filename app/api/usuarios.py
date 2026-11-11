@@ -385,6 +385,13 @@ async def atualizar_usuario(
     dados_antes.pop("cpf", None)
     dados_antes.pop("telefone", None)
     dados = payload.model_dump(exclude_unset=True)
+    # Issue #118 item 3: ninguem ativa/desativa a propria conta pelo servidor.
+    # O front so esconde o botao; a barreira real fica aqui.
+    if "ativo" in dados and usuario_id == current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Nao e permitido ativar ou desativar a propria conta",
+        )
     await _checar_unicidade_edicao(db, usuario_id, dados)
     for field, value in dados.items():
         setattr(user, field, value)
