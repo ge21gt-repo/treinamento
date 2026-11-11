@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user, require_permissao
+from app.api.deps import _resolver_usuario, get_current_user, require_permissao
 from app.config import settings
 from app.database import async_session, get_db
 from app.models.conteudo import Conteudo, EntregaAtividade
@@ -1592,18 +1592,11 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
     ou na query string (?token=...) como fallback, valida que a aula existe
     e faz broadcast das mensagens para todos os conectados na aula.
     """
-    from app.services.auth import decode_token
-
     token = None
     if websocket.headers.get("sec-websocket-protocol"):
         token = websocket.headers["sec-websocket-protocol"].split(",")[0].strip()
     if not token:
         token = websocket.query_params.get("token")
-
-    payload = decode_token(token or "")
-    if not payload or not payload.get("sub"):
-        await websocket.close(code=4401)
-        return
 
     try:
         async with async_session() as db:
@@ -1611,11 +1604,15 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
             if not aula:
                 await websocket.close(code=4404)
                 return
-            usuario_id = uuid.UUID(payload["sub"])
-            usuario = await db.get(Usuario, usuario_id)
-            if not usuario:
+            # Aceita o token local (HS256) E o do Keycloak (RS256), com o mesmo
+            # resolvedor do REST. Antes so o HS256 passava, e quem entrava pelo
+            # Keycloak caia em 4401 ("conexao perdida" no chat da aula).
+            try:
+                usuario = await _resolver_usuario(token or "", db)
+            except Exception:
                 await websocket.close(code=4401)
                 return
+            usuario_id = usuario.id
             if not await _checar_inscrito_ou_permissao(db, aula.curso_id, usuario_id, Permissoes.CHAT_MODERAR):
                 await websocket.close(code=4403)
                 return
