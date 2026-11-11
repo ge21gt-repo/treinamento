@@ -392,6 +392,27 @@ async def atualizar_usuario(
             status_code=403,
             detail="Nao e permitido ativar ou desativar a propria conta",
         )
+    # Issue #118 item 1: ativar/desativar reflete no Keycloak. Se la falhar,
+    # nada muda localmente e a resposta e 502.
+    if "ativo" in dados:
+        if dados["ativo"] is None:
+            raise HTTPException(status_code=400, detail="ativo nao pode ser nulo")
+        if not user.keycloak_sub:
+            raise HTTPException(
+                status_code=400,
+                detail="Usuario sem vinculo com o Keycloak: nao ha como refletir o status",
+            )
+        from app.services import keycloak_admin
+        from app.services.keycloak_admin import KeycloakAdminError
+
+        try:
+            await keycloak_admin.definir_habilitado(user.keycloak_sub, bool(dados["ativo"]))
+        except KeycloakAdminError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Nao foi possivel atualizar o status no Keycloak. Tente novamente.",
+            ) from exc
+
     await _checar_unicidade_edicao(db, usuario_id, dados)
     for field, value in dados.items():
         setattr(user, field, value)
