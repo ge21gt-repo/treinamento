@@ -31,7 +31,6 @@ from app.schemas.usuario import (
     UsuarioUpdateMe,
     validar_preferencias,
 )
-from app.services.auth import hash_password
 from app.services.lgpd import aceite_pendente
 from app.services.log_acesso import _ip_cliente
 
@@ -571,51 +570,76 @@ async def criar_subordinado(
     # Verificar unicidade de email, CPF e telefone
     await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
 
-    # Criar usuario subordinado
-    subordinado = Usuario(
-        nome_completo=payload.nome_completo,
-        email=payload.email,
-        cpf=payload.cpf,
-        senha_hash=hash_password(payload.senha),
-        orgao_instituicao=payload.orgao_instituicao,
-        cargo=payload.cargo,
-        telefone=payload.telefone,
-        ativo=True,
-        status_credenciamento="aprovado",
-        criado_por=current_user.id,
-        # Issue #119 item 1: nasce sem aceite, como o usuario do Keycloak.
-        aceite_lgpd=False,
-        data_aceite_lgpd=None,
-    )
-    db.add(subordinado)
-    await db.flush()
+    # Issue #116: com o login so pelo Keycloak, a conta nasce la e a pessoa
+    # define a senha pelo e-mail de acao. A plataforma nao guarda senha.
+    from app.services import keycloak_admin
+    from app.services.keycloak_admin import KeycloakAdminError
 
-    # Atribuir perfil solicitado
-    db.add(UsuarioPerfil(usuario_id=subordinado.id, perfil_id=perfil.id, atribuido_por=current_user.id))
+    try:
+        sub_keycloak = await keycloak_admin.criar_usuario(payload.email, payload.nome_completo)
+        await keycloak_admin.definir_role(sub_keycloak, payload.perfil)
+        await keycloak_admin.enviar_email_de_acao(sub_keycloak)
+    except KeycloakAdminError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Nao foi possivel criar o usuario no Keycloak. Tente novamente.",
+        ) from exc
 
-    # Criar solicitacao de credenciamento como aprovada (trilha de auditoria)
-    solicitacao = SolicitacaoCredenciamento(
-        usuario_id=subordinado.id,
-        perfil_solicitado=payload.perfil,
-        status="aprovado",
-        avaliado_por=current_user.id,
-        avaliado_em=datetime.now(timezone.utc),
-    )
-    db.add(solicitacao)
-    await db.flush()
+    try:
+        subordinado = Usuario(
+            nome_completo=payload.nome_completo,
+            email=payload.email,
+            cpf=payload.cpf,
+            senha_hash=None,
+            keycloak_sub=sub_keycloak,
+            auth_provider="keycloak",
+            orgao_instituicao=payload.orgao_instituicao,
+            cargo=payload.cargo,
+            telefone=payload.telefone,
+            ativo=True,
+            status_credenciamento="aprovado",
+            criado_por=current_user.id,
+            # Issue #119 item 1: nasce sem aceite, como o usuario do Keycloak.
+            aceite_lgpd=False,
+            data_aceite_lgpd=None,
+        )
+        db.add(subordinado)
+        await db.flush()
 
-    # Registrar aprovacao hierarquica
-    perfis_criador = [up.perfil.nome for up in current_user.perfis] if current_user.perfis else []
-    nivel_hierarquico = perfis_criador[0] if perfis_criador else "participante"
-    db.add(AprovacaoHierarquica(
-        solicitacao_id=solicitacao.id,
-        aprovador_id=current_user.id,
-        nivel_hierarquico=nivel_hierarquico,
-        acao="aprovar",
-        motivo="Criado por superior hierarquico",
-    ))
+        # Atribuir perfil solicitado
+        db.add(UsuarioPerfil(usuario_id=subordinado.id, perfil_id=perfil.id, atribuido_por=current_user.id))
 
-    await db.commit()
+        # Criar solicitacao de credenciamento como aprovada (trilha de auditoria)
+        solicitacao = SolicitacaoCredenciamento(
+            usuario_id=subordinado.id,
+            perfil_solicitado=payload.perfil,
+            status="aprovado",
+            avaliado_por=current_user.id,
+            avaliado_em=datetime.now(timezone.utc),
+        )
+        db.add(solicitacao)
+        await db.flush()
+
+        # Registrar aprovacao hierarquica
+        nivel_hierarquico = perfis_criador[0] if perfis_criador else "participante"
+        db.add(AprovacaoHierarquica(
+            solicitacao_id=solicitacao.id,
+            aprovador_id=current_user.id,
+            nivel_hierarquico=nivel_hierarquico,
+            acao="aprovar",
+            motivo="Criado por superior hierarquico",
+        ))
+
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        # Nao pode sobrar conta so no Keycloak (issue #116 item 3).
+        try:
+            await keycloak_admin.remover_usuario(sub_keycloak)
+        except KeycloakAdminError:
+            pass
+        raise
+
     await db.refresh(subordinado)
     # Issue #85: criar subordinado tambem gera auditoria (como PATCH/DELETE).
     from app.services.auditoria import _serializar, registrar_auditoria
