@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_ID: str = ""
     KEYCLOAK_CLIENT_SECRET: str = ""
     KEYCLOAK_JWKS_URI: str = ""
+    # Issue #115: client confidencial com service account, separado do client do
+    # front, para o backend chamar a Admin API (criar usuario, trocar role etc.).
+    KEYCLOAK_ADMIN_CLIENT_ID: str = ""
+    KEYCLOAK_ADMIN_CLIENT_SECRET: str = ""
     # Issue #122: clients do realm aceitos ALEM do KEYCLOAK_CLIENT_ID, separados
     # por virgula. Vazio em producao: so o client da plataforma entra. Existe
     # para o `treinamento-testes` (teste pela API, Direct Access), que era a
