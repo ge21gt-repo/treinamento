@@ -19,6 +19,7 @@ from app.config import settings
 from app.schemas.usuario import (
     AceiteLgpdRead,
     AceiteLgpdRequest,
+    AlterarPerfilRequest,
     CriarSubordinadoRequest,
     PerfilCreate,
     PerfilRead,
@@ -493,6 +494,100 @@ async def atribuir_perfil(
     db.add(up)
     await db.commit()
     return {"detail": "Perfil atribuido com sucesso"}
+
+
+@router.put("/{usuario_id}/perfil", response_model=UsuarioRead)
+@limiter.limit("30/minute")
+async def alterar_perfil(
+    usuario_id: uuid.UUID,
+    payload: AlterarPerfilRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(require_permissao(Permissoes.PERFIL_ATRIBUIR)),
+):
+    """Troca o perfil de um usuario: Keycloak primeiro, depois o local (#117).
+
+    O Keycloak e a fonte da verdade do perfil: se a role nao mudar la, o sync
+    desfaz qualquer alteracao gravada so no banco. Por isso a ordem e role no
+    Keycloak -> gravacao local, e a matriz de quem atribui o que e a mesma da
+    criacao de usuario (#116).
+    """
+    result = await db.execute(
+        select(Usuario)
+        .options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil))
+        .where(Usuario.id == usuario_id)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    if usuario_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Nao e permitido alterar o proprio perfil",
+        )
+
+    perfil = (
+        await db.execute(select(Perfil).where(Perfil.nome == payload.perfil))
+    ).scalar_one_or_none()
+    if not perfil:
+        raise HTTPException(status_code=400, detail=f"Perfil {payload.perfil!r} nao encontrado")
+
+    perfis_editor = [up.perfil.nome for up in current_user.perfis] if current_user.perfis else []
+    atuais = [up.perfil.nome for up in user.perfis]
+
+    if not any(can_create_perfil(p, payload.perfil) for p in perfis_editor):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Seu perfil nao pode atribuir o perfil {payload.perfil!r}",
+        )
+    if not any(can_create_perfil(p, atual) for p in perfis_editor for atual in atuais):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Seu perfil nao pode editar um usuario com o perfil atual dele",
+        )
+
+    if not user.keycloak_sub:
+        raise HTTPException(
+            status_code=400,
+            detail="Usuario sem vinculo com o Keycloak: nao ha role para trocar",
+        )
+
+    from app.services import keycloak_admin
+    from app.services.keycloak_admin import KeycloakAdminError
+
+    try:
+        await keycloak_admin.definir_role(user.keycloak_sub, payload.perfil)
+    except KeycloakAdminError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Nao foi possivel atualizar a role no Keycloak. Tente novamente.",
+        ) from exc
+
+    # Daqui para baixo o Keycloak ja mudou; o local acompanha.
+    for up in list(user.perfis):
+        await db.delete(up)
+    await db.flush()
+    db.add(UsuarioPerfil(usuario_id=user.id, perfil_id=perfil.id, atribuido_por=current_user.id))
+
+    from app.services.auditoria import registrar_auditoria
+
+    await registrar_auditoria(
+        db, tabela="usuarios", registro_id=usuario_id, acao="atualizar",
+        dados_anteriores={"perfis": atuais}, dados_novos={"perfis": [payload.perfil]},
+        usuario_id=current_user.id, request=request,
+    )
+    await db.commit()
+
+    # populate_existing: o `user` acima ja tem `perfis` carregado na sessao;
+    # sem isto a recarga devolve a colecao antiga e a resposta mente.
+    result = await db.execute(
+        select(Usuario)
+        .options(selectinload(Usuario.perfis).selectinload(UsuarioPerfil.perfil))
+        .where(Usuario.id == usuario_id)
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one()
 
 
 @router.patch("/perfis/{perfil_id}", response_model=PerfilRead)

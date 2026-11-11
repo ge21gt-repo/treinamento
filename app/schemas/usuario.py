@@ -279,3 +279,9 @@ class CriarSubordinadoRequest(BaseModel):
     telefone: str | None = None
     perfil: str = "participante"
     aceite_lgpd: bool = False
+
+
+class AlterarPerfilRequest(BaseModel):
+    """Troca o perfil de um usuario existente (issue #117)."""
+
+    perfil: str
