@@ -133,6 +133,36 @@ async def _assign_perfil(session, usuario_id, perfil_nome):
     await session.flush()
 
 
+@pytest.fixture
+def keycloak_admin_fake(monkeypatch):
+    """Substitui a Admin API do Keycloak por fakes, sem rede.
+
+    A criacao de usuario passou a chamar o Keycloak (issue #116); sem isto,
+    qualquer teste que crie subordinado tentaria falar com o servidor real.
+    """
+    from app.services import keycloak_admin as ka
+
+    chamadas = {"criados": [], "roles": [], "emails": [], "removidos": []}
+
+    async def criar_usuario(email, nome, *, habilitado=True):
+        chamadas["criados"].append((email, nome))
+        return f"kc-{len(chamadas['criados'])}"
+
+    async def definir_role(sub, perfil):
+        chamadas["roles"].append((sub, perfil))
+
+    async def enviar_email_de_acao(sub, acoes=None):
+        chamadas["emails"].append(sub)
+
+    async def remover_usuario(sub):
+        chamadas["removidos"].append(sub)
+
+    monkeypatch.setattr(ka, "criar_usuario", criar_usuario)
+    monkeypatch.setattr(ka, "definir_role", definir_role)
+    monkeypatch.setattr(ka, "enviar_email_de_acao", enviar_email_de_acao)
+    monkeypatch.setattr(ka, "remover_usuario", remover_usuario)
+    return chamadas
+
 @pytest_asyncio.fixture
 async def admin_user(db_clean):
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine

@@ -165,7 +165,7 @@ class TestIssue119Provisionamento:
 
         assert (await _linha_lgpd(email))["aceite_lgpd"] is False
 
-    async def test_subordinado_nasce_sem_aceite(self, cliente_real):
+    async def test_subordinado_nasce_sem_aceite(self, cliente_real, keycloak_admin_fake):
         email = "subordinado119@test.com"
         r = await cliente_real.post(
             "/api/v1/usuarios/criar-subordinado",
@@ -183,7 +183,7 @@ class TestIssue119Provisionamento:
 
         assert (await _linha_lgpd(email))["aceite_lgpd"] is False
 
-    async def test_criar_subordinado_nao_exige_mais_o_aceite(self, cliente_real):
+    async def test_criar_subordinado_nao_exige_mais_o_aceite(self, cliente_real, keycloak_admin_fake):
         """Quem cria a conta nao consente pelo outro, entao o campo nao e exigido."""
         r = await cliente_real.post(
             "/api/v1/usuarios/criar-subordinado",

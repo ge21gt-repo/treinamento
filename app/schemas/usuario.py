@@ -263,11 +263,16 @@ class RedefinirSenhaRequest(BaseModel):
 
 
 class CriarSubordinadoRequest(BaseModel):
-    """Schema para gestor criar subordinado (participante)"""
+    """Schema para criar um usuario pela plataforma (issue #116).
+
+    Com o login so pelo Keycloak, a senha deixou de ser exigida: a pessoa
+    define a propria senha pelo e-mail de acao do Keycloak. O campo continua
+    aceito (e ignorado) para nao quebrar quem ja chama.
+    """
 
     nome_completo: str
     email: EmailStr
-    senha: str
+    senha: str | None = None
     cpf: str | None = None
     orgao_instituicao: str | None = None
     cargo: str | None = None

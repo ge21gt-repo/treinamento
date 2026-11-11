@@ -249,3 +249,12 @@ async def enviar_email_de_acao(sub: str, acoes: list[str] | None = None) -> None
         json_body=lista,
         esperado=(204,),
     )
+
+
+async def remover_usuario(sub: str) -> None:
+    """Remove o usuário do Keycloak.
+
+    Usado como compensação quando a gravação local falha depois de a conta já
+    ter sido criada no Keycloak (issue #116), para não deixar órfão de um lado.
+    """
+    await _requisitar("DELETE", f"/users/{sub}", esperado=(204,))
