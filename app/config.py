@@ -89,6 +89,17 @@ class Settings(BaseSettings):
     # re-aceite todos os usuarios de hoje comecam pendentes.
     LGPD_BLOQUEIO_ATIVO: bool = False
 
+    # Issue #121: enquanto verdadeiro, as quatro rotas de acesso local
+    # (/auth/registro, /auth/login, /auth/esqueci-senha, /auth/redefinir-senha)
+    # continuam existindo. Falso e o corte para "entra so pelo Keycloak": elas
+    # passam a responder 404, e /auth/logout segue funcionando.
+    #
+    # Nasce LIGADO de proposito, ao contrario do LGPD_BLOQUEIO_ATIVO acima:
+    # virar isto antes de o front tirar as telas de senha e cadastro, e antes
+    # de a infra recriar no Keycloak as contas que so tem senha local, tira o
+    # acesso de quem ainda nao tem conta no realm. A ordem esta na issue.
+    LOGIN_LOCAL_HABILITADO: bool = True
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")
