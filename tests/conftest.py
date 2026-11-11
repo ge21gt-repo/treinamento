@@ -142,7 +142,7 @@ def keycloak_admin_fake(monkeypatch):
     """
     from app.services import keycloak_admin as ka
 
-    chamadas = {"criados": [], "roles": [], "emails": [], "removidos": []}
+    chamadas = {"criados": [], "roles": [], "emails": [], "removidos": [], "habilitados": []}
 
     async def criar_usuario(email, nome, *, habilitado=True):
         chamadas["criados"].append((email, nome))
@@ -157,10 +157,14 @@ def keycloak_admin_fake(monkeypatch):
     async def remover_usuario(sub):
         chamadas["removidos"].append(sub)
 
+    async def definir_habilitado(sub, habilitado):
+        chamadas["habilitados"].append((sub, habilitado))
+
     monkeypatch.setattr(ka, "criar_usuario", criar_usuario)
     monkeypatch.setattr(ka, "definir_role", definir_role)
     monkeypatch.setattr(ka, "enviar_email_de_acao", enviar_email_de_acao)
     monkeypatch.setattr(ka, "remover_usuario", remover_usuario)
+    monkeypatch.setattr(ka, "definir_habilitado", definir_habilitado)
     return chamadas
 
 @pytest_asyncio.fixture
