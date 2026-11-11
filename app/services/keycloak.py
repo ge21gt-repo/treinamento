@@ -275,11 +275,8 @@ async def sincronizar_perfis_keycloak(db, user, roles: list[str]) -> bool:
                     mudou = True
                     atuais.discard(nome)
 
-    # Se passou a ter perfil de gestao, garante ativo + aprovado
-    tem_gestao = any(n != "participante" for n in atuais)
-    if tem_gestao and (not user.ativo or user.status_credenciamento != "aprovado"):
-        user.ativo = True
-        user.status_credenciamento = "aprovado"
-        mudou = True
-
+    # Issue #118: o sync NAO mexe em `ativo`/`status_credenciamento`. Antes ele
+    # reativava e aprovava qualquer conta com perfil de gestao a cada login, o
+    # que desfazia uma desativacao feita pelo administrador. O primeiro
+    # provisionamento (usuario novo) ja nasce com o estado correto em deps.py.
     return mudou
