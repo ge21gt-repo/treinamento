@@ -146,7 +146,7 @@ async def redefinir_senha(payload: RedefinirSenhaRequest, db: AsyncSession = Dep
     result = await db.execute(
         select(TokenResetSenha)
         .where(
-            not TokenResetSenha.utilizado,
+            TokenResetSenha.utilizado.is_(False),
             TokenResetSenha.expira_em > datetime.now(timezone.utc),
         )
         .order_by(TokenResetSenha.criado_em.desc())
