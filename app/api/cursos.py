@@ -33,7 +33,7 @@ from app.models.curso import (
     ProgressoUnidade,
     Unidade,
 )
-from app.models.usuario import Usuario
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.schemas.curso import (
     AcessarAulaRequest,
     AcessarAulaResponse,
@@ -71,7 +71,7 @@ from app.services import progresso as progresso_service
 from app.services import teams as teams_service
 from app.services.gamificacao import atribuir_xp as gamificacao_xp
 from app.services.paginacao import apply_search, count_query
-from app.services.rbac import Permissoes
+from app.services.rbac import Permissoes, has_permission
 from app.services.storage import resolve_file_url
 
 router = APIRouter(prefix="/cursos", tags=["Cursos"])
@@ -87,18 +87,38 @@ async def listar_cursos(
     trilha_id: int | None = Query(None),
     instrutor_id: uuid.UUID | None = Query(None, description="Filtra pelos cursos de um instrutor (issue 32)"),
     q: str | None = Query(None, description="Busca textual por titulo"),
+    publicado: bool | None = Query(None, description="Filtra por publicacao (issue #130)"),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    # Consulta os perfis no banco em vez de tocar `current_user.perfis` (ver
+    # MissingGreenlet no AGENTS.md).
+    perfis = (
+        await db.execute(
+            select(Perfil.nome)
+            .join(UsuarioPerfil, UsuarioPerfil.perfil_id == Perfil.id)
+            .where(UsuarioPerfil.usuario_id == current_user.id)
+        )
+    ).scalars().all()
+    gerencia = any(has_permission(p, Permissoes.CURSO_CRIAR) for p in perfis)
+
     query = select(Curso)
     if trilha_id is not None:
         query = query.where(Curso.trilha_id == trilha_id)
     if instrutor_id is not None:
         query = query.where(Curso.instrutor_id == instrutor_id)
+    # Issue #130: rascunho so para quem gerencia cursos.
+    if not gerencia:
+        query = query.where(Curso.publicado.is_(True))
+    elif publicado is not None:
+        query = query.where(Curso.publicado.is_(publicado))
     query = apply_search(query, [Curso.titulo], q)
     total = await count_query(db, query)
-    result = await db.execute(query.offset(skip).limit(limit))
+    # Issue #130: ordem estavel (Postgres nao garante ordem sem ORDER BY).
+    result = await db.execute(
+        query.order_by(Curso.ordem.asc(), Curso.id.asc()).offset(skip).limit(limit)
+    )
     items = result.scalars().all()
     response.headers["X-Total-Count"] = str(total)
     return items

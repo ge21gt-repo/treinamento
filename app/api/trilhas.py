@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,8 +7,8 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_permissao
 from app.database import get_db
-from app.models.curso import Inscricao, InscricaoTrilha, TrilhaAprendizagem
-from app.models.usuario import Usuario
+from app.models.curso import Curso, Inscricao, InscricaoTrilha, TrilhaAprendizagem
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.schemas.curso import (
     InscricaoTrilhaRead,
     InscricaoTrilhaTurmaRead,
@@ -16,7 +18,7 @@ from app.schemas.curso import (
     TrilhaUpdate,
 )
 from app.services.paginacao import apply_search, count_query
-from app.services.rbac import Permissoes
+from app.services.rbac import Permissoes, has_permission
 
 router = APIRouter(prefix="/trilhas", tags=["Trilhas de Aprendizagem"])
 
@@ -25,22 +27,102 @@ router = APIRouter(prefix="/trilhas", tags=["Trilhas de Aprendizagem"])
 async def listar_trilhas(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    nivel: str | None = Query(None),
+    nivel: Literal["iniciante", "intermediario", "avancado"] | None = Query(None),
     q: str | None = Query(None, description="Busca textual por titulo ou descricao"),
+    publicada: bool | None = Query(None, description="Filtra por publicacao (issue #130)"),
+    inscrito: bool | None = Query(None, description="Filtra pela inscricao do usuario (issue #130)"),
+    ordenar: Literal["titulo", "carga_horaria", "nivel"] = Query("titulo"),
+    direcao: Literal["asc", "desc"] = Query("asc"),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    """Lista o catalogo de trilhas (issue #130).
+
+    - ordem SEMPRE definida (com desempate por id), para skip/limit nao repetir
+      nem perder item;
+    - rascunho so para quem gerencia trilhas: participante nunca recebe, mesmo
+      pedindo `publicada=false`;
+    - `inscrito` e relativo ao usuario autenticado;
+    - `X-Total-Count` respeita todos os filtros.
+    """
+    # Consulta os perfis no banco em vez de tocar `current_user.perfis`: sob o
+    # fixture `client` o usuario e um ORM solto e a relacao dispara
+    # MissingGreenlet (ver AGENTS.md).
+    perfis = (
+        await db.execute(
+            select(Perfil.nome)
+            .join(UsuarioPerfil, UsuarioPerfil.perfil_id == Perfil.id)
+            .where(UsuarioPerfil.usuario_id == current_user.id)
+        )
+    ).scalars().all()
+    gerencia = any(has_permission(p, Permissoes.TRILHA_CRIAR) for p in perfis)
+
     query = select(TrilhaAprendizagem)
     if nivel:
         query = query.where(TrilhaAprendizagem.nivel == nivel)
+    if not gerencia:
+        query = query.where(TrilhaAprendizagem.publicada.is_(True))
+    elif publicada is not None:
+        query = query.where(TrilhaAprendizagem.publicada.is_(publicada))
+    if inscrito is not None:
+        inscricao_existe = (
+            select(InscricaoTrilha.id)
+            .where(
+                InscricaoTrilha.trilha_id == TrilhaAprendizagem.id,
+                InscricaoTrilha.usuario_id == current_user.id,
+            )
+            .exists()
+        )
+        query = query.where(inscricao_existe if inscrito else ~inscricao_existe)
     query = apply_search(query, [TrilhaAprendizagem.titulo, TrilhaAprendizagem.descricao], q)
-    total = await count_query(db, query)
-    result = await db.execute(query.offset(skip).limit(limit))
-    items = result.scalars().all()
-    response.headers["X-Total-Count"] = str(total)
-    return items
 
+    total = await count_query(db, query)
+    coluna = {
+        "titulo": TrilhaAprendizagem.titulo,
+        "carga_horaria": TrilhaAprendizagem.carga_horaria_total,
+        "nivel": TrilhaAprendizagem.nivel,
+    }[ordenar]
+    ordenacao = coluna.desc() if direcao == "desc" else coluna.asc()
+    result = await db.execute(
+        query.order_by(ordenacao, TrilhaAprendizagem.id.asc()).offset(skip).limit(limit)
+    )
+    items = result.scalars().all()
+
+    ids = [t.id for t in items]
+    totais_cursos: dict[int, int] = {}
+    inscricoes: dict[int, object] = {}
+    if ids:
+        linhas = (
+            await db.execute(
+                select(Curso.trilha_id, func.count(Curso.id))
+                .where(Curso.trilha_id.in_(ids))
+                .group_by(Curso.trilha_id)
+            )
+        ).all()
+        totais_cursos = {trilha_id: qtd for trilha_id, qtd in linhas}
+        inscricoes = {
+            insc.trilha_id: insc.progresso_pct
+            for insc in (
+                await db.execute(
+                    select(InscricaoTrilha).where(
+                        InscricaoTrilha.usuario_id == current_user.id,
+                        InscricaoTrilha.trilha_id.in_(ids),
+                    )
+                )
+            ).scalars()
+        }
+
+    response.headers["X-Total-Count"] = str(total)
+    saida = []
+    for trilha in items:
+        read = TrilhaRead.model_validate(trilha)
+        read.total_cursos = totais_cursos.get(trilha.id, 0)
+        read.inscrito = trilha.id in inscricoes
+        progresso = inscricoes.get(trilha.id)
+        read.progresso_pct = float(progresso) if progresso is not None else None
+        saida.append(read)
+    return saida
 
 @router.post("", response_model=TrilhaRead, status_code=status.HTTP_201_CREATED)
 async def criar_trilha(
