@@ -253,6 +253,12 @@ class ResultadoAvaliacaoRead(ResultadoAvaliacaoBase):
     id: int
     realizado_em: datetime
     aguardando_correcao: bool = False
+    # Issue #126: existe uma tentativa mais recente da mesma pessoa nesta
+    # avaliacao. Desde a #105 a tentativa anterior deixa de pender, e a lista
+    # passou a mostrar "nota 66,67, Reprovado" para quem tinha mais que a nota
+    # minima e uma dissertativa sem correcao. `aprovado` e `nota` ficam como
+    # estavam - quem decide o texto da linha e o front.
+    substituida: bool = False
 
     model_config = {"from_attributes": True}
 

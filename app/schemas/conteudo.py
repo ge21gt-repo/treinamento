@@ -30,6 +30,11 @@ class ConteudoUpdate(BaseModel):
     tamanho_bytes: int | None = None
     duracao_segundos: int | None = None
     ordem: int | None = None
+    # Issue #127: ninguem escrevia `disponivel`. A coluna existia desde a issue
+    # 46, o /consumo a respeitava desde a #111, e marcar ou desmarcar era
+    # UPDATE na mao - o instrutor que trocava um arquivo perdido nao tinha como
+    # limpar o aviso de "Arquivo indisponivel".
+    disponivel: bool | None = None
 
 
 class ConteudoRead(ConteudoBase):

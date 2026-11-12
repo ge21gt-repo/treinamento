@@ -269,15 +269,55 @@ async def player_conteudo(
 async def atualizar_conteudo(
     conteudo_id: int,
     payload: ConteudoUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_EDITAR)),
+    current_user: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_EDITAR)),
 ):
+    """Issue #127: aqui passa a dar para marcar e desmarcar `disponivel`.
+
+    Duas regras:
+
+    - marcar como disponivel exige arquivo, senao o /consumo prometeria uma URL
+      assinada que nao existe;
+    - trocar o arquivo (mandar `url_arquivo`) devolve o conteudo a disponivel,
+      que e o caso do instrutor substituindo um arquivo perdido. Mandar
+      `disponivel` junto manda mais que essa inferencia.
+
+    A rota passou a registrar auditoria. A issue pede "como as demais
+    alteracoes de conteudo", mas conteudos.py nao auditava nada - entao segue o
+    padrao de curso/trilha/avaliacao, e vale para o PATCH inteiro, nao so para
+    este campo: auditar uma coluna so seria mais estranho que auditar todas.
+    """
     result = await db.execute(select(Conteudo).where(Conteudo.id == conteudo_id))
     conteudo = result.scalar_one_or_none()
     if not conteudo:
         raise HTTPException(status_code=404, detail="Conteudo nao encontrado")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+
+    dados = payload.model_dump(exclude_unset=True)
+    if dados.get("url_arquivo") and "disponivel" not in dados:
+        dados["disponivel"] = True
+    if dados.get("disponivel") is True:
+        # O arquivo final, nao o atual: um PATCH que manda arquivo novo e
+        # disponivel=true de uma vez tem de passar.
+        arquivo = dados.get("url_arquivo", conteudo.url_arquivo)
+        if not (arquivo or "").strip():
+            raise HTTPException(
+                status_code=422,
+                detail="Conteudo sem arquivo nao pode ser marcado como disponivel",
+            )
+
+    from app.services.auditoria import _serializar, registrar_auditoria
+
+    # Snapshot antes do commit e auditoria na mesma transacao, pelo motivo da
+    # #114: serializar depois do commit toca atributo expirado e virava 500.
+    dados_antes = _serializar(conteudo)
+    for field, value in dados.items():
         setattr(conteudo, field, value)
+    await registrar_auditoria(
+        db, tabela="conteudos", registro_id=conteudo_id, acao="atualizar",
+        dados_anteriores=dados_antes, dados_novos=_serializar(conteudo),
+        usuario_id=current_user.id, request=request,
+    )
     await db.commit()
     await db.refresh(conteudo)
     return conteudo

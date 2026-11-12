@@ -6,6 +6,9 @@ from pydantic import BaseModel, computed_field, field_validator, model_validator
 from app.services.storage import resolve_file_url
 
 
+NIVEIS_TRILHA = {"iniciante", "intermediario", "avancado"}
+
+
 class TrilhaBase(BaseModel):
     titulo: str
     descricao: str | None = None
@@ -13,6 +16,13 @@ class TrilhaBase(BaseModel):
     nivel: str = "iniciante"
     carga_horaria_total: int | None = None
     publicada: bool = False
+
+    @field_validator("nivel")
+    @classmethod
+    def validar_nivel(cls, v: str) -> str:
+        if v not in NIVEIS_TRILHA:
+            raise ValueError(f"nivel deve ser um de: {', '.join(sorted(NIVEIS_TRILHA))}")
+        return v
 
 
 class TrilhaCreate(TrilhaBase):
@@ -27,12 +37,23 @@ class TrilhaUpdate(BaseModel):
     carga_horaria_total: int | None = None
     publicada: bool | None = None
 
+    @field_validator("nivel")
+    @classmethod
+    def validar_nivel(cls, v: str | None) -> str | None:
+        if v is not None and v not in NIVEIS_TRILHA:
+            raise ValueError(f"nivel deve ser um de: {', '.join(sorted(NIVEIS_TRILHA))}")
+        return v
+
 
 class TrilhaRead(TrilhaBase):
     id: int
     criado_por: uuid.UUID | None = None
     criado_em: datetime
     atualizado_em: datetime
+    # Issue #130: o catalogo precisa destes no cartao.
+    total_cursos: int | None = None
+    inscrito: bool | None = None
+    progresso_pct: float | None = None
 
     model_config = {"from_attributes": True}
 

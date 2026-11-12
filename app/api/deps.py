@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,15 +17,38 @@ from app.services.keycloak import (
     sincronizar_perfis_keycloak,
     validar_token_keycloak,
 )
+from app.services.lgpd import aceite_pendente, rota_liberada
 from app.services.rbac import has_permission
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.ROOT_PATH.rstrip('/')}/api/v1/auth/login")
 
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> Usuario:
+    """Resolve o usuario do token e aplica o bloqueio de LGPD (issue #119).
+
+    O bloqueio fica aqui, num ponto so, e nao numa dependencia por rota:
+    require_credenciamento nao e usada por rota nenhuma e 47 rotas dependem
+    de get_current_user direto, entao qualquer outro lugar deixaria parte da
+    API aberta. Nasce desligado (LGPD_BLOQUEIO_ATIVO).
+    """
+    user = await _resolver_usuario(token, db)
+    if (
+        settings.LGPD_BLOQUEIO_ATIVO
+        and aceite_pendente(user.aceite_lgpd, user.versao_termo_lgpd)
+        and not rota_liberada(request.url.path)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Aceite do termo de uso e da politica de privacidade pendente.",
+        )
+    return user
+
+
+async def _resolver_usuario(token: str, db: AsyncSession) -> Usuario:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Token invalido ou expirado",
@@ -73,6 +96,21 @@ async def get_current_user(
             )
             user = result.scalar_one_or_none()
             if user:
+                # Issue #122 item 2: so liga a conta se o e-mail do token
+                # estiver verificado. Sem isso, quem conseguisse um token do
+                # realm declarando o e-mail de outra pessoa assumia a conta
+                # dela - e os perfis dela. Claim ausente conta como nao
+                # verificada: `is True` e deliberado, nao `truthy`.
+                #
+                # A recusa fica AQUI, e nao na entrada do `if email`: la, pular
+                # o vinculo fazia o fluxo seguir para o provisionamento logo
+                # abaixo, que tentava criar outro usuario com o mesmo e-mail e
+                # estourava a unicidade - 500 em vez de 401.
+                if (
+                    settings.KEYCLOAK_EXIGIR_EMAIL_VERIFICADO
+                    and kc_payload.get("email_verified") is not True
+                ):
+                    raise credentials_exception
                 user.keycloak_sub = str(sub)
                 user.auth_provider = "keycloak"
                 # Sincroniza os perfis ja neste ramo: quem e ligado por e-mail
@@ -111,7 +149,11 @@ async def get_current_user(
             senha_hash=None,
             ativo=aprovado_direto,
             status_credenciamento="aprovado" if aprovado_direto else "pendente",
-            aceite_lgpd=True,
+            # Issue #119: nascia True, ou seja, a plataforma registrava um
+            # consentimento que a pessoa nunca deu - era o segundo relato da
+            # Tatiana. Quem chega pelo Keycloak (inclusive gov.br) nasce sem
+            # aceite e aceita pela rota POST /usuarios/me/aceite-lgpd.
+            aceite_lgpd=False,
             keycloak_sub=str(sub),
             auth_provider="keycloak",
         )

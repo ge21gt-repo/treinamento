@@ -60,15 +60,25 @@ spec:
             - name: S3_REGION
               value: us-east-1
             - name: KEYCLOAK_SERVER
-              value: https://keycloak-stg.idesp.sp.gov.br
+              value: https://keycloak.idesp.sp.gov.br
             - name: KEYCLOAK_REALM
               value: idesp-realm
             - name: KEYCLOAK_ISSUER
-              value: https://keycloak-stg.idesp.sp.gov.br/realms/idesp-realm
+              value: https://keycloak.idesp.sp.gov.br/realms/idesp-realm
             - name: KEYCLOAK_CLIENT_ID
               value: treinamento-front
             - name: KEYCLOAK_JWKS_URI
-              value: https://keycloak-stg.idesp.sp.gov.br/realms/idesp-realm/protocol/openid-connect/certs
+              value: https://keycloak.idesp.sp.gov.br/realms/idesp-realm/protocol/openid-connect/certs
+            # Issue #115: client confidencial com service account, separado do
+            # treinamento-front (que e public e nao tem service account). Só a
+            # API usa este segredo; ele nunca vai para o front.
+            - name: KEYCLOAK_ADMIN_CLIENT_ID
+              value: treinamento-backend
+            - name: KEYCLOAK_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: treinamento-secrets
+                  key: keycloak-admin-client-secret
             - name: KEYCLOAK_PARTICIPANTE_APROVADO
               value: "true"
             - name: CORS_ORIGINS

@@ -43,7 +43,6 @@ Equipe LMS IDE-SP
         return True
     except Exception as e:
         logger.warning(f"Falha ao enviar email para {destino_email}: {e}")
-        logger.info(f"[DEV] Link de reset: {link_reset}")
         return False
 
 

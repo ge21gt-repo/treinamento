@@ -94,7 +94,7 @@ class TestPerfisNoUsuarioRead:
 class TestPerfisNoCriarSubordinado:
     """Criar subordinado deve retornar perfis"""
 
-    async def test_criar_subordinado_retorna_perfis(self, db_clean, admin_token):
+    async def test_criar_subordinado_retorna_perfis(self, db_clean, admin_token, keycloak_admin_fake):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             r = await ac.post(

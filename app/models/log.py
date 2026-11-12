@@ -35,6 +35,12 @@ class LogAuditoria(Base):
     dados_anteriores: Mapped[dict | None] = mapped_column(JSONB)
     dados_novos: Mapped[dict | None] = mapped_column(JSONB)
     ip_address: Mapped[str | None] = mapped_column(INET)
+    # Issue #120: a aba de Alteracoes nao mostrava Dispositivo nem Navegador
+    # porque estas duas colunas so existiam em log_acesso. Anulaveis: linha
+    # antiga fica null. Text no user_agent, como em LogAcesso, para um
+    # user-agent comprido nunca derrubar o INSERT da auditoria.
+    user_agent: Mapped[str | None] = mapped_column(Text)
+    dispositivo: Mapped[str | None] = mapped_column(String(20))
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

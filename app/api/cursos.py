@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user, require_permissao
+from app.api.deps import _resolver_usuario, get_current_user, require_permissao
 from app.config import settings
 from app.database import async_session, get_db
 from app.models.conteudo import Conteudo, EntregaAtividade
@@ -33,7 +33,7 @@ from app.models.curso import (
     ProgressoUnidade,
     Unidade,
 )
-from app.models.usuario import Usuario
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil
 from app.schemas.curso import (
     AcessarAulaRequest,
     AcessarAulaResponse,
@@ -71,7 +71,7 @@ from app.services import progresso as progresso_service
 from app.services import teams as teams_service
 from app.services.gamificacao import atribuir_xp as gamificacao_xp
 from app.services.paginacao import apply_search, count_query
-from app.services.rbac import Permissoes
+from app.services.rbac import Permissoes, has_permission
 from app.services.storage import resolve_file_url
 
 router = APIRouter(prefix="/cursos", tags=["Cursos"])
@@ -87,18 +87,38 @@ async def listar_cursos(
     trilha_id: int | None = Query(None),
     instrutor_id: uuid.UUID | None = Query(None, description="Filtra pelos cursos de um instrutor (issue 32)"),
     q: str | None = Query(None, description="Busca textual por titulo"),
+    publicado: bool | None = Query(None, description="Filtra por publicacao (issue #130)"),
     db: AsyncSession = Depends(get_db),
     response: Response = None,
-    _: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ):
+    # Consulta os perfis no banco em vez de tocar `current_user.perfis` (ver
+    # MissingGreenlet no AGENTS.md).
+    perfis = (
+        await db.execute(
+            select(Perfil.nome)
+            .join(UsuarioPerfil, UsuarioPerfil.perfil_id == Perfil.id)
+            .where(UsuarioPerfil.usuario_id == current_user.id)
+        )
+    ).scalars().all()
+    gerencia = any(has_permission(p, Permissoes.CURSO_CRIAR) for p in perfis)
+
     query = select(Curso)
     if trilha_id is not None:
         query = query.where(Curso.trilha_id == trilha_id)
     if instrutor_id is not None:
         query = query.where(Curso.instrutor_id == instrutor_id)
+    # Issue #130: rascunho so para quem gerencia cursos.
+    if not gerencia:
+        query = query.where(Curso.publicado.is_(True))
+    elif publicado is not None:
+        query = query.where(Curso.publicado.is_(publicado))
     query = apply_search(query, [Curso.titulo], q)
     total = await count_query(db, query)
-    result = await db.execute(query.offset(skip).limit(limit))
+    # Issue #130: ordem estavel (Postgres nao garante ordem sem ORDER BY).
+    result = await db.execute(
+        query.order_by(Curso.ordem.asc(), Curso.id.asc()).offset(skip).limit(limit)
+    )
     items = result.scalars().all()
     response.headers["X-Total-Count"] = str(total)
     return items
@@ -300,12 +320,28 @@ async def reordenar_modulos(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.CURSO_MODULO_EDITAR)),
 ):
+    """Issue #128: confere antes de aplicar, como a rota de questoes (#108).
+
+    Antes aceitava id repetido (o ultimo valor vencia), id inexistente
+    (ignorado em silencio, com 204 - o front achava que reordenou tudo) e
+    modulos de cursos diferentes, renumerando como se fossem do mesmo curso.
+    As conferencias vem todas antes do primeiro `setattr`: ou aplica tudo, ou
+    nao aplica nada.
+    """
+    if not payload:
+        return
     ids = [item.id for item in payload]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status_code=422, detail="Ha id repetido no corpo")
     result = await db.execute(select(Modulo).where(Modulo.id.in_(ids)))
     modulos = {m.id: m for m in result.scalars().all()}
+    faltando = sorted(set(ids) - set(modulos))
+    if faltando:
+        raise HTTPException(status_code=422, detail=f"Modulo nao encontrado: {faltando}")
+    if len({m.curso_id for m in modulos.values()}) > 1:
+        raise HTTPException(status_code=422, detail="Todos os modulos devem ser do mesmo curso")
     for item in payload:
-        if item.id in modulos:
-            modulos[item.id].ordem = item.ordem
+        modulos[item.id].ordem = item.ordem
     await db.commit()
 
 
@@ -380,12 +416,25 @@ async def reordenar_unidades(
     db: AsyncSession = Depends(get_db),
     _: Usuario = Depends(require_permissao(Permissoes.CURSO_UNIDADE_EDITAR)),
 ):
+    """Issue #128: confere antes de aplicar, como a rota de questoes (#108).
+
+    Mesmo buraco do reordenar_modulos. Conferir o modulo ja cobre o curso:
+    unidades do mesmo modulo sao, por construcao, do mesmo curso.
+    """
+    if not payload:
+        return
     ids = [item.id for item in payload]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status_code=422, detail="Ha id repetido no corpo")
     result = await db.execute(select(Unidade).where(Unidade.id.in_(ids)))
     unidades = {u.id: u for u in result.scalars().all()}
+    faltando = sorted(set(ids) - set(unidades))
+    if faltando:
+        raise HTTPException(status_code=422, detail=f"Unidade nao encontrada: {faltando}")
+    if len({u.modulo_id for u in unidades.values()}) > 1:
+        raise HTTPException(status_code=422, detail="Todas as unidades devem ser do mesmo modulo")
     for item in payload:
-        if item.id in unidades:
-            unidades[item.id].ordem = item.ordem
+        unidades[item.id].ordem = item.ordem
     await db.commit()
 
 
@@ -1563,18 +1612,11 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
     ou na query string (?token=...) como fallback, valida que a aula existe
     e faz broadcast das mensagens para todos os conectados na aula.
     """
-    from app.services.auth import decode_token
-
     token = None
     if websocket.headers.get("sec-websocket-protocol"):
         token = websocket.headers["sec-websocket-protocol"].split(",")[0].strip()
     if not token:
         token = websocket.query_params.get("token")
-
-    payload = decode_token(token or "")
-    if not payload or not payload.get("sub"):
-        await websocket.close(code=4401)
-        return
 
     try:
         async with async_session() as db:
@@ -1582,11 +1624,15 @@ async def chat_aula_websocket(websocket: WebSocket, aula_id: int):
             if not aula:
                 await websocket.close(code=4404)
                 return
-            usuario_id = uuid.UUID(payload["sub"])
-            usuario = await db.get(Usuario, usuario_id)
-            if not usuario:
+            # Aceita o token local (HS256) E o do Keycloak (RS256), com o mesmo
+            # resolvedor do REST. Antes so o HS256 passava, e quem entrava pelo
+            # Keycloak caia em 4401 ("conexao perdida" no chat da aula).
+            try:
+                usuario = await _resolver_usuario(token or "", db)
+            except Exception:
                 await websocket.close(code=4401)
                 return
+            usuario_id = usuario.id
             if not await _checar_inscrito_ou_permissao(db, aula.curso_id, usuario_id, Permissoes.CHAT_MODERAR):
                 await websocket.close(code=4403)
                 return
