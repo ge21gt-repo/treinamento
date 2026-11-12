@@ -15,6 +15,7 @@ from app.api import (
     sandbox,
     scorm,
     sessoes,
+    tours,
     trilhas,
     usuarios,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "sandbox",
     "scorm",
     "sessoes",
+    "tours",
     "trilhas",
     "usuarios",
     "credenciamento",

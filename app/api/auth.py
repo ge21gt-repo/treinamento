@@ -28,6 +28,27 @@ from app.services.gamificacao import atualizar_streak
 router = APIRouter(prefix="/auth", tags=["Autenticacao"])
 
 
+async def exigir_login_local() -> None:
+    """Issue #121: as rotas de acesso local existem so enquanto a flag permitir.
+
+    Com LOGIN_LOCAL_HABILITADO falso, o cadastro, o login por senha e as duas
+    rotas de recuperacao deixam de existir PARA O CLIENTE: 404 com o mesmo
+    corpo que o FastAPI da para um caminho inexistente, de proposito - quem
+    sonda a API nao fica sabendo que havia uma rota ali, desligada.
+
+    404 e nao 403 porque o critério de aceite da issue é "deixam de existir".
+
+    `/auth/logout` fica de fora, tambem por pedido da issue: a sessao do
+    Keycloak ainda precisa de um lugar para terminar.
+
+    A trava mora numa dependencia, e nao dentro de cada funcao, para que a
+    recusa aconteca ANTES do corpo da rota - antes de tocar o banco e antes do
+    rate limit. Uma rota nova de acesso local so precisa somar o Depends.
+    """
+    if not settings.LOGIN_LOCAL_HABILITADO:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
 def _detectar_dispositivo(user_agent: str) -> str | None:
     """Identifica o tipo de dispositivo a partir do user-agent do navegador."""
     ua = user_agent.lower()
@@ -57,7 +78,12 @@ async def check_unique_fields(db: AsyncSession, email: str, cpf: str | None, tel
             raise HTTPException(status_code=409, detail="Telefone ja cadastrado")
 
 
-@router.post("/registro", response_model=dict, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/registro",
+    response_model=dict,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(exigir_login_local)],
+)
 @limiter.limit("10/minute")
 async def registrar(request: Request, payload: UsuarioCreate, db: AsyncSession = Depends(get_db)):
     if not payload.aceite_lgpd:
@@ -69,7 +95,8 @@ async def registrar(request: Request, payload: UsuarioCreate, db: AsyncSession =
 
     await check_unique_fields(db, payload.email, payload.cpf, payload.telefone)
 
-    solicitacao = await criar_solicitacao_credenciamento(payload, db)
+    # Issue #119: o request vai adiante para gravar o IP do aceite.
+    solicitacao = await criar_solicitacao_credenciamento(payload, db, request)
 
     return {
         "message": "Solicitacao de credenciamento criada com sucesso",
@@ -81,7 +108,7 @@ async def registrar(request: Request, payload: UsuarioCreate, db: AsyncSession =
     }
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=Token, dependencies=[Depends(exigir_login_local)])
 @limiter.limit("5/minute")
 async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -112,7 +139,7 @@ async def logout():
     return {"message": "Logout realizado com sucesso"}
 
 
-@router.post("/esqueci-senha")
+@router.post("/esqueci-senha", dependencies=[Depends(exigir_login_local)])
 @limiter.limit("3/minute")
 async def esqueci_senha(request: Request, payload: EsqueciSenhaRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Usuario).where(Usuario.email == payload.email))
@@ -140,12 +167,12 @@ async def esqueci_senha(request: Request, payload: EsqueciSenhaRequest, db: Asyn
     return {"message": "Se o email estiver cadastrado, voce recebera um link de redefinicao"}
 
 
-@router.post("/redefinir-senha")
+@router.post("/redefinir-senha", dependencies=[Depends(exigir_login_local)])
 async def redefinir_senha(payload: RedefinirSenhaRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(TokenResetSenha)
         .where(
-            not TokenResetSenha.utilizado,
+            TokenResetSenha.utilizado.is_(False),
             TokenResetSenha.expira_em > datetime.now(timezone.utc),
         )
         .order_by(TokenResetSenha.criado_em.desc())

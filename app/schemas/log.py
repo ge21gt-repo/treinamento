@@ -32,6 +32,9 @@ class LogAuditoriaRead(BaseModel):
     dados_anteriores: dict | None = None
     dados_novos: dict | None = None
     ip_address: IPvAnyAddress | None = None
+    # Issue #120: expostos para a aba de Alteracoes. Linha antiga vem null.
+    user_agent: str | None = None
+    dispositivo: str | None = None
     criado_em: datetime
 
     @field_serializer("ip_address")

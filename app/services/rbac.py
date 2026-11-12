@@ -88,6 +88,9 @@ class Permissoes:
     DASHBOARD_GRAFICOS = "dashboard:graficos"
     DASHBOARD_RELATORIOS = "dashboard:relatorios"
     AUDITORIA_VISUALIZAR = "auditoria:visualizar"
+    # Issue #125: le o resumo de uso dos tours de ajuda. So os dois perfis
+    # de administracao, como a issue pede.
+    AJUDA_METRICAS = "ajuda:metricas"
     DASHBOARD_METRICAS_USUARIO = "dashboard:metricas_usuario"
 
     GAMIFICACAO_GERENCIAR = "gamificacao:gerenciar"
@@ -118,6 +121,7 @@ class Permissoes:
 PERFIL_PERMISSOES = {
     "administrador_geral": [
         # Todas as permissões
+        Permissoes.AJUDA_METRICAS,
         Permissoes.AVALIACAO_CRIAR,
         Permissoes.AVALIACAO_RESPONDER,
         Permissoes.AVALIACAO_EDITAR,
@@ -207,6 +211,7 @@ PERFIL_PERMISSOES = {
         Permissoes.CHAT_VISUALIZAR,
     ],
     "administrador": [
+        Permissoes.AJUDA_METRICAS,  # issue #125
         # Todas exceto auditoria (mesmo de admin_geral por enquanto)
         Permissoes.AVALIACAO_CRIAR,
         Permissoes.AVALIACAO_RESPONDER,
@@ -471,24 +476,31 @@ def can_use_sandbox(perfil_nome: str) -> bool:
     return has_permission(perfil_nome, Permissoes.SANDBOX_TESTAR)
 
 
-# Hierarquia de criação de usuários por perfil
-# Quem cria → lista de perfis que pode criar
+# Hierarquia de criacao/atribuicao de usuarios por perfil (issue #116).
+# Quem executa -> lista de perfis que pode criar e atribuir.
 CRIACAO_PERMITIDA: dict[str, list[str]] = {
-    "administrador_geral": ["administrador", "gestor", "instrutor", "auditor", "participante"],
-    "administrador": ["gestor", "instrutor", "auditor", "participante"],
+    "administrador_geral": [
+        "administrador_geral",
+        "administrador",
+        "gestor",
+        "instrutor",
+        "auditor",
+        "participante",
+    ],
+    "administrador": ["administrador", "gestor", "instrutor", "participante"],
+    "gestor": ["instrutor", "participante"],
 }
 
 
 def can_create_perfil(criador_perfil: str, alvo_perfil: str) -> bool:
-    """
-    Valida se um perfil pode criar outro perfil.
+    """Valida se um perfil pode criar/atribuir outro perfil (issue #116).
 
-    Regras:
-      - administrador_geral → qualquer perfil
-      - administrador → gestor, instrutor, auditor, participante
-      - qualquer outro perfil → apenas participante
+    - administrador_geral -> todos os perfis
+    - administrador -> administrador, gestor, instrutor e participante (nao auditor)
+    - gestor -> instrutor e participante
+    - instrutor, auditor e participante -> ninguem
+
+    A mesma matriz serve para criar usuario (#116) e para trocar o perfil de
+    alguem existente (#117).
     """
-    if alvo_perfil == "participante":
-        return True
-    permitidos = CRIACAO_PERMITIDA.get(criador_perfil, [])
-    return alvo_perfil in permitidos
+    return alvo_perfil in CRIACAO_PERMITIDA.get(criador_perfil, [])

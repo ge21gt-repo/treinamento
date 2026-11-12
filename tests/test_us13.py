@@ -110,6 +110,25 @@ class TestChatAulaWebSocket:
             async with ws_client.websocket_connect("/api/v1/cursos/aulas/1/chat/ws?token=invalido"):
                 pass
 
+    async def test_websocket_aceita_token_do_keycloak(
+        self, client, admin_user, ws_client, monkeypatch
+    ):
+        """Aceita o token RS256 do Keycloak, resolvendo o usuario como o REST."""
+        from app.api import deps
+
+        def validar_falso(_token):
+            # `sub` do Keycloak nao e o uuid local; o resolvedor liga pelo e-mail.
+            return {"sub": "kc-rs256", "email": admin_user.email, "email_verified": True}
+
+        monkeypatch.setattr(deps, "validar_token_keycloak", validar_falso)
+
+        aula_id = await _criar_aula(client)
+        async with ws_client.websocket_connect(
+            f"/api/v1/cursos/aulas/{aula_id}/chat/ws?token=token-do-keycloak"
+        ) as ws:
+            inicial = await ws.receive_json()
+            assert inicial["type"] == "presenca_inicial", inicial
+
 
 class TestModeracaoChat:
     async def test_excluir_mensagem_remove_do_historico(self, client):

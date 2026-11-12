@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_permissao
@@ -28,6 +28,7 @@ from app.schemas.avaliacao import (
     EstatisticaQuestaoRead,
     EstatisticasAvaliacaoRead,
     QuestaoCreate,
+    QuestaoReorderItem,
     QuestaoRead,
     QuestaoUpdate,
     RespostaParticipanteCreate,
@@ -96,6 +97,37 @@ async def meus_resultados(
     return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
 
 
+def _subq_ultima_tentativa():
+    """Ultima tentativa (max tentativa_num) de cada usuario em cada avaliacao.
+
+    Issue #105: so a ultima tentativa vai para correcao. O max olha todas as
+    respostas, nao so as pendentes - senao uma tentativa 1 pendente voltaria
+    para a fila depois de a 2 ter sido corrigida.
+    """
+    return (
+        select(
+            RespostaParticipante.usuario_id.label("usuario_id"),
+            Questao.avaliacao_id.label("avaliacao_id"),
+            func.max(RespostaParticipante.tentativa_num).label("ultima"),
+        )
+        .join(Questao, Questao.id == RespostaParticipante.questao_id)
+        .group_by(RespostaParticipante.usuario_id, Questao.avaliacao_id)
+        .subquery()
+    )
+
+
+def _so_ultima_tentativa(stmt, subq):
+    """Mantem apenas as respostas da ultima tentativa (issue #105)."""
+    return stmt.join(Questao, Questao.id == RespostaParticipante.questao_id).join(
+        subq,
+        and_(
+            subq.c.usuario_id == RespostaParticipante.usuario_id,
+            subq.c.avaliacao_id == Questao.avaliacao_id,
+            subq.c.ultima == RespostaParticipante.tentativa_num,
+        ),
+    )
+
+
 @router.get("/correcoes-pendentes", response_model=list[CorrecaoPendenteInboxRead])
 async def listar_correcoes_pendentes_agregado(
     db: AsyncSession = Depends(get_db),
@@ -116,7 +148,7 @@ async def listar_correcoes_pendentes_agregado(
 
     respostas = (
         await db.execute(
-            select(RespostaParticipante)
+            _so_ultima_tentativa(select(RespostaParticipante), _subq_ultima_tentativa())
             .where(
                 RespostaParticipante.questao_id.in_(questoes_por_id.keys()),
                 RespostaParticipante.pontuacao_atribuida.is_(None),
@@ -290,6 +322,37 @@ async def criar_questao(
     await db.commit()
     await db.refresh(questao)
     return questao
+
+
+@router.patch("/questoes/reorder", status_code=status.HTTP_204_NO_CONTENT)
+async def reordenar_questoes(
+    payload: list[QuestaoReorderItem],
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.AVALIACAO_EDITAR)),
+):
+    """Issue #108: aplica a ordem de varias questoes numa transacao so.
+
+    Antes disso o front mandava um PATCH por questao: se um falhasse no meio, a
+    avaliacao ficava com a ordem parcialmente aplicada. Declarada antes de
+    /questoes/{questao_id} para "reorder" nao cair no path param.
+    """
+    if not payload:
+        return
+    ids = [item.id for item in payload]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status_code=422, detail="Ha id repetido no corpo")
+    result = await db.execute(select(Questao).where(Questao.id.in_(ids)))
+    questoes = {q.id: q for q in result.scalars().all()}
+    faltando = sorted(set(ids) - set(questoes))
+    if faltando:
+        raise HTTPException(status_code=422, detail=f"Questao nao encontrada: {faltando}")
+    # O reordenar_unidades (molde desta rota) nao confere o modulo; aqui conferimos,
+    # para nao aplicar meia ordem com questao de outra avaliacao no meio.
+    if len({q.avaliacao_id for q in questoes.values()}) > 1:
+        raise HTTPException(status_code=422, detail="Todas as questoes devem ser da mesma avaliacao")
+    for item in payload:
+        questoes[item.id].ordem = item.ordem
+    await db.commit()
 
 
 @router.patch("/questoes/{questao_id}", response_model=QuestaoRead)
@@ -705,7 +768,13 @@ async def registrar_resultado(
 
     await db.commit()
     await db.refresh(resultado)
-    return resultado
+    # Issue #126: ResultadoAvaliacaoRead sai por quatro rotas, e esta devolvia o
+    # objeto do ORM direto - `substituida` e `aguardando_correcao` saiam sempre
+    # falsos, pelo default do schema. Como o corpo aceita `tentativa_num` do
+    # cliente, esse falso podia ser mentira: registrar a tentativa 1 de quem ja
+    # esta na 2. O refresh acima deixa os atributos carregados, entao serializar
+    # aqui depois do commit nao dispara IO sincrono (o MissingGreenlet da #114).
+    return await _resultado_com_aguardando(db, resultado)
 
 
 @router.get("/{avaliacao_id}/resultado/{tentativa}", response_model=ResultadoFeedbackRead)
@@ -747,7 +816,16 @@ async def obter_resultado_com_feedback(
         if regra == "apos_aprovacao":
             pode_ver_gabarito = bool(resultado.aprovado)
         elif regra == "ao_esgotar_tentativas":
-            pode_ver_gabarito = tentativa >= avaliacao.tentativas_max
+            # Issue #109: a regra e sobre a pessoa ter esgotado as tentativas,
+            # nao sobre qual tentativa esta aberta. Quem gastou todas ja nao
+            # pode tentar de novo, logo ve o gabarito de qualquer uma delas.
+            feitas = await db.scalar(
+                select(func.count()).where(
+                    ResultadoAvaliacao.avaliacao_id == avaliacao_id,
+                    ResultadoAvaliacao.usuario_id == current_user.id,
+                )
+            )
+            pode_ver_gabarito = (feitas or 0) >= avaliacao.tentativas_max
 
     respostas_por_questao = {r.questao_id: r for r in respostas}
     questoes_read = []
@@ -783,17 +861,22 @@ async def obter_resultado_com_feedback(
 
         from app.schemas.avaliacao import ResultadoFeedbackQuestao
 
+        # Issue #109: esconder so `correta`/`comentario` nao bastava. A explicacao
+        # da questao normalmente cita a alternativa certa, e a pontuacao por questao
+        # entrega o acerto (zero = errou; em verdadeiro_falso, revela por exclusao).
+        # A dissertativa mantem a pontuacao: ali e correcao do instrutor, nao gabarito.
+        objetiva = q.tipo in ("multipla_escolha", "verdadeiro_falso")
         questoes_read.append(
             ResultadoFeedbackQuestao(
                 id=q.id,
                 enunciado=q.enunciado,
                 tipo=q.tipo,
                 pontuacao=q.pontuacao,
-                pontuacao_obtida=pontuacao_obtida,
+                pontuacao_obtida=None if (objetiva and not pode_ver_gabarito) else pontuacao_obtida,
                 resposta_texto=resp.resposta_texto if resp is not None else None,
                 pontuacao_atribuida=resp.pontuacao_atribuida if resp is not None else None,
                 alternativas=alternativas_read,
-                explicacao=q.explicacao,
+                explicacao=q.explicacao if pode_ver_gabarito else None,
             )
         )
 
@@ -937,7 +1020,7 @@ async def listar_correcoes_pendentes(
 
     respostas = (
         await db.execute(
-            select(RespostaParticipante)
+            _so_ultima_tentativa(select(RespostaParticipante), _subq_ultima_tentativa())
             .where(
                 RespostaParticipante.questao_id.in_(dissertativas.keys()),
                 RespostaParticipante.pontuacao_atribuida.is_(None),
@@ -1068,13 +1151,50 @@ async def listar_resultados_usuario(
     return [await _resultado_com_aguardando(db, r) for r in result.scalars().all()]
 
 
+# Sentinela para distinguir "nao me passaram a ultima tentativa" de
+# "a ultima tentativa e None" (pessoa sem nenhuma resposta nesta avaliacao).
+_NAO_INFORMADO = object()
+
+
+async def _ultima_tentativa(db: AsyncSession, usuario_id, avaliacao_id: int) -> int | None:
+    """max(tentativa_num) das respostas daquela pessoa naquela avaliacao.
+
+    O mesmo calculo que a #105 usa nas filas de correcao, aqui num ponto so
+    porque a #126 precisa do mesmo numero para marcar a tentativa substituida.
+    None quando a pessoa nao tem resposta nenhuma registrada na avaliacao.
+    """
+    return await db.scalar(
+        select(func.max(RespostaParticipante.tentativa_num))
+        .join(Questao, Questao.id == RespostaParticipante.questao_id)
+        .where(
+            RespostaParticipante.usuario_id == usuario_id,
+            Questao.avaliacao_id == avaliacao_id,
+        )
+    )
+
+
 async def _tem_correcao_pendente(
     db: AsyncSession,
     usuario_id,
     tentativa_num: int,
     avaliacao_id: int,
+    ultima=_NAO_INFORMADO,
 ) -> bool:
-    """Ha dissertativa desta tentativa ainda sem correcao (issue #88)."""
+    """Ha dissertativa desta tentativa ainda sem correcao (issue #88).
+
+    Issue #105: tentativa que nao e a ultima do participante nesta avaliacao
+    nao pende mais - foi substituida pela seguinte. A nota dela fica como
+    estava, e o que o instrutor ja corrigiu nela continua valendo.
+
+    `ultima` existe para quem ja calculou o max: o serializador da lista
+    (issue #126) precisa do numero para marcar `substituida` e passa adiante,
+    em vez de repetir a consulta linha por linha.
+    """
+    if ultima is _NAO_INFORMADO:
+        ultima = await _ultima_tentativa(db, usuario_id, avaliacao_id)
+    if ultima is not None and tentativa_num != ultima:
+        return False
+
     pendentes = await db.scalar(
         select(func.count(RespostaParticipante.id)).join(
             Questao, Questao.id == RespostaParticipante.questao_id
@@ -1093,11 +1213,23 @@ async def _resultado_com_aguardando(
     db: AsyncSession,
     resultado: ResultadoAvaliacao,
 ) -> ResultadoAvaliacaoRead:
-    """Preenche aguardando_correcao no ResultadoAvaliacaoRead (issue 11)."""
+    """Preenche aguardando_correcao (issue 11) e substituida (issue #126).
+
+    Os dois campos saem do mesmo `max(tentativa_num)`, que por isso e
+    calculado aqui e repassado - o numero de consultas por linha nao muda.
+    Os dois tambem nao podem discordar: tentativa substituida nao pende,
+    que e justamente a regra da #105.
+    """
+    ultima = await _ultima_tentativa(db, resultado.usuario_id, resultado.avaliacao_id)
     aguardando = await _tem_correcao_pendente(
-        db, resultado.usuario_id, resultado.tentativa_num, resultado.avaliacao_id
+        db,
+        resultado.usuario_id,
+        resultado.tentativa_num,
+        resultado.avaliacao_id,
+        ultima=ultima,
     )
     return ResultadoAvaliacaoRead(
-        **ResultadoAvaliacaoRead.model_validate(resultado).model_dump(exclude={"aguardando_correcao"}),
+        **ResultadoAvaliacaoRead.model_validate(resultado).model_dump(exclude={"aguardando_correcao", "substituida"}),
         aguardando_correcao=aguardando,
+        substituida=ultima is not None and resultado.tentativa_num < ultima,
     )

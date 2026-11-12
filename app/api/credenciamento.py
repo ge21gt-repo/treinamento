@@ -9,7 +9,12 @@ from app.database import get_db
 from app.models.credenciamento import SolicitacaoCredenciamento
 from app.models.usuario import Usuario
 from app.schemas.credenciamento import AprovacaoSolicitacaoRequest, SolicitacaoCredenciamentoRead
-from app.services.credenciamento import aprovar_solicitacao, rejeitar_solicitacao
+from app.services.credenciamento import (
+    aprovar_solicitacao,
+    perfis_aprovaveis,
+    perfis_do_usuario,
+    rejeitar_solicitacao,
+)
 
 router = APIRouter(prefix="/credenciamento", tags=["Credenciamento"])
 
@@ -20,13 +25,23 @@ async def listar_solicitacoes_pendentes(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(require_permissao(Permissoes.CREDENCIAMENTO_LISTAR)),
 ):
-    """Listar todas as solicitacoes de credenciamento pendentes"""
-    # TODO: No futuro, filtrar por hierarquia do usuario atual
-    # Por enquanto, retorna todas as pendentes
+    """Listar as solicitacoes pendentes que o usuario atual pode aprovar.
+
+    Issue #123: antes devolvia todas as pendentes (havia um TODO aqui), e a tela
+    mostrava "Fora do seu escopo de aprovação" nas que o perfil nao podia
+    aprovar. O filtro usa a mesma hierarquia que aprovar_solicitacao valida, logo
+    o que aparece na lista e aprovavel de fato.
+    """
+    aprovaveis = perfis_aprovaveis(await perfis_do_usuario(db, current_user.id))
+    if not aprovaveis:
+        return []
     result = await db.execute(
         select(SolicitacaoCredenciamento)
         .options(selectinload(SolicitacaoCredenciamento.usuario))
-        .where(SolicitacaoCredenciamento.status == "pendente")
+        .where(
+            SolicitacaoCredenciamento.status == "pendente",
+            SolicitacaoCredenciamento.perfil_solicitado.in_(aprovaveis),
+        )
         .order_by(SolicitacaoCredenciamento.solicitado_em)
     )
     solicitacoes = result.scalars().all()

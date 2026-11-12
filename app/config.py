@@ -57,11 +57,48 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_ID: str = ""
     KEYCLOAK_CLIENT_SECRET: str = ""
     KEYCLOAK_JWKS_URI: str = ""
+    # Issue #115: client confidencial com service account, separado do client do
+    # front, para o backend chamar a Admin API (criar usuario, trocar role etc.).
+    KEYCLOAK_ADMIN_CLIENT_ID: str = ""
+    KEYCLOAK_ADMIN_CLIENT_SECRET: str = ""
+    # Issue #122: clients do realm aceitos ALEM do KEYCLOAK_CLIENT_ID, separados
+    # por virgula. Vazio em producao: so o client da plataforma entra. Existe
+    # para o `treinamento-testes` (teste pela API, Direct Access), que era a
+    # justificativa de a checagem de audiencia estar desligada.
+    KEYCLOAK_CLIENTS_EXTRA: str = ""
+    # Issue #122 item 2: o vinculo de conta existente pelo e-mail exige
+    # email_verified no token. Desligar isto reabre a porta de assumir uma conta
+    # so declarando o e-mail - existe so para o caso de o realm nao preencher a claim.
+    KEYCLOAK_EXIGIR_EMAIL_VERIFICADO: bool = True
 
     # Se True (padrao), o participante provisionado via Keycloak nasce APROVADO
     # (ativo) — comportamento original. Se False, nasce pendente + solicitacao
     # de credenciamento para o admin aprovar (fluxo antigo). Reversivel via .env.
     KEYCLOAK_PARTICIPANTE_APROVADO: bool = True
+
+    # Issue #119: versao do termo em vigor. Quem aceitou outra versao - ou
+    # nunca aceitou - precisa aceitar de novo. E por aqui que o re-aceite
+    # decidido em produto alcanca quem ja existia, sem apagar o aceite antigo:
+    # as linhas antigas tem versao nula, que nunca casa com esta.
+    VERSAO_TERMO_LGPD: str = "provisoria-2026-10-22"
+
+    # Issue #119, item 4 (opcional na issue): recusar com 403 as rotas que nao
+    # sejam /usuarios/me, o aceite e o logout enquanto o aceite esta pendente.
+    # Nasce DESLIGADO de proposito: ligar antes de a tela de primeiro acesso
+    # existir no front trancaria todo mundo fora da plataforma, porque pelo
+    # re-aceite todos os usuarios de hoje comecam pendentes.
+    LGPD_BLOQUEIO_ATIVO: bool = False
+
+    # Issue #121: enquanto verdadeiro, as quatro rotas de acesso local
+    # (/auth/registro, /auth/login, /auth/esqueci-senha, /auth/redefinir-senha)
+    # continuam existindo. Falso e o corte para "entra so pelo Keycloak": elas
+    # passam a responder 404, e /auth/logout segue funcionando.
+    #
+    # Nasce LIGADO de proposito, ao contrario do LGPD_BLOQUEIO_ATIVO acima:
+    # virar isto antes de o front tirar as telas de senha e cadastro, e antes
+    # de a infra recriar no Keycloak as contas que so tem senha local, tira o
+    # acesso de quem ainda nao tem conta no realm. A ordem esta na issue.
+    LOGIN_LOCAL_HABILITADO: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

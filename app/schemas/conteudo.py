@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, computed_field, field_validator
 
 from app.services.storage import resolve_file_url
 
@@ -30,6 +30,11 @@ class ConteudoUpdate(BaseModel):
     tamanho_bytes: int | None = None
     duracao_segundos: int | None = None
     ordem: int | None = None
+    # Issue #127: ninguem escrevia `disponivel`. A coluna existia desde a issue
+    # 46, o /consumo a respeitava desde a #111, e marcar ou desmarcar era
+    # UPDATE na mao - o instrutor que trocava um arquivo perdido nao tinha como
+    # limpar o aviso de "Arquivo indisponivel".
+    disponivel: bool | None = None
 
 
 class ConteudoRead(ConteudoBase):
@@ -41,6 +46,9 @@ class ConteudoRead(ConteudoBase):
     curso_id: int | None = None
     curso_titulo: str | None = None
     unidade_titulo: str | None = None
+    # Issue #110: a busca marca com o selo "Rascunho" o conteudo de curso nao
+    # publicado, como ja faz com curso e trilha. None = conteudo sem curso.
+    curso_publicado: bool | None = None
 
     @computed_field
     @property
@@ -114,8 +122,18 @@ class EntregaAtividadeRead(EntregaAtividadeBase):
 
 
 class EntregaAtividadeCorrigir(BaseModel):
-    nota: float
+    """Issue #106: nota opcional, devolutiva obrigatoria. O aluno pode enviar um
+    arquivo so para o instrutor ver, sem avaliacao formal."""
+
+    nota: float | None = None
     feedback: str
+
+    @field_validator("feedback")
+    @classmethod
+    def _feedback_nao_vazio(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("feedback e obrigatorio")
+        return v
 
 
 # --- Chunked Upload ---

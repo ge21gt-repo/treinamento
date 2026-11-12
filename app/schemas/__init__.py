@@ -15,6 +15,7 @@ from app.schemas.avaliacao import (
     QuestaoRead,
     QuestaoReadWithAlternativas,
     QuestaoResponderRead,
+    QuestaoReorderItem,
     QuestaoUpdate,
     RespostaParticipanteCreate,
     RespostaParticipanteRead,
@@ -79,6 +80,8 @@ from app.schemas.scorm import (
     TrackingScormRead,
 )
 from app.schemas.usuario import (
+    AceiteLgpdRead,
+    AceiteLgpdRequest,
     CriarSubordinadoRequest,
     EsqueciSenhaRequest,
     GestorBase,
@@ -90,6 +93,8 @@ from app.schemas.usuario import (
     PerfilCreate,
     PerfilRead,
     PerfilUpdate,
+    PreferenciasRead,
+    PreferenciasUpdate,
     RedefinirSenhaRequest,
     Token,
     TokenData,
@@ -116,6 +121,7 @@ __all__ = [
     "QuestaoRead",
     "QuestaoReadWithAlternativas",
     "QuestaoResponderRead",
+    "QuestaoReorderItem",
     "QuestaoUpdate",
     "RespostaParticipanteCreate",
     "RespostaParticipanteRead",
@@ -126,6 +132,8 @@ __all__ = [
     "ResultadoFeedbackQuestao",
     "ResultadoFeedbackRead",
     "SubmeterAvaliacaoRequest",
+    "AceiteLgpdRead",
+    "AceiteLgpdRequest",
     "UsuarioBase",
     "UsuarioCreate",
     "UsuarioUpdate",
@@ -135,6 +143,8 @@ __all__ = [
     "PerfilCreate",
     "PerfilRead",
     "PerfilUpdate",
+    "PreferenciasRead",
+    "PreferenciasUpdate",
     "UsuarioPerfilCreate",
     "Token",
     "TokenData",
@@ -192,3 +202,10 @@ __all__ = [
 ]
 
 from app.schemas.notificacao import NotificacaoRead, NotificacoesListaRead
+from app.schemas.tour import (  # noqa: F401  (issue #125)
+    TourEventoIn,
+    TourEventosLote,
+    TourResumoItem,
+    TourResumoRead,
+    TourResumoTour,
+)

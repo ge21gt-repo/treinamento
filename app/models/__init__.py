@@ -23,13 +23,14 @@ from app.models.sandbox import SandboxSessao
 from app.models.scorm import PacoteScorm, TrackingScorm
 from app.models.sessao import Presenca, SessaoAoVivo
 from app.models.token_reset import TokenResetSenha
-from app.models.usuario import Perfil, Usuario, UsuarioPerfil
+from app.models.usuario import Perfil, Usuario, UsuarioPerfil, UsuarioPreferencias
 
 __all__ = [
     "Base",
     "Usuario",
     "Perfil",
     "UsuarioPerfil",
+    "UsuarioPreferencias",
     "SolicitacaoCredenciamento",
     "AprovacaoHierarquica",
     "TrilhaAprendizagem",
@@ -76,4 +77,5 @@ __all__ = [
 ]
 
 from app.models.notificacao import Notificacao
+from app.models.tour import TourEvento  # noqa: F401  (issue #125)
 from app.models.usuario import UsuarioAulaSilenciado

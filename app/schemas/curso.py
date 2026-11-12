@@ -6,6 +6,9 @@ from pydantic import BaseModel, computed_field, field_validator, model_validator
 from app.services.storage import resolve_file_url
 
 
+NIVEIS_TRILHA = {"iniciante", "intermediario", "avancado"}
+
+
 class TrilhaBase(BaseModel):
     titulo: str
     descricao: str | None = None
@@ -13,6 +16,13 @@ class TrilhaBase(BaseModel):
     nivel: str = "iniciante"
     carga_horaria_total: int | None = None
     publicada: bool = False
+
+    @field_validator("nivel")
+    @classmethod
+    def validar_nivel(cls, v: str) -> str:
+        if v not in NIVEIS_TRILHA:
+            raise ValueError(f"nivel deve ser um de: {', '.join(sorted(NIVEIS_TRILHA))}")
+        return v
 
 
 class TrilhaCreate(TrilhaBase):
@@ -27,12 +37,23 @@ class TrilhaUpdate(BaseModel):
     carga_horaria_total: int | None = None
     publicada: bool | None = None
 
+    @field_validator("nivel")
+    @classmethod
+    def validar_nivel(cls, v: str | None) -> str | None:
+        if v is not None and v not in NIVEIS_TRILHA:
+            raise ValueError(f"nivel deve ser um de: {', '.join(sorted(NIVEIS_TRILHA))}")
+        return v
+
 
 class TrilhaRead(TrilhaBase):
     id: int
     criado_por: uuid.UUID | None = None
     criado_em: datetime
     atualizado_em: datetime
+    # Issue #130: o catalogo precisa destes no cartao.
+    total_cursos: int | None = None
+    inscrito: bool | None = None
+    progresso_pct: float | None = None
 
     model_config = {"from_attributes": True}
 
@@ -108,11 +129,26 @@ class UnidadeBase(BaseModel):
     url_externa: str | None = None
 
 
-class UnidadeCreate(UnidadeBase):
+class _ValidaFormatoTexto(BaseModel):
+    """Issue #85: formato_texto era str livre, o que permitia promover texto nao
+    higienizado a HTML. So nos schemas de entrada: UnidadeRead nao valida, para
+    nao quebrar a leitura de linha antiga gravada com outro valor."""
+
+    @field_validator("formato_texto", check_fields=False)
+    @classmethod
+    def _formato_permitido(cls, v):
+        from app.services.sanitize import FORMATOS_TEXTO
+
+        if v is not None and v not in FORMATOS_TEXTO:
+            raise ValueError(f"formato_texto deve ser um de {sorted(FORMATOS_TEXTO)}")
+        return v
+
+
+class UnidadeCreate(UnidadeBase, _ValidaFormatoTexto):
     pass
 
 
-class UnidadeUpdate(BaseModel):
+class UnidadeUpdate(_ValidaFormatoTexto):
     titulo: str | None = None
     tipo: str | None = None
     ordem: int | None = None
