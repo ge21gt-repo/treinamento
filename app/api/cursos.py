@@ -14,7 +14,7 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -484,6 +484,32 @@ async def excluir_unidade(
 # --- Aulas Síncronas ---
 
 
+def _fim_efetivo(aula: AulaSincrona) -> datetime | None:
+    """Fim da aula: data_hora_fim; senao inicio + duracao; senao None (#132)."""
+    if aula.data_hora_fim is not None:
+        return aula.data_hora_fim
+    if aula.duracao_minutos:
+        return aula.data_hora + timedelta(minutes=aula.duracao_minutos)
+    return None
+
+
+def _status_aula(aula: AulaSincrona, agora: datetime | None = None) -> str:
+    """Status resolvido na leitura (#132).
+
+    `cancelada` e decisao manual e sempre manda; o resto e calculado pelo
+    horario. Nao grava no banco: a linha continua com o status salvo.
+    """
+    if aula.status == "cancelada":
+        return "cancelada"
+    agora = agora or datetime.now(timezone.utc)
+    if agora < aula.data_hora:
+        return "agendada"
+    fim = _fim_efetivo(aula)
+    if fim is not None and agora > fim:
+        return "concluida"
+    return "em_andamento"
+
+
 async def _aula_read_para(
     db: AsyncSession,
     aula: AulaSincrona,
@@ -492,7 +518,10 @@ async def _aula_read_para(
     """Monta AulaSincronaRead expondo codigo_acesso apenas para quem pode editar a aula (issue 25)."""
     pode_editar = await _user_has_permission(db, usuario_id, Permissoes.CURSO_AULA_EDITAR)
     return AulaSincronaRead(
-        **AulaSincronaRead.model_validate(aula).model_dump(exclude={"exige_codigo", "codigo_acesso"}),
+        **AulaSincronaRead.model_validate(aula).model_dump(
+            exclude={"exige_codigo", "codigo_acesso", "status"}
+        ),
+        status=_status_aula(aula),
         exige_codigo=bool(aula.codigo_acesso),
         codigo_acesso=aula.codigo_acesso if pode_editar else None,
     )
@@ -568,24 +597,36 @@ async def criar_aula(
 
 @router.get("/aulas/proximas", response_model=list[AulaSincronaRead])
 async def aulas_proximas(
+    passadas: bool = Query(False, description="Somente aulas ja encerradas (issue #132)"),
+    limit: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    from datetime import datetime, timezone
+    """Aulas dos cursos do usuario (#132).
 
+    - sem `passadas`: as que ainda **nao terminaram** (inclui a que esta rolando;
+      antes a de hoje sumia quando o horario passava);
+    - `passadas=true`: so as encerradas, da mais recente para a mais antiga,
+      sem as canceladas;
+    - `status` vem calculado na leitura (`_status_aula`).
+    """
+    agora = datetime.now(timezone.utc)
     inscricoes = select(Inscricao.curso_id).where(Inscricao.usuario_id == current_user.id)
-    result = await db.execute(
-        select(AulaSincrona)
-        .where(
-            AulaSincrona.data_hora >= datetime.now(timezone.utc),
-            AulaSincrona.curso_id.in_(inscricoes),
-        )
-        .order_by(AulaSincrona.data_hora)
-        .limit(20)
+    # Fim efetivo: data_hora_fim; senao inicio + duracao; senao o proprio inicio.
+    fim_efetivo = func.coalesce(
+        AulaSincrona.data_hora_fim,
+        AulaSincrona.data_hora + AulaSincrona.duracao_minutos * text("interval '1 minute'"),
+        AulaSincrona.data_hora,
     )
+    query = select(AulaSincrona).where(AulaSincrona.curso_id.in_(inscricoes))
+    if passadas:
+        query = query.where(fim_efetivo < agora, AulaSincrona.status != "cancelada")
+        query = query.order_by(AulaSincrona.data_hora.desc())
+    else:
+        query = query.where(fim_efetivo >= agora).order_by(AulaSincrona.data_hora)
+    result = await db.execute(query.limit(limit))
     aulas = result.scalars().all()
     return [await _aula_read_para(db, a, current_user.id) for a in aulas]
-
 
 @router.patch("/aulas/{aula_id}", response_model=AulaSincronaRead)
 async def atualizar_aula(
