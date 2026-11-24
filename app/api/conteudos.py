@@ -21,7 +21,7 @@ from app.schemas.conteudo import (
 )
 from app.services.chunked_upload import ChunkedUploadTracker
 from app.services.rbac import Permissoes, has_permission
-from app.services.storage import delete_file, upload_file
+from app.services.storage import delete_file, normalizar_mime, upload_file
 
 router = APIRouter(prefix="/conteudos", tags=["Conteudos"])
 
@@ -264,6 +264,76 @@ async def player_conteudo(
     await _conteudo_visivel(db, conteudo, current_user)
     return conteudo
 
+
+_CAPA_MAX_BYTES = 5 * 1024 * 1024
+_CAPA_MIMES = {"image/jpeg", "image/png", "image/webp"}
+
+
+@router.post("/{conteudo_id}/capa", response_model=ConteudoRead)
+async def enviar_capa_conteudo(
+    conteudo_id: int,
+    arquivo: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_EDITAR)),
+):
+    """Envia/substitui a capa de um conteudo de video (issue #133).
+
+    Aceita JPEG, PNG e WebP ate 5MB, grava em `capas/` e apaga a capa anterior.
+    """
+    conteudo = await db.get(Conteudo, conteudo_id)
+    if not conteudo:
+        raise HTTPException(status_code=404, detail="Conteudo nao encontrado")
+    if conteudo.tipo_midia != "video":
+        raise HTTPException(status_code=422, detail="Capa so e permitida em conteudo de video")
+
+    anterior = conteudo.capa_url
+    # Nao segura a transacao de leitura durante o upload: no S3 ele pode
+    # demorar, e o banco derruba a conexao ociosa em transacao.
+    await db.commit()
+
+    mime = normalizar_mime(arquivo.content_type, arquivo.filename)
+    if mime not in _CAPA_MIMES:
+        raise HTTPException(status_code=422, detail="Capa deve ser JPEG, PNG ou WebP")
+
+    total = 0
+    while chunk := await arquivo.read(1024 * 1024):
+        total += len(chunk)
+        if total > _CAPA_MAX_BYTES:
+            raise HTTPException(status_code=422, detail="Capa excede o limite de 5MB")
+    await arquivo.seek(0)
+
+    url, _tamanho = await upload_file(arquivo, "capas")
+    conteudo.capa_url = url
+    await db.commit()
+    await db.refresh(conteudo)
+    if anterior:
+        # Limpeza best-effort: a capa nova ja esta gravada e apontada.
+        try:
+            await delete_file(anterior)
+        except Exception:
+            pass
+    return conteudo
+
+
+@router.delete("/{conteudo_id}/capa", status_code=status.HTTP_204_NO_CONTENT)
+async def remover_capa_conteudo(
+    conteudo_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: Usuario = Depends(require_permissao(Permissoes.CONTEUDO_EDITAR)),
+):
+    """Remove a capa do conteudo e apaga o arquivo (issue #133)."""
+    conteudo = await db.get(Conteudo, conteudo_id)
+    if not conteudo:
+        raise HTTPException(status_code=404, detail="Conteudo nao encontrado")
+
+    anterior = conteudo.capa_url
+    conteudo.capa_url = None
+    await db.commit()
+    if anterior:
+        try:
+            await delete_file(anterior)
+        except Exception:
+            pass
 
 @router.patch("/{conteudo_id}", response_model=ConteudoRead)
 async def atualizar_conteudo(

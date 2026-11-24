@@ -35,6 +35,8 @@ class ConteudoUpdate(BaseModel):
     # UPDATE na mao - o instrutor que trocava um arquivo perdido nao tinha como
     # limpar o aviso de "Arquivo indisponivel".
     disponivel: bool | None = None
+    # Issue #133: capa por arquivo (POST/DELETE /conteudos/{id}/capa).
+    capa_url: str | None = None
 
 
 class ConteudoRead(ConteudoBase):
@@ -49,6 +51,16 @@ class ConteudoRead(ConteudoBase):
     # Issue #110: a busca marca com o selo "Rascunho" o conteudo de curso nao
     # publicado, como ja faz com curso e trilha. None = conteudo sem curso.
     curso_publicado: bool | None = None
+    # Issue #133: capa do video; o bucket e privado, entao a leitura recebe a
+    # URL assinada em `capa_acesso` (mesma regra do `url_acesso`).
+    capa_url: str | None = None
+
+    @computed_field
+    @property
+    def capa_acesso(self) -> str | None:
+        if not self.capa_url or not self.disponivel:
+            return None
+        return resolve_file_url(self.capa_url)
 
     @computed_field
     @property

@@ -1057,6 +1057,10 @@ async def consumo_curso(
                             "titulo": c.titulo,
                             "disponivel": c.disponivel,
                             "url_arquivo": resolve_file_url(c.url_arquivo) if c.disponivel else None,
+                            # Issue #133: a capa precisa ser repetida aqui (a rota
+                            # monta o dicionario a mao, nao usa o ConteudoRead).
+                            "capa_url": c.capa_url,
+                            "capa_acesso": resolve_file_url(c.capa_url) if (c.capa_url and c.disponivel) else None,
                         }
                         for c in cts
                     ],

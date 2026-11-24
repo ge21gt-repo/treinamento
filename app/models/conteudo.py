@@ -20,6 +20,8 @@ class Conteudo(Base):
     descricao: Mapped[str | None] = mapped_column(Text)
     mime_type: Mapped[str | None] = mapped_column(String(100))
     url_arquivo: Mapped[str] = mapped_column(Text, nullable=False)
+    # Issue #133: capa do video. So faz sentido em tipo_midia="video".
+    capa_url: Mapped[str | None] = mapped_column(Text)
     tamanho_bytes: Mapped[int | None] = mapped_column(BigInteger)
     duracao_segundos: Mapped[int | None] = mapped_column(Integer)
     ordem: Mapped[int] = mapped_column(Integer, default=0)
