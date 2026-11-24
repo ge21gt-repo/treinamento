@@ -667,10 +667,70 @@ async def excluir_aula(
 # --- Chat SSE ---
 
 
+def _serializar_mensagem(msg) -> dict:
+    return {
+        "id": msg.id,
+        "usuario_id": str(msg.usuario_id),
+        "texto": msg.texto,
+        "criado_em": msg.criado_em.isoformat(),
+    }
+
+
+def _last_id_inicial(request: Request, desde_id: int) -> int:
+    """Ponto de partida do stream: `desde_id` e, se vier, o Last-Event-ID do SSE."""
+    last_id = desde_id
+    header_id = request.headers.get("last-event-id")
+    if header_id:
+        try:
+            last_id = max(last_id, int(header_id))
+        except ValueError:
+            pass
+    return last_id
+
+
+async def _stream_eventos(db: AsyncSession, curso_id: int, last_id: int, ultimas: int, request: Request):
+    """Gerador do SSE (issue #110).
+
+    O primeiro envio traz so as `ultimas` mensagens mais recentes; o laco
+    seguinte continua por `id > last_id`, com `id:` em cada evento para o SSE
+    reconectar sozinho via Last-Event-ID.
+    """
+    import asyncio
+
+    if ultimas > 0:
+        result = await db.execute(
+            select(MensagemCurso)
+            .where(MensagemCurso.curso_id == curso_id, MensagemCurso.id > last_id)
+            .order_by(MensagemCurso.criado_em.desc(), MensagemCurso.id.desc())
+            .limit(ultimas)
+        )
+        primeiras = list(result.scalars().all())
+        primeiras.reverse()
+        for msg in primeiras:
+            last_id = msg.id
+            yield f"id: {msg.id}\ndata: {json.dumps(_serializar_mensagem(msg))}\n\n"
+
+    while True:
+        if await request.is_disconnected():
+            break
+        result = await db.execute(
+            select(MensagemCurso)
+            .where(MensagemCurso.curso_id == curso_id, MensagemCurso.id > last_id)
+            .order_by(MensagemCurso.criado_em, MensagemCurso.id)
+        )
+        novas = result.scalars().all()
+        for msg in novas:
+            last_id = msg.id
+            yield f"id: {msg.id}\ndata: {json.dumps(_serializar_mensagem(msg))}\n\n"
+        await asyncio.sleep(1)
+
+
 @router.get("/{curso_id}/chat/stream")
 async def stream_chat(
     curso_id: int,
     request: Request,
+    desde_id: int = Query(0, ge=0, description="So mensagens com id maior que este (issue #110)"),
+    ultimas: int = Query(50, ge=0, le=200, description="Historico inicial: N mais recentes (0 = nenhum)"),
     db: AsyncSession = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -679,34 +739,11 @@ async def stream_chat(
 
     from fastapi.responses import StreamingResponse
 
-    last_id = 0
-
-    async def event_generator():
-        nonlocal last_id
-        while True:
-            if await request.is_disconnected():
-                break
-            result = await db.execute(
-                select(MensagemCurso)
-                .where(MensagemCurso.curso_id == curso_id, MensagemCurso.id > last_id)
-                .order_by(MensagemCurso.criado_em)
-            )
-            novas = result.scalars().all()
-            for msg in novas:
-                last_id = msg.id
-                data = {
-                    "id": msg.id,
-                    "usuario_id": str(msg.usuario_id),
-                    "texto": msg.texto,
-                    "criado_em": msg.criado_em.isoformat(),
-                }
-                yield f"data: {json.dumps(data)}\n\n"
-            import asyncio
-
-            await asyncio.sleep(1)
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
+    last_id = _last_id_inicial(request, desde_id)
+    return StreamingResponse(
+        _stream_eventos(db, curso_id, last_id, ultimas, request),
+        media_type="text/event-stream",
+    )
 
 # --- Chat ---
 
